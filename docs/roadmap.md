@@ -19,7 +19,7 @@ contract tests. M1 and M2 may overlap only on the shell skeleton.
 - [x] `tools/check_docs.py` local-link checker.
 
 **Acceptance evidence:** JSON fixtures parse; local doc links resolve; all
-contract docs exist; no code claimed to work.
+contract docs exist; no renderer/Android code is claimed to work.
 
 ### M1 — Renderer core + browser demo (next)
 
