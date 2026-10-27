@@ -70,7 +70,8 @@ do not add a runtime dependency to compensate.
 - Demo shows 6 supported panels + 3 hidden with reasons.
 - Refresh works; stopping the mock shows stale/error without blanking data.
 - `node --test web/tests/` passes.
-- Contract tests named `c001…c009` cover implemented clauses.
+- Contract tests named `c001…c006`, `c009` cover implemented clauses (C-007/C-008
+  are Android checks).
 - No remote assets, no untrusted `innerHTML`, no secrets.
 - C-002/C-003/C-004/C-005/C-006/C-009 updated if behavior changed.
 

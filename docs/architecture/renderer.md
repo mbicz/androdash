@@ -57,16 +57,18 @@ web/
     ├── format.test.js
     ├── markdown.test.js
     └── contract/
-        ├── c001.test.js
-        ├── c002.test.js
-        ├── c003.test.js
-        ├── c004.test.js
-        ├── c005.test.js
-        └── c006.test.js
+        ├── c001-config.test.js
+        ├── c002-dashboard.test.js
+        ├── c003-prometheus.test.js
+        ├── c004-capabilities.test.js
+        ├── c005-panels.test.js
+        ├── c006-refresh.test.js
+        └── c009-diagnostics.test.js
 ```
 
-Test file names may be refined, but contract tests must map one-to-one to the
-contract IDs and be named accordingly.
+Test file names can be refined, but contract tests must map one-to-one to the
+contract IDs and be named accordingly. C-007/C-008 are Android-shell checks, not
+web tests.
 
 ## 3. Boot pipeline
 

@@ -31,7 +31,7 @@ Ordered tasks:
 | ID | Task | Owner | Depends on | Done when |
 |---|---|---|---|---|
 | M1-1 | `tools/mock_prometheus.py`: deterministic buildinfo/query/query_range/label values + CORS | W3 | C-003 | curl fixtures match; demo metrics work |
-| M1-2 | `tools/serve_demo.py`: repo-root static server, correct MIME, no cache | W3 | — | browser loads web app + fixture |
+| M1-2 | `tools/serve_demo.py`: repo-root static server, correct MIME, CORS `*`, no cache | W3 | — | browser loads web app + fixture; cross-origin dashboard fetch works |
 | M1-3 | `web/app` skeleton: index.html, CSS, boot, error card, config parser | W2 | M1-2, C-001 | bad config shows `E_CONFIG` |
 | M1-4 | Dashboard fetch/normalize/duration/variables | W2 | C-002 | demo model has 9 panels, 4 rows, 6 eligible |
 | M1-5 | Capability probe + eligibility filter | W2 | C-003, C-004 | 3 hidden with exact reasons |
@@ -49,7 +49,7 @@ Ordered tasks:
 - `node --test web/tests/` passes.
 - `contracts/fixtures/demo-dashboard.json` is the only demo dashboard needed.
 - No runtime dependencies, no remote assets.
-- Contract tests named `c001…c009` exist for implemented clauses.
+- Contract tests named `c001…c006`, `c009` exist for implemented clauses.
 
 ### M2 — Android shell + emulator demo
 
