@@ -63,7 +63,10 @@ diagnostics:
 
 If `capabilities` is provided (C-001), it is authoritative for filtering:
 
-- parse comma-separated IDs, trim, lowercase, deduplicate, max 16;
+- parse comma-separated IDs, trim, lowercase, deduplicate, sort, max 16;
+- an empty canonical list is invalid (`E_CONFIG`); an empty wire value is unset
+  (C-001). To simulate a client with no supported capabilities, advertise an
+  unknown inert ID instead;
 - the resulting set is advertised even if a probe later succeeds;
 - if `prometheus` is advertised, still probe Prometheus for **health**; an
   unreachable endpoint makes panels ineligible with `probe_failed`, but does not

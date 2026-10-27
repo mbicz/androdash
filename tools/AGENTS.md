@@ -18,9 +18,8 @@ serve/observe them; they do not patch them.
 
 ## Current state
 
-M1 is planned. Only this file exists; the scripts above will be added in M1.
-`tools/check_docs.py` is planned for M0/M1 and should require no third-party
-packages.
+`tools/check_docs.py` exists (M0, standard library only). `mock_prometheus.py`
+and `serve_demo.py` are planned for M1. Do not claim they work before they exist.
 
 ## Requirements
 
@@ -55,6 +54,9 @@ packages.
 - Serve the repository root (so `/contracts/fixtures/...` and `/web/app/...`
   work).
 - Correct MIME types for `.html`, `.js`, `.css`, `.json`, `.svg`.
+- CORS `*` for dashboard JSON and other static assets, with `GET`/`OPTIONS`
+  handling. The Android page origin is `http://androdash.local`, so cross-origin
+  dashboard fetches need this.
 - No directory listing by default; no cache headers for JSON/JS in dev.
 - Bind localhost by default; `--host` for device testing.
 - Standard library only.
