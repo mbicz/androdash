@@ -73,10 +73,9 @@ node --test web/tests/
 node --test web/tests/contract/
 ```
 
-The renderer must also work when opened directly from the filesystem in a browser
-where possible, but the supported development path is the static server. The
-Android WebView path is the virtual `http://androdash.local/index.html` origin
-(served from assets via `shouldInterceptRequest`, decision 0007).
+Use the static server; `file://` is not a supported renderer origin. The Android
+WebView path is the virtual `http://androdash.local/index.html` origin (served
+from assets via `shouldInterceptRequest`, decision 0007).
 
 ## 5. Planned: Android build (M2)
 
