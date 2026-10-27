@@ -185,8 +185,8 @@ Constraints:
 ## Residual risks
 
 See `docs/architecture/security.md` §4. Accepted for v1: cleartext LAN,
-physical access, no auth, broad `connect-src`, inline styles, Prometheus CORS
-permissiveness. Revisit each with a decision when the deployment changes.
+physical access, no auth, broad `connect-src`, inline styles, dashboard/Prometheus
+CORS permissiveness. Revisit each with a decision when the deployment changes.
 
 ## Out of scope
 
