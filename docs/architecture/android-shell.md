@@ -211,8 +211,9 @@ The fatal screen must not offer a browser or arbitrary URL input.
 6. Press Back; kiosk mode stays. Launch with `kiosk=false`; Back exits.
 7. Kill the app; relaunch from the launcher; persisted config restores the demo.
 8. `adb logcat -s AndroDash` shows no secrets and no uncaught exceptions.
-9. A deliberately invalid `dashboard_url` shows the fatal screen with
-   `E_CONFIG`, not a blank screen.
+9. A deliberately invalid (non-http) `dashboard_url` shows the native fatal
+   screen with `E_CONFIG`; a valid but unreachable URL shows the renderer's
+   `E_DASHBOARD_FETCH` state, not a blank screen.
 
 ## 10. Open decisions (M2)
 

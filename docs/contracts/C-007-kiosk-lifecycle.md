@@ -18,7 +18,7 @@ with physical access can always use recovery/ADB. Do not overclaim.
 | Extra | Default | Meaning |
 |---|---|---|
 | `kiosk` | `true` | Apply immersive fullscreen, keep awake, and back-disabled behavior |
-| `lock_task` | `false` | Attempt Android lock task (`startLockTask()`); requires device-owner/provisioning for unattended use. Not part of C-001 v1; if promoted, add to C-001. |
+| `lock_task` | `false` | Attempt Android lock task (`startLockTask()`); requires device-owner/provisioning for unattended use. Native-only; not part of `AppConfig` (C-001 note). If promoted, update C-001 and the schema. |
 
 `lock_task` is intentionally separate from `kiosk`. Immersive mode works on any
 phone; lock task often requires provisioning and can surprise the user with a
@@ -149,7 +149,9 @@ Contents:
 6. Kill the WebView renderer (DevTools/`chrome://inspect` or low-memory): shell
    reloads and the dashboard recovers.
 7. `debug=true` overlay can reload/exit; `debug=false` has no affordance.
-8. Invalid dashboard URL: fatal screen, `E_CONFIG`, no blank WebView.
+8. Invalid (non-http) dashboard URL: native fatal screen, `E_CONFIG`, no blank
+   WebView. A valid but unreachable dashboard URL is a renderer
+   `E_DASHBOARD_FETCH` state instead.
 
 ## Test obligations
 
