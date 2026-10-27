@@ -10,7 +10,7 @@ Prometheus, this page states the AndroDash-specific scope.
 | **Advertised capabilities** | The capability IDs the client claims to support, e.g. `prometheus`. Exposed in diagnostics and used to filter panels. |
 | **Capability** | A client feature/data source that panels can require. v1 implements `prometheus`; `tempo`, `loki`, and `opentelemetry` are recognized but unsupported. |
 | **Capability filtering** | Hiding panels whose panel/query plugin, datasource, or capability is not available, instead of rendering a broken or fake panel. |
-| **CORS** | Cross-Origin Resource Sharing. The WebView page (`http://androdash.local`) can fetch Prometheus only if the server allows it (`Access-Control-Allow-Origin: *` or that origin). |
+| **CORS** | Cross-Origin Resource Sharing. The WebView page (`http://androdash.local`) can fetch the dashboard/Prometheus only if the server allows it (`Access-Control-Allow-Origin: *` or that origin). |
 | **Dashboard** | A Perses `Dashboard` (or `EphemeralDashboard`) JSON document describing panels, variables, datasources, layouts, duration, and refresh interval. |
 | **Dashboard source** | The HTTP(S) URL the app fetches the dashboard JSON from. It may be static or generated. |
 | **Dashboard subset** | The Perses features AndroDash actually supports, documented in C-002/C-005. Not full Perses. |

@@ -29,6 +29,8 @@ Do not claim `assembleDebug` works until you create it and run it.
 ## Requirements
 
 - Application ID / package: `dev.androdash`.
+- Manifest: `INTERNET` permission; `usesCleartextTraffic=true` (decision 0006);
+  exported launcher activity for the kiosk intent. No other permissions in v1.
 - Kotlin, no AndroidX unless a decision entry accepts it.
 - `minSdk 26`, `compileSdk 35`, `targetSdk 35`, JDK 17 target.
 - Gradle wrapper checked in; use a Gradle/AGP/Kotlin combination that actually
@@ -67,7 +69,8 @@ Run the renderer demo tooling first (W3) or the WebView will show a fetch error.
 - Demo renders (6 panels visible, 3 hidden, refresh working).
 - Kiosk on/off behavior verified manually.
 - Persisted config restores after force-stop/relaunch.
-- Invalid URL shows `E_CONFIG`.
+- Invalid (non-http) URL shows native `E_CONFIG`; a valid but unreachable
+  dashboard shows the renderer's `E_DASHBOARD_FETCH` state.
 - Unit tests for config parsing/URL building pass.
 - No secrets in logs; WebView debugging off in release.
 - C-001/C-007/C-008 updated if behavior changed; decision entry added.

@@ -261,7 +261,7 @@ Check CORS headers (`Access-Control-Allow-Origin`) and cleartext reachability.
 | Symptom | Check |
 |---|---|
 | Renderer shows `E_ASSET_LOAD` | Virtual-origin handler/MIME/path; check `adb logcat -s AndroDash` |
-| Renderer shows `E_DASHBOARD_FETCH` | URL reachable from the device; emulator uses `10.0.2.2`, not `localhost` |
+| Renderer shows `E_DASHBOARD_FETCH` | URL reachable from the device; dashboard source allows CORS from `http://androdash.local` (or `*`); emulator uses `10.0.2.2`, not `localhost` |
 | `E_PROM_NETWORK` / CORS | Prometheus sends `Access-Control-Allow-Origin: *`; device can reach the URL |
 | Panels hidden unexpectedly | Capability filter: query/panel kind, datasource URL, `prometheus` probe; open debug overlay |
 | No data but no error | PromQL matches nothing, variable resolved to empty, or time range mismatch; check the mock/Prometheus directly |

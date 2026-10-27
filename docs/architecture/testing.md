@@ -191,6 +191,7 @@ IP and the same ports, with the host firewall allowing them.
 ### Negative checks
 
 - Dashboard URL 404 → fatal `E_DASHBOARD_FETCH`, no blank screen.
+- Dashboard source without CORS → `E_DASHBOARD_FETCH` with an origin/CORS hint.
 - Prometheus stopped → hidden/data panels show stale/error; Markdown remains.
 - Unsupported panel → hidden and counted; with `show_unsupported=true` →
   placeholder.

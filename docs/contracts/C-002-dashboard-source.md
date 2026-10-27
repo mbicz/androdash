@@ -26,10 +26,16 @@ filtered through C-004.
 - Response size limit: **5 MiB** (after decompression).
 - Content handling: parse as UTF-8 JSON; do not require a specific
   `Content-Type`, but warn if it is not JSON-like.
+- CORS: the response must allow the renderer origin
+  (`http://androdash.local` in the app, or `*`) and `GET`. Static hosts and
+  object stores must be configured accordingly; otherwise the browser blocks the
+  fetch.
 - No credentials/cookies in v1.
 
 Fetch failures map to `E_DASHBOARD_FETCH` (C-009), with a short status/network
-reason. Do not display the full URL with query string.
+reason. A CORS failure must include a hint naming the renderer origin and the
+need for `Access-Control-Allow-Origin`. Do not display the full URL with query
+string.
 
 ## Accepted document shapes
 

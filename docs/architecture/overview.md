@@ -154,7 +154,7 @@ capability document directly; v1 does not add a callback endpoint.
 | Failure | Required behavior |
 |---|---|
 | Missing/invalid launch config | Native error screen with `E_CONFIG`; no WebView |
-| Dashboard URL unreachable | Renderer fatal card `E_DASHBOARD_FETCH`; retry via debug/reload |
+| Dashboard URL unreachable or CORS-blocked | Renderer fatal card `E_DASHBOARD_FETCH` with an origin/CORS hint; retry via debug/reload |
 | Dashboard is not a Perses dashboard | Fatal card `E_DASHBOARD_PARSE` with a short reason |
 | Dashboard exceeds limits | Fatal card `E_DASHBOARD_LIMIT` |
 | No Prometheus reachable | Markdown panels render; data panels hidden; banner/diagnostics explain `prometheus` unavailable |

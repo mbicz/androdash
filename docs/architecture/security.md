@@ -119,7 +119,9 @@ Still, treat any XSS as a bridge compromise: keep the allowlist minimal.
 
 Prometheus on a home LAN commonly speaks HTTP. Android 9+ blocks cleartext by
 default. AndroDash v1 allows cleartext (decision 0006) for dashboard and metrics
-URLs.
+URLs. Both the dashboard source and Prometheus must allow CORS from the virtual
+renderer origin (decision 0008); this is a hosting prerequisite, not a way to
+relax WebView security.
 
 Consequences:
 
@@ -166,6 +168,7 @@ Do not add a global "ignore TLS errors" path to compensate for HTTPS misconfig.
 | `style-src 'unsafe-inline'` | SVG/chart styling simplicity | Remove when chart styling is class-based |
 | No CSP for the native fatal screen | It is native, not HTML | Keep it text-only |
 | Dashboard source can change content | It is an external input | Escape/sanitize; size limits |
+| Dashboard source CORS `*` | Required for the virtual app origin (decision 0008) | Restrict at the host/proxy layer if possible |
 | Prometheus CORS `*` | Required for the virtual app origin | Restrict at the Prometheus/proxy layer if possible |
 
 ## 5. Security checklist for every change

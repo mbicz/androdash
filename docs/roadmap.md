@@ -14,7 +14,7 @@ contract tests. M1 and M2 may overlap only on the shell skeleton.
 - [x] Machine-readable app config and diagnostics schemas.
 - [x] Demo dashboard fixture and Prometheus fixtures.
 - [x] Architecture, security, testing, development docs.
-- [x] Decision log entries 0001 … 0007.
+- [x] Decision log entries 0001 … 0009.
 - [x] Scoped agent guides.
 - [x] `tools/check_docs.py` local-link checker.
 

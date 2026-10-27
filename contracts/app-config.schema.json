@@ -67,11 +67,13 @@
     },
     "dashboardName": {
       "type": ["string", "null"],
+      "minLength": 1,
       "maxLength": 256,
       "description": "Selects a dashboard when the URL returns an array (C-002)."
     },
     "capabilities": {
       "type": ["array", "null"],
+      "minItems": 1,
       "maxItems": 16,
       "uniqueItems": true,
       "items": {

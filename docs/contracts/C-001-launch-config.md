@@ -19,7 +19,8 @@ One canonical object (`AppConfig`) is used in three places:
 2. Android serializes it to query parameters on the local asset URL.
 3. The renderer parses those query parameters back into the same object.
 
-The round-trip must be lossless for all supported values.
+The round-trip must preserve the canonical object. Capability IDs are normalized
+(trimmed, lowercased, sorted, deduplicated) as specified in C-004.
 
 ## Wire format
 
@@ -46,8 +47,8 @@ This is deliberate: one name per concept, easy to debug with `adb`.
 | `kiosk` | boolean | `true` | Native-only behavior (C-007). The renderer records it but does not enforce it. |
 | `debug` | boolean | `false` | Enables the diagnostics overlay and debug affordances (C-009). |
 | `layout_mode` | enum | `auto` | `auto` \| `grid` \| `stack` (C-005). |
-| `dashboard_name` | string | `null` | Selects a dashboard when the URL returns an array (C-002). |
-| `capabilities` | string | `null` | Comma-separated capability IDs; when present, authoritative for filtering (C-004). Max 16 entries. |
+| `dashboard_name` | string | `null` | Selects a dashboard when the URL returns an array (C-002). Must be non-empty when set. |
+| `capabilities` | string | `null` | Comma-separated capability IDs; when present, authoritative for filtering (C-004). 1–16 entries after deduplication. |
 | `show_unsupported` | boolean | `false` | Render explicit placeholders for hidden panels instead of removing them. |
 
 Intent extras use `--es` (string), `--ei` (int), `--ez` (boolean) with `adb`.
@@ -114,13 +115,18 @@ An implementation MUST reject:
 - non-integer `refresh_seconds`/`step_seconds` or values outside their ranges;
 - `time_range` that is not a supported duration or outside `1s…30d`;
 - `layout_mode` outside the enum;
-- more than 16 capability IDs or IDs not matching `^[a-z0-9][a-z0-9_-]*$`;
+- an explicit empty `capabilities` list in the canonical object (an empty wire
+  value is unset);
+- more than 16 capability IDs after deduplication, or IDs not matching
+  `^[a-z0-9][a-z0-9_-]*$`;
 - more than 2000 characters of query string in the local URL (Android/WebView
   safety; dashboard URLs should be much shorter).
 
 Booleans accept `true`/`false` (case-insensitive in query parameters); anything
 else is `E_CONFIG`. Empty query values are treated as unset, except
-`dashboard_url`, which is invalid.
+`dashboard_url`, which is invalid. In particular, an empty `dashboard_name` is
+unset, and an empty `capabilities` value is not a way to request an empty
+advertised set.
 
 ### Clamping vs rejection
 
@@ -172,8 +178,10 @@ The native shell shows `E_CONFIG` on its fatal screen. The renderer shows an
 - scheme/userinfo/length/type/enum rejections;
 - refresh clamping and bounds;
 - duration parsing delegated to C-002 (validated here for range);
-- capability list parsing and duplicate handling;
-- query → object → query round-trip.
+- capability list parsing, deduplication, sorting, 16-entry limit, and empty-list
+  rejection;
+- empty optional values become `null`, except invalid `dashboard_url`;
+- canonical query → object → canonical query round-trip.
 
 `app/src/test/java/dev/androdash/ConfigParserTest.kt` (M2):
 

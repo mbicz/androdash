@@ -60,6 +60,9 @@ project is a single `:app` module.
 - JDK 17 toolchain; the local environment may use JDK 21 to run Gradle.
 - AGP and Kotlin versions must be compatible with the Gradle wrapper checked in.
   Record upgrades in `changelog.d`.
+- Manifest: `INTERNET` permission; `usesCleartextTraffic=true` (decision 0006);
+  exported launcher activity with the kiosk intent filter. No other permissions
+  in v1.
 - Dependencies: Android framework + Kotlin standard library. No chart, network,
   JSON, or UI libraries.
 - Assets: the Gradle module maps `web/app/` as the assets root. A `shouldInterceptRequest`

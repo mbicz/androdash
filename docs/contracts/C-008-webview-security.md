@@ -44,6 +44,7 @@ Required in v1:
 | Downloads | blocked | No escape |
 | File chooser | blocked/not offered | No file access |
 | Permissions | denied / not requested | No camera/mic/location |
+| Cleartext traffic | allowed (decision 0006) | LAN HTTP dashboard/Prometheus |
 | SSL errors | cancel | No bypass |
 | User agent | default + `AndroDash/<version>` | Optional generator hint |
 
@@ -145,7 +146,11 @@ response-driven request routing.
 
 ## Cleartext HTTP
 
-Allowed for local LAN metrics/dashboards (decision 0006). Constraints:
+Allowed for local LAN metrics/dashboards (decision 0006). The dashboard source
+and Prometheus must also permit CORS from `http://androdash.local` (or `*`);
+this is a deployment prerequisite (C-002/C-003), not a browser setting.
+
+Constraints:
 
 - No credentials/tokens over cleartext.
 - Deploy on a trusted LAN/VPN or behind an HTTPS reverse proxy.
