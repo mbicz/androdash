@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "dashboardUrl": "http://10.0.2.2:8099/contracts/fixtures/demo-dashboard.json",
+  "prometheusUrl": "http://10.0.2.2:9091",
+  "refreshSeconds": 10,
+  "timeRange": "15m",
+  "stepSeconds": null,
+  "kiosk": true,
+  "debug": true,
+  "layoutMode": "auto",
+  "dashboardName": null,
+  "capabilities": null,
+  "showUnsupported": false
+}

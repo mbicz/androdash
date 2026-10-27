@@ -1,0 +1,494 @@
+{
+  "kind": "Dashboard",
+  "metadata": {
+    "name": "AndroDash Demo",
+    "project": "androdash",
+    "createdAt": "2026-10-26T00:00:00Z",
+    "updatedAt": "2026-10-26T00:00:00Z",
+    "version": 1
+  },
+  "spec": {
+    "display": {
+      "name": "AndroDash Demo",
+      "description": "Synthetic Perses subset: 6 supported panels and 3 capability-filtered panels."
+    },
+    "duration": "15m",
+    "refreshInterval": "10s",
+    "datasources": {
+      "prom": {
+        "default": true,
+        "plugin": {
+          "kind": "PrometheusDatasource",
+          "spec": {
+            "directUrl": "http://localhost:9091"
+          }
+        }
+      }
+    },
+    "variables": [
+      {
+        "kind": "ListVariable",
+        "spec": {
+          "name": "job",
+          "defaultValue": "demo",
+          "allowMultiple": false,
+          "allowAllValue": false,
+          "plugin": {
+            "kind": "StaticListVariable",
+            "spec": {
+              "values": ["demo"]
+            }
+          }
+        }
+      },
+      {
+        "kind": "ListVariable",
+        "spec": {
+          "name": "ds",
+          "defaultValue": "prom",
+          "allowMultiple": false,
+          "allowAllValue": false,
+          "plugin": {
+            "kind": "DatasourceVariable",
+            "spec": {
+              "datasourcePluginKind": "PrometheusDatasource"
+            }
+          }
+        }
+      }
+    ],
+    "panels": {
+      "cpu": {
+        "kind": "Panel",
+        "spec": {
+          "display": {
+            "name": "CPU usage",
+            "description": "Synthetic rate across two CPU modes"
+          },
+          "plugin": {
+            "kind": "TimeSeriesChart",
+            "spec": {
+              "legend": {
+                "position": "bottom"
+              },
+              "yAxis": {
+                "format": {
+                  "unit": "percent",
+                  "decimalPlaces": 1
+                }
+              }
+            }
+          },
+          "queries": [
+            {
+              "kind": "TimeSeriesQuery",
+              "spec": {
+                "plugin": {
+                  "kind": "PrometheusTimeSeriesQuery",
+                  "spec": {
+                    "datasource": "$ds",
+                    "query": "rate(demo_cpu_seconds_total{job=\"$job\"}[1m]) * 100"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "load": {
+        "kind": "Panel",
+        "spec": {
+          "display": {
+            "name": "Load average",
+            "description": "Two synthetic series"
+          },
+          "plugin": {
+            "kind": "TimeSeriesChart",
+            "spec": {
+              "legend": {
+                "position": "bottom"
+              },
+              "format": {
+                "unit": "none",
+                "decimalPlaces": 2
+              }
+            }
+          },
+          "queries": [
+            {
+              "kind": "TimeSeriesQuery",
+              "spec": {
+                "plugin": {
+                  "kind": "PrometheusTimeSeriesQuery",
+                  "spec": {
+                    "datasource": "prom",
+                    "query": "demo_load1{job=\"$job\"}"
+                  }
+                }
+              }
+            },
+            {
+              "kind": "TimeSeriesQuery",
+              "spec": {
+                "plugin": {
+                  "kind": "PrometheusTimeSeriesQuery",
+                  "spec": {
+                    "datasource": "prom",
+                    "query": "demo_load5{job=\"$job\"}"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "ram": {
+        "kind": "Panel",
+        "spec": {
+          "display": {
+            "name": "Memory used",
+            "description": "Stat with warning/critical thresholds"
+          },
+          "plugin": {
+            "kind": "StatChart",
+            "spec": {
+              "calculation": "last-number",
+              "format": {
+                "unit": "percent",
+                "decimalPlaces": 1
+              },
+              "thresholds": {
+                "steps": [
+                  {
+                    "value": 85,
+                    "name": "warning"
+                  },
+                  {
+                    "value": 95,
+                    "name": "critical"
+                  }
+                ]
+              }
+            }
+          },
+          "queries": [
+            {
+              "kind": "TimeSeriesQuery",
+              "spec": {
+                "plugin": {
+                  "kind": "PrometheusTimeSeriesQuery",
+                  "spec": {
+                    "datasource": "prom",
+                    "query": "demo_memory_used_percent{job=\"$job\"}"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "disk": {
+        "kind": "Panel",
+        "spec": {
+          "display": {
+            "name": "Disk used",
+            "description": "Gauge with warning/critical thresholds"
+          },
+          "plugin": {
+            "kind": "GaugeChart",
+            "spec": {
+              "calculation": "last-number",
+              "format": {
+                "unit": "percent",
+                "decimalPlaces": 1
+              },
+              "thresholds": {
+                "steps": [
+                  {
+                    "value": 80,
+                    "name": "warning"
+                  },
+                  {
+                    "value": 90,
+                    "name": "critical"
+                  }
+                ]
+              }
+            }
+          },
+          "queries": [
+            {
+              "kind": "TimeSeriesQuery",
+              "spec": {
+                "plugin": {
+                  "kind": "PrometheusTimeSeriesQuery",
+                  "spec": {
+                    "datasource": "prom",
+                    "query": "demo_disk_used_percent{job=\"$job\"}"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "requests": {
+        "kind": "Panel",
+        "spec": {
+          "display": {
+            "name": "Requests",
+            "description": "Instant query rendered as a simple table"
+          },
+          "plugin": {
+            "kind": "Table",
+            "spec": {}
+          },
+          "queries": [
+            {
+              "kind": "TimeSeriesQuery",
+              "spec": {
+                "plugin": {
+                  "kind": "PrometheusTimeSeriesQuery",
+                  "spec": {
+                    "datasource": "prom",
+                    "query": "demo_requests_total{job=\"$job\"}"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "notes": {
+        "kind": "Panel",
+        "spec": {
+          "display": {
+            "name": "Notes",
+            "description": "Static Markdown content"
+          },
+          "plugin": {
+            "kind": "Markdown",
+            "spec": {
+              "text": "## AndroDash demo\n\nThis dashboard is rendered on the device.\n\n- Perses dashboard subset\n- Prometheus queried directly\n- Capability-filtered panels\n\nInline code and escaping are checked here: `<script>alert(1)</script>` is shown as text.\n\n```text\n6 supported panels\n3 hidden panels\n```"
+            }
+          },
+          "queries": []
+        }
+      },
+      "traces": {
+        "kind": "Panel",
+        "spec": {
+          "display": {
+            "name": "Recent traces (unsupported)",
+            "description": "Requires Tempo; hidden by capability filtering"
+          },
+          "plugin": {
+            "kind": "TraceTable",
+            "spec": {}
+          },
+          "queries": [
+            {
+              "kind": "TraceQuery",
+              "spec": {
+                "plugin": {
+                  "kind": "TempoTraceQuery",
+                  "spec": {
+                    "query": "{}"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "logs": {
+        "kind": "Panel",
+        "spec": {
+          "display": {
+            "name": "Logs (unsupported)",
+            "description": "Requires Loki; hidden by capability filtering"
+          },
+          "plugin": {
+            "kind": "LogsTable",
+            "spec": {}
+          },
+          "queries": [
+            {
+              "kind": "LogQuery",
+              "spec": {
+                "plugin": {
+                  "kind": "LokiLogQuery",
+                  "spec": {
+                    "query": "{job=\"demo\"}"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "unknown": {
+        "kind": "Panel",
+        "spec": {
+          "display": {
+            "name": "Unknown chart (unsupported)",
+            "description": "Demonstrates unsupported panel filtering"
+          },
+          "plugin": {
+            "kind": "FancyChart",
+            "spec": {}
+          },
+          "queries": [
+            {
+              "kind": "TimeSeriesQuery",
+              "spec": {
+                "plugin": {
+                  "kind": "PrometheusTimeSeriesQuery",
+                  "spec": {
+                    "datasource": "prom",
+                    "query": "up{job=\"$job\"}"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "layouts": [
+      {
+        "kind": "Grid",
+        "spec": {
+          "display": {
+            "title": "Overview",
+            "collapse": {
+              "open": true
+            }
+          },
+          "items": [
+            {
+              "x": 0,
+              "y": 0,
+              "width": 6,
+              "height": 6,
+              "content": {
+                "$ref": "#/spec/panels/ram"
+              }
+            },
+            {
+              "x": 6,
+              "y": 0,
+              "width": 6,
+              "height": 6,
+              "content": {
+                "$ref": "#/spec/panels/disk"
+              }
+            },
+            {
+              "x": 12,
+              "y": 0,
+              "width": 12,
+              "height": 6,
+              "content": {
+                "$ref": "#/spec/panels/notes"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "kind": "Grid",
+        "spec": {
+          "display": {
+            "title": "Metrics",
+            "collapse": {
+              "open": true
+            }
+          },
+          "items": [
+            {
+              "x": 0,
+              "y": 0,
+              "width": 12,
+              "height": 8,
+              "content": {
+                "$ref": "#/spec/panels/cpu"
+              }
+            },
+            {
+              "x": 12,
+              "y": 0,
+              "width": 12,
+              "height": 8,
+              "content": {
+                "$ref": "#/spec/panels/load"
+              }
+            },
+            {
+              "x": 0,
+              "y": 8,
+              "width": 24,
+              "height": 8,
+              "content": {
+                "$ref": "#/spec/panels/requests"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "kind": "Grid",
+        "spec": {
+          "display": {
+            "title": "Traces (unsupported)",
+            "collapse": {
+              "open": true
+            }
+          },
+          "items": [
+            {
+              "x": 0,
+              "y": 0,
+              "width": 12,
+              "height": 8,
+              "content": {
+                "$ref": "#/spec/panels/traces"
+              }
+            },
+            {
+              "x": 12,
+              "y": 0,
+              "width": 12,
+              "height": 8,
+              "content": {
+                "$ref": "#/spec/panels/unknown"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "kind": "Grid",
+        "spec": {
+          "display": {
+            "title": "Logs (unsupported)",
+            "collapse": {
+              "open": true
+            }
+          },
+          "items": [
+            {
+              "x": 0,
+              "y": 0,
+              "width": 24,
+              "height": 8,
+              "content": {
+                "$ref": "#/spec/panels/logs"
+              }
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

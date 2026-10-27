@@ -1,0 +1,39 @@
+# Build outputs
+build/
+app/build/
+.gradle/
+*.apk
+*.aab
+*.ap_
+*.dex
+*.class
+
+# Local Android configuration
+local.properties
+captures/
+.externalNativeBuild/
+.cxx/
+
+# IDE
+.idea/
+*.iml
+.vscode/
+.DS_Store
+
+# Node/Python tooling
+node_modules/
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Logs and local evidence
+*.log
+/tmp/
+/screenshots/
+
+# Secrets / signing (never commit)
+*.jks
+*.keystore
+secrets.properties
+.env

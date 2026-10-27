@@ -1,0 +1,89 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://androdash.dev/contracts/app-config.schema.json",
+  "title": "AndroDash AppConfig",
+  "description": "Canonical launch configuration (C-001). URL values are runtime-redacted in diagnostics but must still be absolute http(s).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "dashboardUrl",
+    "prometheusUrl",
+    "refreshSeconds",
+    "timeRange",
+    "stepSeconds",
+    "kiosk",
+    "debug",
+    "layoutMode",
+    "dashboardName",
+    "capabilities",
+    "showUnsupported"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "dashboardUrl": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 8192,
+      "pattern": "^https?://[^\\s]+$",
+      "description": "Absolute http(s) URL of the Perses dashboard JSON. Userinfo is rejected at runtime."
+    },
+    "prometheusUrl": {
+      "type": ["string", "null"],
+      "maxLength": 8192,
+      "pattern": "^https?://[^\\s]+$",
+      "description": "Optional Prometheus base URL overriding dashboard datasource URLs. Userinfo is rejected at runtime."
+    },
+    "refreshSeconds": {
+      "type": ["integer", "null"],
+      "minimum": 0,
+      "maximum": 3600,
+      "description": "0 means manual only; null means use the dashboard/default. Values 1-4 are clamped to 5 at runtime."
+    },
+    "timeRange": {
+      "type": ["string", "null"],
+      "pattern": "^([0-9]+(ms|s|m|h|d|w))+$",
+      "description": "Go/Perses-style duration, 1s..30d at runtime; null means dashboard duration or 1h."
+    },
+    "stepSeconds": {
+      "type": ["integer", "null"],
+      "minimum": 1,
+      "maximum": 86400,
+      "description": "Prometheus range step; null means auto (C-003)."
+    },
+    "kiosk": {
+      "type": "boolean",
+      "description": "Native immersive/back-disabled behavior (C-007)."
+    },
+    "debug": {
+      "type": "boolean",
+      "description": "Enable the diagnostics overlay and debug affordances (C-009)."
+    },
+    "layoutMode": {
+      "type": "string",
+      "enum": ["auto", "grid", "stack"]
+    },
+    "dashboardName": {
+      "type": ["string", "null"],
+      "maxLength": 256,
+      "description": "Selects a dashboard when the URL returns an array (C-002)."
+    },
+    "capabilities": {
+      "type": ["array", "null"],
+      "maxItems": 16,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z0-9][a-z0-9_-]*$",
+        "maxLength": 64
+      },
+      "description": "Advertised capability override; null means probe (C-004)."
+    },
+    "showUnsupported": {
+      "type": "boolean",
+      "description": "Render explicit placeholders for hidden panels instead of removing them (C-004)."
+    }
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "status": "success",
+  "data": {
+    "resultType": "vector",
+    "result": [
+      {
+        "metric": {
+          "__name__": "demo_requests_total",
+          "job": "demo",
+          "instance": "demo-1",
+          "code": "200"
+        },
+        "value": [1793016900, "18432"]
+      },
+      {
+        "metric": {
+          "__name__": "demo_requests_total",
+          "job": "demo",
+          "instance": "demo-1",
+          "code": "500"
+        },
+        "value": [1793016900, "17"]
+      }
+    ]
+  }
+}

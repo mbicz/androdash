@@ -1,0 +1,330 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://androdash.dev/contracts/diagnostics.schema.json",
+  "title": "AndroDash diagnostics snapshot",
+  "description": "Stable diagnostics shape (C-009). URLs are redacted to scheme + host + path.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "renderer",
+    "generatedAt",
+    "startedAt",
+    "config",
+    "capabilities",
+    "dashboard",
+    "panels",
+    "lastRefresh",
+    "nextRefreshAt",
+    "requests",
+    "errors",
+    "warnings"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "renderer": {
+      "type": "string",
+      "pattern": "^androdash/[0-9]+\\.[0-9]+\\.[0-9]+$"
+    },
+    "generatedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "startedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "config": {
+      "$ref": "app-config.schema.json"
+    },
+    "capabilities": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["advertised", "unknown", "probed"],
+      "properties": {
+        "advertised": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9_-]*$"
+          }
+        },
+        "unknown": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9_-]*$"
+          }
+        },
+        "probed": {
+          "type": "array",
+          "maxItems": 4,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["baseUrl", "ok", "version", "latencyMs", "error"],
+            "properties": {
+              "baseUrl": {
+                "type": "string",
+                "pattern": "^https?://[^\\s]+$"
+              },
+              "ok": {
+                "type": "boolean"
+              },
+              "version": {
+                "type": ["string", "null"],
+                "maxLength": 128
+              },
+              "latencyMs": {
+                "type": ["number", "null"],
+                "minimum": 0
+              },
+              "error": {
+                "type": ["string", "null"],
+                "maxLength": 300
+              }
+            }
+          }
+        }
+      }
+    },
+    "dashboard": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["url", "name", "duration", "refreshInterval", "panelsTotal", "rowsTotal"],
+      "properties": {
+        "url": {
+          "type": "string",
+          "pattern": "^https?://[^\\s]+$"
+        },
+        "name": {
+          "type": "string",
+          "maxLength": 256
+        },
+        "duration": {
+          "type": "string",
+          "maxLength": 32
+        },
+        "refreshInterval": {
+          "type": ["string", "null"],
+          "maxLength": 32
+        },
+        "panelsTotal": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "rowsTotal": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "panels": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["total", "rendered", "hidden", "errors", "hiddenReasons"],
+      "properties": {
+        "total": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "rendered": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "hidden": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "errors": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "hiddenReasons": {
+          "type": "array",
+          "maxItems": 200,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["panelId", "panelKind", "reason", "detail"],
+            "properties": {
+              "panelId": {
+                "type": "string",
+                "maxLength": 256
+              },
+              "panelKind": {
+                "type": "string",
+                "maxLength": 128
+              },
+              "reason": {
+                "type": "string",
+                "enum": [
+                  "unsupported_panel",
+                  "unsupported_query",
+                  "missing_datasource",
+                  "capability_unavailable",
+                  "probe_failed",
+                  "no_queries",
+                  "invalid_panel"
+                ]
+              },
+              "detail": {
+                "type": ["string", "null"],
+                "maxLength": 300
+              }
+            }
+          }
+        }
+      }
+    },
+    "lastRefresh": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["startedAt", "endedAt", "ok", "durationMs", "succeeded", "failed"],
+      "properties": {
+        "startedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "endedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "ok": {
+          "type": "boolean"
+        },
+        "durationMs": {
+          "type": "number",
+          "minimum": 0
+        },
+        "succeeded": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "failed": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "nextRefreshAt": {
+      "type": ["string", "null"],
+      "format": "date-time"
+    },
+    "requests": {
+      "type": "array",
+      "maxItems": 50,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["at", "method", "url", "status", "durationMs"],
+        "properties": {
+          "at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "method": {
+            "type": "string",
+            "enum": ["GET"]
+          },
+          "url": {
+            "type": "string",
+            "pattern": "^https?://[^\\s]+$",
+            "maxLength": 2048
+          },
+          "status": {
+            "type": ["integer", "null"],
+            "minimum": 100,
+            "maximum": 599
+          },
+          "durationMs": {
+            "type": "number",
+            "minimum": 0
+          }
+        }
+      }
+    },
+    "errors": {
+      "type": "array",
+      "maxItems": 50,
+      "items": {
+        "$ref": "#/$defs/event"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "maxItems": 50,
+      "items": {
+        "$ref": "#/$defs/event"
+      }
+    }
+  },
+  "$defs": {
+    "event": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["at", "code", "message", "panelId", "detail"],
+      "properties": {
+        "at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "code": {
+          "type": "string",
+          "enum": [
+            "E_CONFIG",
+            "E_ASSET_LOAD",
+            "E_DASHBOARD_FETCH",
+            "E_DASHBOARD_PARSE",
+            "E_DASHBOARD_EMPTY",
+            "E_DASHBOARD_LIMIT",
+            "E_DATASOURCE",
+            "E_CAPABILITY",
+            "E_PROM_NETWORK",
+            "E_PROM_HTTP",
+            "E_PROM_QUERY",
+            "E_PROM_RESPONSE",
+            "E_RENDER",
+            "E_INTERNAL",
+            "W_REFRESH_CLAMPED",
+            "W_DASHBOARD_MULTIPLE",
+            "W_DURATION_INVALID",
+            "W_REFRESH_INVALID",
+            "W_DATASOURCE_INVALID",
+            "W_LAYOUT_KIND_UNSUPPORTED",
+            "W_LAYOUT_ITEM_SKIPPED",
+            "W_LAYOUT_TRUNCATED",
+            "W_LAYOUT_FALLBACK",
+            "W_VARIABLE_UNKNOWN",
+            "W_VARIABLE_UNRESOLVED",
+            "W_VARIABLE_MISSING",
+            "W_CAPABILITY_UNKNOWN",
+            "W_SERIES_TRUNCATED",
+            "W_POINTS_TRUNCATED",
+            "W_ROWS_TRUNCATED",
+            "W_VALUES_TRUNCATED",
+            "W_GAUGES_TRUNCATED",
+            "W_CALCULATION_UNKNOWN",
+            "W_UNIT_UNKNOWN"
+          ]
+        },
+        "message": {
+          "type": "string",
+          "maxLength": 300
+        },
+        "panelId": {
+          "type": ["string", "null"],
+          "maxLength": 256
+        },
+        "detail": {
+          "type": ["string", "null"],
+          "maxLength": 500
+        }
+      }
+    }
+  }
+}
