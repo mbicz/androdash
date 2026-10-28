@@ -1,5 +1,5 @@
 import { ConfigError, parseConfig } from "./config.js";
-import { loadDashboard } from "./dashboard/load.js";
+import { loadDashboard, shellDashboardStore, updateStoredDashboard } from "./dashboard/load.js";
 import {
   DashboardError,
   collectPrometheusBaseUrls,
@@ -244,6 +244,7 @@ async function loadApp() {
   const dashboard = await loadDashboard(state.config, {
     onRequest: recordRequest,
     warn,
+    store: shellDashboardStore(bridge()),
   });
   state.dashboard = dashboard;
   state.rangeText = state.config.timeRange || dashboard.durationText;
@@ -301,6 +302,8 @@ async function loadApp() {
     refreshInterval: dashboard.refreshText,
     panelsTotal: dashboard.panelsTotal,
     rowsTotal: dashboard.rowsTotal,
+    source: dashboard.source?.kind || "url",
+    storedAt: dashboard.source?.storedAt ? iso(dashboard.source.storedAt) : null,
   });
   state.diagnostics.setPanels({
     ...state.filtered.counts,
@@ -636,6 +639,7 @@ function openSettings() {
       ),
     ),
   );
+  if (shellDashboardStore(bridge())) sheet.append(dashboardGroup());
   if (lockSupport()) {
     sheet.append(
       settingsGroup(
@@ -658,6 +662,78 @@ function openSettings() {
   state.sheet = overlay;
   document.addEventListener("keydown", settingsKeydown);
   done.focus();
+}
+
+/**
+ * Where the dashboard definition comes from (C-002): the copy stored on the
+ * phone (default; starts without the dashboard server) or live from the URL
+ * on every load. "Update" re-fetches the URL into the store.
+ */
+function dashboardGroup() {
+  const bundled = state.dashboard?.source?.kind === "bundled";
+  const wrap = document.createElement("div");
+  wrap.className = "sheet-stack";
+  if (bundled) {
+    const note = document.createElement("p");
+    note.className = "sheet-note";
+    note.textContent = "Built into the app";
+    wrap.append(note);
+    return settingsGroup("Dashboard", wrap);
+  }
+  wrap.append(
+    segmented(
+      "Dashboard source",
+      [
+        { value: "stored", label: "Saved on phone" },
+        { value: "url", label: "Live from URL" },
+      ],
+      state.config.dashboardSource,
+      (source) => setDashboardSource(source),
+    ),
+  );
+  if (state.config.dashboardSource === "stored") {
+    const row = document.createElement("div");
+    row.className = "sheet-row";
+    const note = document.createElement("p");
+    note.className = "sheet-note";
+    const storedAt = state.dashboard?.source?.storedAt;
+    note.textContent = storedAt
+      ? `Saved ${new Date(storedAt).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}`
+      : "Not saved yet";
+    const update = document.createElement("button");
+    update.type = "button";
+    update.className = "sheet-action";
+    update.textContent = "Update from URL";
+    update.addEventListener("click", async () => {
+      update.disabled = true;
+      try {
+        const ok = await updateStoredDashboard(state.config, {
+          store: shellDashboardStore(bridge()),
+          onRequest: recordRequest,
+          warn,
+        });
+        if (!ok) throw new Error("not stored");
+        closeSettings();
+        showToast("Dashboard updated");
+        await reloadDashboard();
+      } catch (error) {
+        update.disabled = false;
+        showToast(`Update failed: ${safeText(error?.message || "unknown error", 120)}`);
+      }
+    });
+    row.append(note, update);
+    wrap.append(row);
+  }
+  return settingsGroup("Dashboard", wrap);
+}
+
+function setDashboardSource(source) {
+  if (source === state.config.dashboardSource) return true;
+  state.config = { ...state.config, dashboardSource: source };
+  persistOption("dashboard_source", source);
+  closeSettings();
+  reloadDashboard();
+  return true;
 }
 
 function settingsKeydown(event) {
@@ -1314,6 +1390,7 @@ function openDebug() {
       "Model",
       debugGrid([
         ["dashboard", snapshot.dashboard?.name],
+        ["source", snapshot.dashboard?.storedAt ? `${snapshot.dashboard.source} (${snapshot.dashboard.storedAt})` : snapshot.dashboard?.source],
         ["panels", `${snapshot.panels.rendered} rendered / ${snapshot.panels.total} total`],
         ["hidden", snapshot.panels.hidden],
         ["panel errors", snapshot.panels.errors],

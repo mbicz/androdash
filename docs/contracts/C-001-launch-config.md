@@ -1,7 +1,8 @@
 # C-001 — Launch configuration
 
-- **Version:** 3
-- **Status:** Accepted, 2026-10-28
+- **Version:** 4
+- **Status:** Accepted, 2026-10-28 (v4: `dashboard_source`, bundled and stored
+  dashboards, decision 0018)
 - **Consumers:** Android shell (W1), web renderer config (W2)
 - **Machine-readable:** [`contracts/app-config.schema.json`](../../contracts/app-config.schema.json)
 - **Fixtures:** [`app-config.example.json`](../../contracts/fixtures/app-config.example.json)
@@ -39,7 +40,7 @@ This is deliberate: one name per concept, easy to debug with `adb`.
 
 | Parameter / Intent extra | Type | Default | Notes |
 |---|---|---|---|
-| `dashboard_url` | string | **required** | Absolute `http://` or `https://` URL of the Perses dashboard JSON. |
+| `dashboard_url` | string | **required** | Absolute `http://` or `https://` URL of the Perses dashboard JSON. A bundled dashboard is `http://androdash.local/dashboards/<file>.json` (see [Dashboard source](#dashboard-source)). |
 | `prometheus_url` | string | `null` | Absolute `http://`/`https://` base URL. Overrides dashboard datasource URLs for all Prometheus queries. |
 | `refresh_seconds` | integer | `null` | Auto-refresh interval. `null` = use dashboard `refreshInterval`; `0` = manual only; `1–4` is clamped to `5` with a warning; max `3600`. |
 | `time_range` | string | `null` | Duration such as `15m`, `1h`, `1h30m`, `7d`. `null` = dashboard `spec.duration`; fallback `1h`. Range `1s…30d`. |
@@ -49,6 +50,7 @@ This is deliberate: one name per concept, easy to debug with `adb`.
 | `layout_mode` | enum | `auto` | `auto` \| `grid` \| `stack` \| `fit` (C-005). `fit` is the fit-to-screen layout; added in v3. |
 | `display_mode` | enum | `standard` | `standard` \| `amoled` \| `monochrome` (C-005). Additive in v2; older persisted configs without it default to `standard`. |
 | `lock_style` | enum | `monochrome` | `monochrome` \| `color`. Renderer palette while the phone is locked with `show_when_locked` (C-007): `monochrome` is the grayscale locked view; `color` uses the `amoled` palette (near-black cards, full state and series colour) regardless of `display_mode`. The renderer decides the colours; the shell only passes the value. Additive in v3; older persisted configs without it default to `monochrome`. |
+| `dashboard_source` | enum | `stored` | `stored` \| `url`. Where the renderer gets the dashboard JSON; see [Dashboard source](#dashboard-source). Additive in v4; older persisted configs without it default to `stored`. |
 | `dashboard_name` | string | `null` | Selects a dashboard when the URL returns an array (C-002). Must be non-empty when set. |
 | `capabilities` | string | `null` | Comma-separated capability IDs; when present, authoritative for filtering (C-004). 1–16 entries after deduplication. |
 | `show_unsupported` | boolean | `false` | Render explicit placeholders for hidden panels instead of removing them. |
@@ -78,6 +80,7 @@ decision 0016).
   "layoutMode": "auto",
   "displayMode": "standard",
   "lockStyle": "monochrome",
+  "dashboardSource": "stored",
   "dashboardName": null,
   "capabilities": null,
   "showUnsupported": false
@@ -98,6 +101,41 @@ for types and constraints; this table is normative for semantics.
 - `lockStyle` always resolves to `monochrome` or `color`; it is omitted only by
   pre-v3 persisted objects, which default to `monochrome`. The field is
   additive, so `schemaVersion` stays `1`.
+- `dashboardSource` always resolves to `stored` or `url`; it is omitted only by
+  pre-v4 persisted objects, which default to `stored`. Additive; `schemaVersion`
+  stays `1`.
+
+## Dashboard source
+
+`dashboard_source` lets the phone start without the dashboard server
+(decision 0018). The shell serves two kinds of on-device dashboard on the
+virtual origin (C-008):
+
+- **Bundled:** every `contracts/fixtures/*-dashboard.json` is packaged into the
+  APK and served at `http://androdash.local/dashboards/<file>.json` (for
+  example `.../dashboards/macos-node-dashboard.json`). Such a `dashboard_url`
+  is valid like any other `http` URL.
+- **Stored:** one copy of a remote dashboard, written by the renderer through
+  `AndroDash.storeDashboard(sourceUrl, json)` (C-007) and served read-only at
+  `GET /stored/dashboard.json`, with `GET /stored/meta.json` =
+  `{"sourceUrl": "<dashboard_url it came from>", "storedAt": <unix ms>, "bytes": <UTF-8 size>}`.
+  Both answer 404 when nothing is stored.
+
+Renderer semantics (the shell does not fetch dashboards):
+
+| Value | Behavior |
+|---|---|
+| `stored` (default) | Read `/stored/meta.json`; when its `sourceUrl` equals `dashboard_url`, load `/stored/dashboard.json` and do not fetch. Otherwise fetch `dashboard_url` and, on success, call `AndroDash.storeDashboard(dashboard_url, json)`. |
+| `url` | Fetch `dashboard_url` on every load; store nothing. |
+
+- A bundled `http://androdash.local/dashboards/…` URL is always local: it is
+  fetched from the APK in either mode and never stored (the shell refuses it).
+- A new `dashboard_url` replaces the stored copy on its first successful load;
+  there is one stored copy, not one per URL.
+- In browser development there is no bridge and no `/stored/` route: `stored`
+  behaves like `url`.
+- The stored copy is untrusted dashboard JSON and is normalized exactly like a
+  fetched one (C-002).
 
 ## Precedence
 
@@ -131,6 +169,7 @@ An implementation MUST reject:
 - `layout_mode` outside the enum;
 - `display_mode` outside the enum;
 - `lock_style` outside the enum;
+- `dashboard_source` outside the enum;
 - an explicit empty `capabilities` list in the canonical object (an empty wire
   value is unset);
 - more than 16 capability IDs after deduplication, or IDs not matching
@@ -171,10 +210,11 @@ The native shell shows `E_CONFIG` on its fatal screen. The renderer shows an
 - Explicit extras override persisted fields; missing optional metadata does not
   erase persisted values unless the operator explicitly clears it (a future
   settings UI may add `--ez reset_config true`, not in v1).
-- The renderer may change `timeRange`, `refreshSeconds`, `layoutMode`, and
-  `lockStyle` at runtime through `AndroDash.setOption(name, value)` (C-007).
-  The shell validates the value with the same rules as the launch extra of that
-  name, persists the updated `AppConfig`, and rebuilds the local URL.
+- The renderer may change `timeRange`, `refreshSeconds`, `layoutMode`,
+  `lockStyle`, and `dashboardSource` at runtime through
+  `AndroDash.setOption(name, value)` (C-007). The shell validates the value with
+  the same rules as the launch extra of that name, persists the updated
+  `AppConfig`, and rebuilds the local URL.
 - Log the result with redacted URLs only.
 - If the local asset fails to load, show the native fatal screen.
 
@@ -198,7 +238,8 @@ The native shell shows `E_CONFIG` on its fatal screen. The renderer shows an
 - scheme/userinfo/length/type/enum rejections, including `display_mode` and
   `lock_style`;
 - display mode defaults and `standard`/`amoled`/`monochrome` round-trip;
-- `layout_mode=fit` and `lock_style` default/`color` round-trip;
+- `layout_mode=fit`, `lock_style` default/`color`, and `dashboard_source`
+  default/`url` round-trip;
 - refresh clamping and bounds;
 - duration parsing delegated to C-002 (validated here for range);
 - capability list parsing, deduplication, sorting, 16-entry limit, and empty-list
@@ -209,11 +250,17 @@ The native shell shows `E_CONFIG` on its fatal screen. The renderer shows an
 `app/src/test/java/com/mbicz/androdash/ConfigParserTest.kt` (M2):
 
 - Intent extras → `AppConfig`;
-- persisted config precedence, including `lockStyle` round-trip and the
-  `monochrome` default for persisted objects without it;
-- invalid input → `E_CONFIG`;
+- persisted config precedence, including `lockStyle` and `dashboardSource`
+  round-trips and the `monochrome`/`stored` defaults for persisted objects
+  without them;
+- invalid input → `E_CONFIG`, including `dashboard_source`;
+- a bundled `http://androdash.local/dashboards/<file>.json` `dashboard_url` is
+  valid;
 - local URL encoding and parameter names match the renderer parser;
 - `setOption` for every allowed name, invalid values, and unknown names.
+
+`DashboardStoreTest.kt` and `AssetServerRouteTest.kt` cover the stored copy
+(C-007) and the `/dashboards/` and `/stored/` routes (C-008).
 
 ## Out of scope
 

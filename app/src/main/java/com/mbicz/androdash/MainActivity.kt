@@ -42,6 +42,10 @@ import android.widget.TextView
 class MainActivity : Activity() {
     private lateinit var configStore: ConfigStore
     private lateinit var assetServer: AssetServer
+    private lateinit var dashboardStore: DashboardStore
+
+    /** Current canonical config; read by the bridge thread (`storeDashboard`). */
+    @Volatile
     private var config: AppConfig? = null
     private var rendererUrl: String? = null
     private var webView: WebView? = null
@@ -65,7 +69,8 @@ class MainActivity : Activity() {
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         WebView.setWebContentsDebuggingEnabled(BuildConfig.DEBUG)
         configStore = ConfigStore(this)
-        assetServer = AssetServer(assets)
+        dashboardStore = DashboardStore(filesDir)
+        assetServer = AssetServer(assets, dashboardStore)
         applyIntent(intent)
     }
 
@@ -661,7 +666,8 @@ class MainActivity : Activity() {
             "config dashboard=${redactUrl(config.dashboardUrl)} " +
                 "prometheus=${config.prometheusUrl?.let(::redactUrl) ?: "none"} " +
                 "kiosk=${config.kiosk} debug=${config.debug} display=${config.displayMode} " +
-                "layout=${config.layoutMode} lock_style=${config.lockStyle}",
+                "layout=${config.layoutMode} lock_style=${config.lockStyle} " +
+                "dashboard_source=${config.dashboardSource}",
         )
         warnings.forEach { Log.w(TAG, it) }
     }
@@ -722,7 +728,7 @@ class MainActivity : Activity() {
 
         /**
          * Renderer option choice (C-007): one of `time_range`, `refresh_seconds`,
-         * `layout_mode`, `lock_style`, validated with the C-001 launch rules,
+         * `layout_mode`, `lock_style`, `dashboard_source`, validated with the C-001 launch rules,
          * persisted, and folded into the renderer URL so `reload()` keeps it.
          */
         @JavascriptInterface
@@ -738,6 +744,48 @@ class MainActivity : Activity() {
 
         @JavascriptInterface
         fun lockScreenEnabled(): Boolean = showWhenLocked
+
+        /**
+         * Store the dashboard JSON the renderer just fetched from [sourceUrl]
+         * (C-007, `dashboard_source=stored`). Accepted only for the current
+         * `dashboard_url`, never for a bundled `androdash.local` URL, and only
+         * for a JSON object of at most [DashboardStore.MAX_BYTES]. File IO runs
+         * on this bridge thread. Logs sizes, never contents or URLs.
+         */
+        @JavascriptInterface
+        fun storeDashboard(sourceUrl: String?, json: String?): Boolean {
+            return try {
+                val current = config
+                if (fatal || current == null || !DashboardStore.acceptsSource(current, sourceUrl)) {
+                    Log.w(TAG, "storeDashboard rejected: not the current stored-mode dashboard")
+                    return false
+                }
+                if (json == null || json.length > DashboardStore.MAX_BYTES) {
+                    Log.w(TAG, "storeDashboard rejected: ${json?.length ?: 0} chars")
+                    return false
+                }
+                val bytes = dashboardStore.write(sourceUrl!!, json)
+                Log.i(TAG, "dashboard stored ($bytes bytes)")
+                true
+            } catch (error: IllegalArgumentException) {
+                Log.w(TAG, "storeDashboard rejected: ${sanitize(error.message.orEmpty(), 120)}")
+                false
+            } catch (error: Exception) {
+                Log.w(TAG, "storeDashboard failed: ${error.javaClass.simpleName}")
+                false
+            }
+        }
+
+        /** Forget the stored dashboard copy (C-007). Never throws to JS. */
+        @JavascriptInterface
+        fun clearStoredDashboard() {
+            try {
+                dashboardStore.clear()
+                Log.i(TAG, "stored dashboard cleared")
+            } catch (error: Exception) {
+                Log.w(TAG, "clearStoredDashboard failed: ${error.javaClass.simpleName}")
+            }
+        }
 
         @JavascriptInterface
         fun setLockScreen(enabled: Boolean) {
@@ -758,7 +806,8 @@ class MainActivity : Activity() {
                 TAG,
                 "option set time_range=${update.config.timeRange ?: "default"} " +
                     "refresh_seconds=${update.config.refreshSeconds ?: "default"} " +
-                    "layout_mode=${update.config.layoutMode} lock_style=${update.config.lockStyle}",
+                    "layout_mode=${update.config.layoutMode} lock_style=${update.config.lockStyle} " +
+                    "dashboard_source=${update.config.dashboardSource}",
             )
         } catch (error: ConfigException) {
             Log.w(TAG, "setOption rejected: ${sanitize(error.message.orEmpty(), 120)}")

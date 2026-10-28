@@ -106,7 +106,8 @@ passes; `:app:lintDebug` is part of the verification pass.
 - [ ] Device-owner/lock-task provisioning notes (optional).
 - [ ] Orientation/theme/layout refinements from phone feedback.
 - [ ] Accessibility pass (contrast, text size, chart summaries).
-- [ ] Optional static dashboard packaging (no server at all).
+- [x] On-device dashboards: bundled in the APK and a stored copy of a remote
+  dashboard; live fetch is an option (decision 0018).
 
 ### M4 — Capability-driven generation + auth
 

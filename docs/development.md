@@ -175,6 +175,21 @@ adb shell am start -n com.mbicz.androdash/.MainActivity \
 Prometheus on `0.0.0.0:9090` has no auth; keep it on a trusted LAN (decision
 0006). `serve_demo.py` serves the repository root, so stop it when done.
 
+The default `dashboard_source=stored` keeps a copy of the dashboard on the phone
+after the first successful load, so later launches and reboots do not need
+`serve_demo.py` at all (C-002 "Dashboard sources", decision 0018). Settings →
+Dashboard → "Update from URL" fetches a new version; `--es dashboard_source url`
+fetches on every load instead. Dashboards bundled in the APK need no server
+even the first time:
+
+```sh
+adb shell am start -n com.mbicz.androdash/.MainActivity \
+  --es dashboard_url "http://androdash.local/dashboards/macos-node-dashboard.json" \
+  --es prometheus_url "http://192.168.1.20:9090"
+```
+
+Every `contracts/fixtures/*-dashboard.json` is bundled at build time.
+
 Kiosk off for development:
 
 ```sh

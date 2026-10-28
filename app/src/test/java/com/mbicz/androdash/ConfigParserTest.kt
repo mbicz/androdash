@@ -229,6 +229,7 @@ class ConfigParserTest {
             layoutMode = "grid",
             displayMode = "monochrome",
             lockStyle = "color",
+            dashboardSource = "url",
             dashboardName = "Main wall",
             capabilities = listOf("prometheus", "tempo"),
             showUnsupported = true,
@@ -250,6 +251,7 @@ class ConfigParserTest {
         assertEquals("grid", parameters["layout_mode"])
         assertEquals("monochrome", parameters["display_mode"])
         assertEquals("color", parameters["lock_style"])
+        assertEquals("url", parameters["dashboard_source"])
         assertEquals("Main wall", parameters["dashboard_name"])
         assertEquals("prometheus,tempo", parameters["capabilities"])
         assertEquals("true", parameters["show_unsupported"])
@@ -403,6 +405,89 @@ class ConfigParserTest {
         assertFails { ConfigParser.applyOption(base, "dashboard_url", "https://example.com/d.json") }
         assertFails { ConfigParser.applyOption(base, "x".repeat(65), "1h") }
         assertFails { ConfigParser.applyOption(base, null, "1h") }
+    }
+
+    @Test
+    fun `dashboard_source defaults to stored and accepts url`() {
+        val defaulted = ConfigParser.parse(extras("dashboard_url" to dashboard))
+        assertEquals("stored", defaulted.config.dashboardSource)
+        assertTrue(
+            ConfigParser.launchUrl(defaulted.config)
+                .contains("&lock_style=monochrome&dashboard_source=stored&"),
+        )
+
+        val explicit = ConfigParser.parse(extras("dashboard_url" to dashboard, "dashboard_source" to " URL "))
+        assertEquals("url", explicit.config.dashboardSource)
+        assertTrue(ConfigParser.launchUrl(explicit.config).contains("&dashboard_source=url&"))
+
+        val kept = ConfigParser.parse(
+            extras("dashboard_source" to ""),
+            AppConfig(dashboardUrl = dashboard, dashboardSource = "url"),
+        )
+        assertEquals("url", kept.config.dashboardSource)
+
+        val overridden = ConfigParser.parse(
+            extras("dashboard_source" to "stored"),
+            AppConfig(dashboardUrl = dashboard, dashboardSource = "url"),
+        )
+        assertEquals("stored", overridden.config.dashboardSource)
+    }
+
+    @Test
+    fun `invalid dashboard_source is rejected`() {
+        assertFails { ConfigParser.parse(extras("dashboard_url" to dashboard, "dashboard_source" to "cache")) }
+        assertFails { ConfigParser.parse(extras("dashboard_url" to dashboard, "dashboard_source" to "bundled")) }
+        assertFails {
+            ConfigParser.validateConfig(AppConfig(dashboardUrl = dashboard, dashboardSource = "local"))
+        }
+    }
+
+    @Test
+    fun `persisted config round-trips dashboard_source and defaults it when missing`() {
+        val config = AppConfig(dashboardUrl = dashboard, dashboardSource = "url")
+        assertEquals(config, ConfigParser.decodePersisted(config.toJson()))
+        assertEquals("url", JSONObject(config.toJson()).getString("dashboardSource"))
+
+        val legacy = JSONObject(AppConfig(dashboardUrl = dashboard).toJson()).apply {
+            remove("dashboardSource")
+        }.toString()
+        val decoded = ConfigParser.decodePersisted(legacy)
+        assertEquals("stored", decoded?.dashboardSource)
+        assertEquals(1, JSONObject(legacy).getInt("schemaVersion"))
+
+        val invalid = JSONObject(config.toJson()).put("dashboardSource", "cache").toString()
+        assertNull(ConfigParser.decodePersisted(invalid))
+    }
+
+    @Test
+    fun `setOption dashboard_source uses the launch enum`() {
+        val base = AppConfig(dashboardUrl = dashboard, timeRange = "1h")
+        val url = ConfigParser.applyOption(base, "dashboard_source", " Url ")
+        assertEquals(base.copy(dashboardSource = "url"), url.config)
+        assertTrue(ConfigParser.launchUrl(url.config).contains("dashboard_source=url"))
+        assertTrue(url.warnings.isEmpty())
+
+        val stored = ConfigParser.applyOption(url.config, "dashboard_source", "stored")
+        assertEquals(base, stored.config)
+
+        assertFails { ConfigParser.applyOption(base, "dashboard_source", "cache") }
+        assertFails { ConfigParser.applyOption(base, "dashboard_source", " ") }
+        assertFails { ConfigParser.applyOption(base, "dashboard_source", null) }
+    }
+
+    @Test
+    fun `bundled dashboard URLs on the virtual origin are valid`() {
+        val bundled = "http://androdash.local/dashboards/macos-node-dashboard.json"
+        val parsed = ConfigParser.parse(extras("dashboard_url" to bundled))
+        assertEquals(bundled, parsed.config.dashboardUrl)
+        assertEquals("stored", parsed.config.dashboardSource)
+        val query = ConfigParser.launchUrl(parsed.config).substringAfter("?")
+        assertTrue(
+            query.startsWith(
+                "dashboard_url=http%3A%2F%2Fandrodash.local%2Fdashboards%2Fmacos-node-dashboard.json&",
+            ),
+        )
+        assertEquals(parsed.config, ConfigParser.decodePersisted(parsed.config.toJson()))
     }
 
     private fun assertFails(block: () -> Unit) {

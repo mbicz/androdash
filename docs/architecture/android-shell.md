@@ -39,7 +39,8 @@ app/
     │   │   ├── AppConfig.kt      # C-001 data model + JSON persistence shape
     │   │   ├── ConfigParser.kt   # Intent/persisted parsing, validation, launch URL
     │   │   ├── ConfigStore.kt    # SharedPreferences persistence (+ show_when_locked)
-    │   │   ├── AssetServer.kt    # virtual-origin asset interception
+    │   │   ├── AssetServer.kt    # virtual-origin routes: renderer, bundled + stored dashboards
+    │   │   ├── DashboardStore.kt # stored remote-dashboard copy (fixed files, atomic)
     │   │   └── LockRelightPolicy.kt # pure power-button re-light state machine
     │   └── res/
     │       ├── drawable/ic_launcher.xml
@@ -48,7 +49,9 @@ app/
     │           ├── strings.xml
     │           └── styles.xml
     └── test/java/com/mbicz/androdash/
+        ├── AssetServerRouteTest.kt
         ├── ConfigParserTest.kt
+        ├── DashboardStoreTest.kt
         └── LockRelightPolicyTest.kt
 ```
 
@@ -71,8 +74,12 @@ project is a single `:app` module.
 - Assets: the Gradle module maps `web/app/` as the assets root. A `shouldInterceptRequest`
   handler (`AssetServer.kt`) serves those assets at
   `http://androdash.local/` (decision 0007); the WebView does not use `file://`.
-  The exact Gradle wiring is part of M2; do not copy runtime assets into `app/`
-  by hand.
+  A second, generated assets root bundles the dashboards (decision 0018): the
+  `copyDashboardAssets` Copy task copies `contracts/fixtures/*-dashboard.json`
+  into `app/build/generated/dashboard-assets/dashboards/`, and that directory is
+  registered on `sourceSets.main.assets` from the task's output, so
+  `assembleDebug` runs it. Do not copy runtime assets or fixtures into `app/` by
+  hand.
 - Release build: minify is optional, but the renderer assets must remain intact.
   WebView debugging is disabled in release.
 
@@ -93,6 +100,7 @@ one-to-one:
 | `layout_mode` | `layout_mode` | string (`auto`/`grid`/`stack`/`fit`) |
 | `display_mode` | `display_mode` | string |
 | `lock_style` | `lock_style` | string (`monochrome`/`color`) |
+| `dashboard_source` | `dashboard_source` | string (`stored`/`url`) |
 | `dashboard_name` | `dashboard_name` | string |
 | `capabilities` | `capabilities` | comma string |
 | `show_unsupported` | `show_unsupported` | boolean |
@@ -125,9 +133,24 @@ the kiosk. Explicit extras override persisted fields; omitted optional fields
 fall back to defaults (C-001). A persisted object without `lockStyle` (written
 before it existed) decodes as `monochrome`. The renderer's
 `AndroDash.setOption(name, value)` (`time_range`, `refresh_seconds`,
-`layout_mode`, `lock_style`) is validated with the same rules as the launch
-extra, saved into this config, and folded into the renderer URL (C-007). Do not
-persist secrets if auth is added later; record the storage decision first.
+`layout_mode`, `lock_style`, `dashboard_source`) is validated with the same
+rules as the launch extra, saved into this config, and folded into the renderer
+URL (C-007). Do not persist secrets if auth is added later; record the storage
+decision first.
+
+### Stored dashboard
+
+`DashboardStore` keeps one copy of a remote dashboard so the phone starts
+without the dashboard server (C-001 `dashboard_source=stored`, decision 0018).
+The renderer fetches the dashboard and hands it to
+`AndroDash.storeDashboard(sourceUrl, json)`; the shell accepts it only for the
+current `dashboard_url` in `stored` mode and never for an `androdash.local`
+URL, checks it is one JSON object of at most 5 MiB UTF-8, and writes
+`<filesDir>/dashboards/stored.json` then `stored.meta.json`
+(`{"sourceUrl", "storedAt", "bytes"}`) with temp file + fsync + atomic rename,
+meta last. `AssetServer` serves them back at `/stored/dashboard.json` and
+`/stored/meta.json`. The shell never parses dashboard semantics; it only stores
+and serves bytes.
 
 ## 5. WebView configuration
 
@@ -153,7 +176,8 @@ C-008 is normative. The shell applies at least:
 
 The bridge (`window.AndroDash`) is added only for the virtual app origin and
 exposes only the methods in C-007/C-008 (`platform`, `appVersion`, `reload`,
-`exitKiosk`, `log`, `setOption`, `lockScreenEnabled`, `setLockScreen`). Keep
+`exitKiosk`, `log`, `setOption`, `lockScreenEnabled`, `setLockScreen`,
+`storeDashboard`, `clearStoredDashboard`). Keep
 `@JavascriptInterface` methods small, synchronous, and incapable of arbitrary
 file/network/Intent access.
 
@@ -161,7 +185,12 @@ file/network/Intent access.
 
 - Intercept only `http://androdash.local/*` in `shouldInterceptRequest`.
 - Main document: `/index.html`; `/` maps to it.
-- Assets root: the module's `assets` (which maps `web/app/`).
+- Assets root: the module's `assets` (which maps `web/app/` plus the generated
+  `dashboards/` directory).
+- Routes (pure `AssetServer.route`, unit-tested): `/index.html`, `/styles.css`,
+  `/src/**.js`, `/dashboards/<[A-Za-z0-9_.-]+>.json` from assets, and the exact
+  `/stored/dashboard.json` and `/stored/meta.json` from `DashboardStore` (404
+  when nothing is stored). Everything else is 404; `..`, `\`, `%`, `//` → 400.
 - Normalize the URL path, decode once, reject `..`/backslashes/absolute paths;
   never serve outside the asset root.
 - Only `GET`; return 405 for other methods.

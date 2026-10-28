@@ -18,6 +18,7 @@ data class AppConfig(
     val layoutMode: String = "auto",
     val displayMode: String = "standard",
     val lockStyle: String = "monochrome",
+    val dashboardSource: String = "stored",
     val dashboardName: String? = null,
     val capabilities: List<String>? = null,
     val showUnsupported: Boolean = false,
@@ -35,6 +36,7 @@ data class AppConfig(
         json.put("layoutMode", layoutMode)
         json.put("displayMode", displayMode)
         json.put("lockStyle", lockStyle)
+        json.put("dashboardSource", dashboardSource)
         json.put("dashboardName", dashboardName ?: JSONObject.NULL)
         json.put(
             "capabilities",
@@ -72,6 +74,7 @@ data class AppConfig(
                     layoutMode = json.optString("layoutMode", "auto"),
                     displayMode = json.optString("displayMode", "standard"),
                     lockStyle = json.optString("lockStyle", "monochrome"),
+                    dashboardSource = json.optString("dashboardSource", "stored"),
                     dashboardName = json.optNullableString("dashboardName"),
                     capabilities = capabilities,
                     showUnsupported = json.optBoolean("showUnsupported", false),

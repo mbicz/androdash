@@ -49,6 +49,7 @@ It does not require network access.
 ```
 web/tests/contract/c001-config.test.js
 web/tests/contract/c002-dashboard.test.js
+web/tests/contract/c002-stored.test.js
 web/tests/contract/c003-prometheus.test.js
 web/tests/contract/c004-capabilities.test.js
 web/tests/contract/c005-fit.test.js

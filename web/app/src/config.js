@@ -12,6 +12,7 @@ export const DEFAULT_CONFIG = Object.freeze({
   layoutMode: "auto",
   displayMode: "standard",
   lockStyle: "monochrome",
+  dashboardSource: "stored",
   dashboardName: null,
   capabilities: null,
   showUnsupported: false,
@@ -33,6 +34,7 @@ const CAPABILITY_RE = /^[a-z0-9][a-z0-9_-]*$/;
 const DISPLAY_MODES = ["standard", "amoled", "monochrome"];
 const LAYOUT_MODES = ["auto", "grid", "stack", "fit"];
 const LOCK_STYLES = ["monochrome", "color"];
+const DASHBOARD_SOURCES = ["stored", "url"];
 const DURATION_RE = /^\d+(?:ms|s|m|h|d|w)(?:\d+(?:ms|s|m|h|d|w))*$/;
 
 function warning(code, message, detail = null) {
@@ -180,6 +182,11 @@ export function parseConfig(search = "") {
     throw new ConfigError("lock_style must be monochrome or color", "lock_style");
   }
 
+  const dashboardSource = params.get("dashboard_source") || "stored";
+  if (!DASHBOARD_SOURCES.includes(dashboardSource)) {
+    throw new ConfigError("dashboard_source must be stored or url", "dashboard_source");
+  }
+
   const config = Object.freeze({
     schemaVersion: 1,
     dashboardUrl,
@@ -192,6 +199,7 @@ export function parseConfig(search = "") {
     layoutMode,
     displayMode,
     lockStyle,
+    dashboardSource,
     dashboardName,
     capabilities: parseCapabilities(params.get("capabilities")),
     showUnsupported: parseBoolean(params, "show_unsupported", false),
@@ -213,6 +221,7 @@ export function buildQuery(config) {
   params.set("layout_mode", config.layoutMode);
   params.set("display_mode", config.displayMode);
   params.set("lock_style", config.lockStyle);
+  params.set("dashboard_source", config.dashboardSource);
   if (config.dashboardName !== null) params.set("dashboard_name", config.dashboardName);
   if (config.capabilities !== null) params.set("capabilities", config.capabilities.join(","));
   params.set("show_unsupported", String(config.showUnsupported));

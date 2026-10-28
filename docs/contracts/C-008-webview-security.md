@@ -1,7 +1,8 @@
 # C-008 — WebView security
 
-- **Version:** 1
-- **Status:** Accepted, 2026-10-26
+- **Version:** 2
+- **Status:** Accepted, 2026-10-28 (v2: bundled and stored dashboards on the
+  virtual origin, decision 0018)
 - **Consumers:** Android shell (W1), web renderer (W2)
 - **Related:** C-001 (URL validation), C-003 (CORS/cleartext), C-007 (bridge), C-009 (redaction)
 
@@ -15,8 +16,10 @@ untrusted; the local renderer is trusted.
 
 - Trusted: APK code, `web/app` assets served from the virtual
   `http://androdash.local` origin (decision 0007), the limited bridge.
-- Untrusted: dashboard JSON, Markdown, labels, error strings, every HTTP
-  response.
+- Untrusted: dashboard JSON — including the bundled `/dashboards/*.json`
+  fixtures and the stored copy under `/stored/` — Markdown, labels, error
+  strings, every HTTP response. Serving dashboard JSON from the virtual origin
+  does not make it trusted.
 - Not allowed: any remote page, script, style, font, iframe, or navigation.
 
 ## WebView settings
@@ -56,7 +59,10 @@ If a setting needs to change, update this table and the security doc.
   `http://androdash.local/index.html?…` with the C-001 parameters.
 - The shell intercepts every request to `http://androdash.local` and serves it
   from bundled assets (decision 0007). No network listener or DNS exists for that
-  host.
+  host. Only an explicit route list is reachable: `/`, `/index.html`,
+  `/styles.css`, `/src/**.js`, `/dashboards/<name>.json` (bundled dashboards,
+  `[A-Za-z0-9_.-]+`), and the two exact stored-dashboard paths below. Paths with
+  `..`, `\`, `%`, or `//` are rejected (400); anything else is 404.
 - `WebViewClient.shouldOverrideUrlLoading` returns `true` (block) for every URL
   outside `http://androdash.local/`. Do not open an external browser from kiosk
   mode.
@@ -67,6 +73,26 @@ If a setting needs to change, update this table and the security doc.
 - Do not allow `window.open`/target=_blank; renderer never creates links.
 - Do not inject `evaluateJavascript` from untrusted input. Native may evaluate a
   fixed, constant script for lifecycle (if needed); prefer bridge/page APIs.
+
+### Stored dashboard (decision 0018)
+
+- The shell keeps at most one stored dashboard: untrusted JSON that the
+  renderer fetched from the configured `dashboard_url` and handed back through
+  `AndroDash.storeDashboard` (C-007). It is served back verbatim, only to the
+  same virtual origin, at `GET /stored/dashboard.json` and
+  `GET /stored/meta.json` (`application/json`, `Cache-Control: no-store`,
+  `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`; 404 when absent).
+- The shell checks only that it is one JSON object of at most 5 MiB UTF-8; it
+  does not interpret it. The renderer normalizes the stored copy as untrusted
+  exactly like a fetched dashboard (C-002, [Untrusted content
+  handling](#untrusted-content-handling)); storing it grants no privilege.
+- No path parameter, query, or JSON field reaches the filesystem: the store
+  uses the fixed names `dashboards/stored.json` and `dashboards/stored.meta.json`
+  in app-private storage. The routes take no parameters.
+- `storeDashboard` accepts only the current `dashboard_url` in
+  `dashboard_source=stored` mode and never a virtual-origin URL, so a page cannot
+  plant a dashboard for a different URL or overwrite a bundled one.
+- The shell never logs stored contents or source URLs; it logs byte counts.
 
 ## Content Security Policy
 
@@ -180,7 +206,9 @@ Constraints:
 - [ ] No secrets/full URLs in logs/diagnostics.
 - [ ] Cleartext use documented; no TLS bypass.
 - [ ] Downloads/file chooser/permissions stay disabled.
-- [ ] Limits still bound untrusted payload sizes.
+- [ ] Limits still bound untrusted payload sizes (stored dashboard ≤ 5 MiB).
+- [ ] Virtual-origin routes unchanged, or this contract and
+      `AssetServerRouteTest` updated; stored-dashboard files keep fixed names.
 
 ## Residual risks
 
