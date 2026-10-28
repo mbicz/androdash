@@ -18,8 +18,10 @@ serve/observe them; they do not patch them.
 
 ## Current state
 
-`tools/check_docs.py` exists (M0, standard library only). `mock_prometheus.py`
-and `serve_demo.py` are planned for M1. Do not claim they work before they exist.
+`tools/check_docs.py`, `tools/mock_prometheus.py`, and `tools/serve_demo.py` are
+implemented. `tools/test_mock_prometheus.py` verifies that every query in the
+Spark dashboard fixture is recognized and returns data. M3 may add more fixtures;
+the mock remains deterministic and dependency-free.
 
 ## Requirements
 
@@ -42,9 +44,20 @@ and `serve_demo.py` are planned for M1. Do not claim they work before they exist
   - `demo_disk_used_percent` (~78%)
   - `demo_requests_total{code="200"|"500"}`
   - `up{job="demo"}`
+- Spark Exporter metrics (see `contracts/fixtures/spark-dashboard.json` and
+  [`docs/integrations/spark-exporter.md`](../docs/integrations/spark-exporter.md)):
+  - thermals (GPU, HBM, thermal zone, hwmon), power draw/limit,
+    utilization, unified-memory pressure;
+  - engine tokens/s, KV cache, TTFT, inter-token latency, request queue;
+  - GPU SM/memory clocks, CPU frequency, RDMA traffic/capacity, collector
+    health;
+  - `node_load1`/`node_load5`.
+- Spark mock values must be in the units the dashboard query produces (for
+  example a `* 1000` millisecond query returns milliseconds). Unsupported driver
+  fields must stay absent, not zero.
 - Deterministic for fixed `start`/`end`; plausible smooth curves for live demo.
-- The mock is not a PromQL engine: recognize the demo queries/metric names and
-  return documented shapes. Return a useful error for unknown queries.
+- The mock is not a PromQL engine: recognize the documented queries/metric names
+  and return documented shapes. Return a useful error for unknown queries.
 - Options for failure testing: `--latency-ms`, `--fail-rate` (documented, seeded
   if random). Never enable failures by default.
 - Do not require auth or network access beyond localhost.
@@ -75,6 +88,7 @@ and `serve_demo.py` are planned for M1. Do not claim they work before they exist
 python3 tools/mock_prometheus.py --port 9091
 python3 tools/serve_demo.py --port 8099
 python3 tools/check_docs.py
+python3 -m unittest discover -s tools -p 'test_*.py' -v
 curl -s http://localhost:9091/api/v1/status/buildinfo | jq
 ```
 

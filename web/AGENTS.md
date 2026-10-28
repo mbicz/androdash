@@ -19,7 +19,9 @@ diverge.
 
 ## Current state
 
-M1 is planned. `web/` contains only this file; there are no modules or tests yet.
+M1 is implemented. `web/app/` contains the runtime; `web/tests/contract/` holds
+55 passing Node contract tests. M3 is adding production-shaped fixtures and
+polish; the contracts remain the interface.
 
 ## Requirements
 
@@ -35,7 +37,8 @@ M1 is planned. `web/` contains only this file; there are no modules or tests yet
 - Bound series/points/panels; no overlapping cycles.
 - `window.AndroDash` is optional; degrade gracefully in browser dev.
 - Keep `main.js` thin; pure logic modules exported for tests.
-- Dark theme only; no remote fonts/images.
+- Support the `standard`, `amoled`, and `monochrome` presentations from C-005;
+  no remote fonts/images.
 
 ## Entry points
 

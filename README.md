@@ -8,9 +8,26 @@ service, and no proxy requirement. Point the app at a Perses dashboard JSON URL
 and a Prometheus URL; the app lays out the panels, queries the metrics, and
 draws the screen.
 
-> **Status: M0 — foundation only.** The constitution, contracts, architecture,
-> and fixtures are in place. The WebView renderer (M1) and Android shell (M2)
-> are next. No APK exists yet. See [`docs/roadmap.md`](docs/roadmap.md).
+> **Status: M2 complete, M3 hardening next.** The renderer, mock tooling, and
+> Android shell are implemented and verified on the emulator. The demo and a
+> production-shaped Spark Exporter dashboard render from the same code. See
+> [`docs/roadmap.md`](docs/roadmap.md).
+
+---
+
+## Highlights
+
+- Plain ES2022 renderer with hand-built SVG charts; no web build step and no
+  runtime dependencies.
+- Direct Prometheus queries from the phone, including dashboard variables and
+  capability-first panel filtering.
+- Kiosk shell with `standard`, true-black `amoled`, and black-and-white
+  `monochrome` presentations for AMOLED lock-screen use.
+- Deterministic mock Prometheus and a Spark Exporter dashboard fixture covering
+  GPU, unified-memory pressure, token throughput, latency, RDMA fabric, and
+  collector health.
+- Honest absence semantics: missing driver fields stay missing; unsupported
+  panels are hidden with stable reasons.
 
 ---
 
@@ -60,31 +77,37 @@ Start with [`AGENTS.md`](AGENTS.md) if you are an agent or a new contributor.
 - [`changelog.d/`](changelog.d/) — decision log.
 - [`docs/roadmap.md`](docs/roadmap.md) — milestones and workstreams.
 
-## Target quickstart (not yet runnable)
-
-Once M1 and M2 land, the intended local demo is:
+## Quickstart
 
 ```sh
 # terminal 1 — deterministic synthetic metrics
 python3 tools/mock_prometheus.py --port 9091
 
-# terminal 2 — serve the repo (dashboard fixture + web runtime)
+# terminal 2 — serve the repo (dashboard fixtures + web runtime)
 python3 tools/serve_demo.py --port 8099
 
 # terminal 3 — build, install, launch on the emulator
-./gradlew :app:installDebug
-adb shell am start -n dev.androdash/.MainActivity \
+mise exec -- ./gradlew :app:installDebug
+adb shell am start -n com.mbicz.androdash/.MainActivity \
   --es dashboard_url "http://10.0.2.2:8099/contracts/fixtures/demo-dashboard.json" \
   --es prometheus_url "http://10.0.2.2:9091" \
+  --es display_mode amoled \
   --ez debug true
 ```
 
 `10.0.2.2` is the Android emulator's alias for the host loopback. A physical
 phone uses the host's LAN address instead.
 
-The repository currently documents the plan and the contracts; commands marked
-**planned** in [`docs/development.md`](docs/development.md) will fail until the
-corresponding milestone is complete.
+For the Spark Exporter dashboard, point `dashboard_url` at
+`http://10.0.2.2:8099/contracts/fixtures/spark-dashboard.json`. The queries,
+units, and absence semantics are documented in
+[`docs/integrations/spark-exporter.md`](docs/integrations/spark-exporter.md).
+
+Browser demo:
+
+```text
+http://localhost:8099/web/app/index.html?dashboard_url=http://localhost:8099/contracts/fixtures/spark-dashboard.json&prometheus_url=http://localhost:9091&debug=true
+```
 
 ## Repository layout
 
@@ -92,10 +115,10 @@ corresponding milestone is complete.
 AGENTS.md              agent entry point and rules
 CONSTITUTION.md        project principles
 README.md              this file
-app/                   Android Kotlin shell (M2)
-web/                   vanilla ES-module renderer (M1)
-tools/                 docs checker now; demo servers (M1)
-docs/                  architecture, contracts, development, roadmap
+app/                   Android Kotlin shell: config, WebView, kiosk
+web/                   vanilla ES-module renderer and contract tests
+tools/                 docs checker, mock Prometheus, static demo server
+docs/                  architecture, contracts, development, integrations, roadmap
 contracts/             machine-readable schemas and fixtures
 changelog.d/           decision log / change fragments
 ```

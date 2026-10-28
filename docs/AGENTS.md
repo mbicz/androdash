@@ -47,8 +47,9 @@ write the contract/decision first; the owning workstream implements it.
 
 ## Current state
 
-M0: docs/contracts complete. M1/M2 docs describe planned behavior. Keep this
-distinction explicit.
+M0–M2 are complete; M3 is current. Docs describe implemented behavior plus
+explicit M3 gaps. The Spark Exporter integration, AMOLED/monochrome modes, and
+lock-screen behavior are documented and tested.
 
 ## Commands
 

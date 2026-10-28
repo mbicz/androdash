@@ -28,6 +28,7 @@ If you are new, read [`AGENTS.md`](../AGENTS.md) first.
 | [`architecture/renderer.md`](architecture/renderer.md) | How is the web runtime structured? How are panels, layout, and refresh implemented? |
 | [`architecture/security.md`](architecture/security.md) | What is the threat model? What must never be weakened? |
 | [`architecture/testing.md`](architecture/testing.md) | What is tested at which layer? What is the emulator demo recipe? |
+| [`integrations/spark-exporter.md`](integrations/spark-exporter.md) | How are Spark Exporter metrics queried, formatted, and demonstrated? |
 
 ## Contracts
 
@@ -61,6 +62,7 @@ The index is [`contracts/README.md`](contracts/README.md).
 | [`../contracts/app-config.schema.json`](../contracts/app-config.schema.json) | Canonical launch configuration object |
 | [`../contracts/diagnostics.schema.json`](../contracts/diagnostics.schema.json) | Diagnostics snapshot shape |
 | [`../contracts/fixtures/demo-dashboard.json`](../contracts/fixtures/demo-dashboard.json) | Small Perses dashboard used by the demo and tests |
+| [`../contracts/fixtures/spark-dashboard.json`](../contracts/fixtures/spark-dashboard.json) | Spark Exporter host, inference, fabric, and health dashboard |
 | [`../contracts/fixtures/app-config.example.json`](../contracts/fixtures/app-config.example.json) | Example canonical config |
 | [`../contracts/fixtures/prometheus/`](../contracts/fixtures/prometheus/) | Deterministic Prometheus API responses |
 

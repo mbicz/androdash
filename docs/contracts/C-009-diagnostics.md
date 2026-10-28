@@ -88,6 +88,7 @@ Canonical shape (see the schema for exact types):
     "kiosk": true,
     "debug": true,
     "layoutMode": "auto",
+    "displayMode": "standard",
     "dashboardName": null,
     "capabilities": null,
     "showUnsupported": false

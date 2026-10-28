@@ -65,6 +65,12 @@
       "type": "string",
       "enum": ["auto", "grid", "stack"]
     },
+    "displayMode": {
+      "type": "string",
+      "enum": ["standard", "amoled", "monochrome"],
+      "default": "standard",
+      "description": "Presentation mode (C-005). amoled removes gradients on true black; monochrome is the high-contrast black-and-white lock-screen presentation."
+    },
     "dashboardName": {
       "type": ["string", "null"],
       "minLength": 1,

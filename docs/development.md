@@ -1,8 +1,9 @@
 # Development guide
 
-**Current state:** M0 (foundation). The renderer and Android app do not exist
-yet. Commands marked **planned** will fail until their milestone lands. This file
-is the canonical command reference; if a command here is wrong, fix it.
+**Current state:** M1 renderer and M2 Android shell are implemented; M3
+hardening is next. Commands in this file are real unless explicitly marked
+**planned**. This file is the canonical command reference; if a command here is
+wrong, fix it.
 
 ## 1. Prerequisites
 
@@ -31,7 +32,7 @@ python3 tools/check_docs.py
 
 Read `AGENTS.md`, `CONSTITUTION.md`, and `docs/index.md` before changing code.
 
-## 3. What is real today (M0)
+## 3. What is real today
 
 ```sh
 # Validate contracts and fixtures
@@ -40,13 +41,20 @@ find contracts -name '*.json' -print0 | xargs -0 -n1 jq empty
 # Check local Markdown links
 python3 tools/check_docs.py
 
-# Inspect the foundation
-find docs contracts changelog.d -type f | sort
+# Renderer unit + contract tests
+mise exec -- node --test web/tests/
+
+# Mock/tooling integration tests
+python3 -m unittest discover -s tools -p 'test_*.py' -v
+
+# Android config/unit tests
+mise exec -- ./gradlew :app:testDebugUnitTest
 ```
 
-There is no build, no server, and no APK yet.
+There is a browser demo and a debug APK. Build, install, and emulator commands
+are in §5.
 
-## 4. Planned: renderer browser harness (M1)
+## 4. Renderer browser harness
 
 Terminal 1 — synthetic Prometheus:
 
@@ -69,15 +77,15 @@ http://localhost:8099/web/app/index.html?dashboard_url=http://localhost:8099/con
 Tests:
 
 ```sh
-node --test web/tests/
-node --test web/tests/contract/
+mise exec -- node --test web/tests/
+mise exec -- node --test web/tests/contract/
 ```
 
 Use the static server; `file://` is not a supported renderer origin. The Android
 WebView path is the virtual `http://androdash.local/index.html` origin (served
 from assets via `shouldInterceptRequest`, decision 0007).
 
-## 5. Planned: Android build (M2)
+## 5. Android build
 
 Gradle project layout:
 
@@ -88,15 +96,17 @@ gradle.properties
 gradlew, gradle/wrapper/   # checked in
 app/build.gradle.kts
 app/src/main/AndroidManifest.xml
-app/src/main/java/dev/androdash/...
+app/src/main/java/com/mbicz/androdash/...
 web/app/                   # mapped as the app's assets source
 ```
 
 Build and install:
 
 ```sh
-./gradlew :app:assembleDebug
-./gradlew :app:installDebug
+mise exec -- ./gradlew :app:testDebugUnitTest
+mise exec -- ./gradlew :app:assembleDebug
+mise exec -- ./gradlew :app:installDebug
+mise exec -- ./gradlew :app:lintDebug
 ```
 
 If the wrapper is missing, generate it once with a compatible Gradle:
@@ -112,7 +122,7 @@ Use the version compatible with the chosen AGP; record upgrades in
 
 ```sh
 adb devices
-adb shell am start -n dev.androdash/.MainActivity \
+adb shell am start -n com.mbicz.androdash/.MainActivity \
   --es dashboard_url "http://10.0.2.2:8099/contracts/fixtures/demo-dashboard.json" \
   --es prometheus_url "http://10.0.2.2:9091" \
   --ez debug true
@@ -122,19 +132,49 @@ adb shell am start -n dev.androdash/.MainActivity \
 the same Wi-Fi, use the host's LAN IP (e.g. `192.168.1.20`) and allow ports 8099
 and 9091 through the host firewall.
 
+Spark Exporter dashboard:
+
+```sh
+adb shell am start -n com.mbicz.androdash/.MainActivity \
+  --es dashboard_url "http://10.0.2.2:8099/contracts/fixtures/spark-dashboard.json" \
+  --es prometheus_url "http://10.0.2.2:9091" \
+  --ez debug true
+```
+
+The fixture uses real Spark Exporter metric families plus `node_load1`/`node_load5`.
+The mock returns deterministic values for every query. See
+[`integrations/spark-exporter.md`](integrations/spark-exporter.md).
+
 Kiosk off for development:
 
 ```sh
-adb shell am start -n dev.androdash/.MainActivity \
+adb shell am start -n com.mbicz.androdash/.MainActivity \
   --es dashboard_url "http://10.0.2.2:8099/contracts/fixtures/demo-dashboard.json" \
   --es prometheus_url "http://10.0.2.2:9091" \
   --ez kiosk false --ez debug true
 ```
 
+AMOLED / lock-screen screensaver presentation:
+
+```sh
+adb shell am start -n com.mbicz.androdash/.MainActivity \
+  --es dashboard_url "http://10.0.2.2:8099/contracts/fixtures/demo-dashboard.json" \
+  --es prometheus_url "http://10.0.2.2:9091" \
+  --es display_mode monochrome \
+  --ez show_when_locked true \
+  --ei refresh_seconds 60 \
+  --ez debug true
+```
+
+`display_mode` also accepts `amoled` (true black, no gradients, semantic colors
+retained). `show_when_locked` is ignored when `kiosk=false`; it keeps the
+activity above the keyguard without dismissing it. It is not an
+always-on-display API, and OEM keyguard behavior varies.
+
 Reload / stop:
 
 ```sh
-adb shell am force-stop dev.androdash
+adb shell am force-stop com.mbicz.androdash
 adb logcat -c
 adb logcat -s AndroDash
 ```
@@ -187,7 +227,7 @@ Some emulator images lack `curl`; use the app's diagnostics instead.
 ```sh
 adb logcat -s AndroDash
 adb shell dumpsys activity activities | grep -i androdash
-adb shell am force-stop dev.androdash
+adb shell am force-stop com.mbicz.androdash
 ```
 
 ### Prometheus/mock
@@ -195,6 +235,8 @@ adb shell am force-stop dev.androdash
 ```sh
 curl -s http://localhost:9091/api/v1/status/buildinfo | jq
 curl -s 'http://localhost:9091/api/v1/query?query=up' | jq
+curl -s -G http://localhost:9091/api/v1/query \
+  --data-urlencode 'query=spark_gpu_temperature_celsius{gpu="0"}' | jq
 curl -s -D- -o /dev/null http://localhost:9091/api/v1/status/buildinfo
 ```
 
@@ -266,7 +308,7 @@ Check CORS headers (`Access-Control-Allow-Origin`) and cleartext reachability.
 | Panels hidden unexpectedly | Capability filter: query/panel kind, datasource URL, `prometheus` probe; open debug overlay |
 | No data but no error | PromQL matches nothing, variable resolved to empty, or time range mismatch; check the mock/Prometheus directly |
 | Chart blank | Check series/point caps, null handling, and panel `data-state` |
-| Kiosk won't exit | Use `adb shell am force-stop dev.androdash`; relaunch with `kiosk=false` |
+| Kiosk won't exit | Use `adb shell am force-stop com.mbicz.androdash`; relaunch with `kiosk=false` |
 | WebView debugging unavailable | Use a debug build; `setWebContentsDebuggingEnabled(true)` only then |
 | Cleartext blocked | Check `usesCleartextTraffic`/network security config and Android version |
 | Gradle can't find SDK | Set `ANDROID_HOME` or `local.properties` (do not commit it) |

@@ -1,6 +1,6 @@
 # Testing architecture
 
-**Status:** test plan for M1/M2; no test code exists yet.
+**Status:** implemented for M1/M2; extend the existing suites as behavior grows.
 **Workstreams:** W2 (renderer), W3 (tooling), W1 (shell).
 **Contracts:** all. Test names encode contract IDs.
 
@@ -21,6 +21,7 @@
 | Layer | Tool | Scope | Command |
 |---|---|---|---|
 | Docs/contracts | `jq`, link checker | JSON validity, local links | see §3 |
+| Mock/tooling | Python `unittest` | fixture-query coverage, absence semantics, unknown queries | `python3 -m unittest discover -s tools -p 'test_*.py' -v` |
 | Renderer unit | `node --test` | parsing, normalization, filtering, HTTP URL building, calculations, formatting, Markdown escaping | `node --test web/tests/` |
 | Renderer contract | `node --test` | one file per contract C-001…C-006, C-009 | `node --test web/tests/contract/` |
 | Renderer integration | browser + mock | load demo, assert DOM states/counts | manual + (later) headless |
@@ -125,6 +126,9 @@ web/tests/contract/c009-diagnostics.test.js
 Use only `contracts/fixtures/`:
 
 - `demo-dashboard.json` — 9 panels, 6 eligible, 3 hidden (Tempo, Loki, unknown).
+- `spark-dashboard.json` — 15 Spark Exporter panels, all eligible with
+  Prometheus. `tools/test_mock_prometheus.py` requires the mock to answer every
+  query; C-002/C-004 assert the panel, row, and query counts.
 - `prometheus/*.json` — deterministic API responses.
 - `app-config.example.json` — canonical object.
 - `diagnostics.example.json` — snapshot shape.
@@ -134,12 +138,12 @@ before asserting where order is not contractual.
 
 ## 5. Android unit tests
 
-`app/src/test/java/dev/androdash/`:
+`app/src/test/java/com/mbicz/androdash/`:
 
 - `ConfigParserTest` — Intent extras, defaults, invalid schemes, integer/duration
-  bounds, persistence precedence.
-- `LaunchUrlTest` — percent encoding, parameter names, round-trip with the
-  renderer parser (shared expectations in the contract doc).
+  bounds, persistence precedence, capability limits, `display_mode` validation,
+  and `show_when_locked` gating. Launch-URL encoding is covered here too (the
+  planned standalone `LaunchUrlTest` was folded in).
 
 Use plain JUnit 4 (no AndroidX test runner) for pure Kotlin classes. Activity,
 WebView, and kiosk behavior are verified manually on the emulator for v1.
@@ -166,13 +170,27 @@ Expected:
 - stopping the mock marks panels stale/error while keeping last data;
 - restarting the mock recovers on the next cycle.
 
+### Spark Exporter demo
+
+Use the same servers and open:
+
+```text
+http://localhost:8099/web/app/index.html?dashboard_url=http://localhost:8099/contracts/fixtures/spark-dashboard.json&prometheus_url=http://localhost:9091&debug=true
+```
+
+Expected: 14 panels in 5 rows; `gpu` and `engine` variables resolve from label
+values; units render as `°C`, `W`, `%`, `tok/s`, `ms`, `Gb/s`, and `GHz`;
+stopping the mock leaves last-good data and an error badge. See
+[`integrations/spark-exporter.md`](../integrations/spark-exporter.md) for the
+query semantics.
+
 ### Emulator (M2)
 
 Prerequisites: SDK 35, emulator running, `adb` available.
 
 ```sh
 ./gradlew :app:installDebug
-adb shell am start -n dev.androdash/.MainActivity \
+adb shell am start -n com.mbicz.androdash/.MainActivity \
   --es dashboard_url "http://10.0.2.2:8099/contracts/fixtures/demo-dashboard.json" \
   --es prometheus_url "http://10.0.2.2:9091" \
   --ez debug true

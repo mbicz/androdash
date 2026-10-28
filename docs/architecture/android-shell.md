@@ -1,6 +1,7 @@
 # Android shell architecture
 
-**Status:** planned for M2. No Kotlin code exists yet.
+**Status:** implemented for M2; verified on `emulator-5554`. Physical-device and
+soak work remains in M3.
 **Workstream:** W1.
 **Contracts:** C-001, C-007, C-008.
 **Scope:** the native shell only. Dashboard/model/query/rendering logic belongs in
@@ -23,30 +24,30 @@ anything.
 
 ## 2. Target package and files
 
-Application ID and Kotlin package: **`dev.androdash`**.
+Application ID and Kotlin package: **`com.mbicz.androdash`**.
 
 ```
 app/
 ├── AGENTS.md
 ├── build.gradle.kts
+├── proguard-rules.pro
 └── src/
     ├── main/
     │   ├── AndroidManifest.xml
-    │   ├── java/dev/androdash/
-    │   │   ├── MainActivity.kt
-    │   │   ├── AppConfig.kt
-    │   │   ├── ConfigParser.kt
-    │   │   ├── KioskController.kt
-    │   │   ├── WebViewFactory.kt
-    │   │   ├── AssetServer.kt
-    │   │   ├── AndroidBridge.kt
-    │   │   └── FatalScreen.kt
-    │   └── res/values/
-    │       ├── strings.xml
-    │       └── themes.xml
-    └── test/java/dev/androdash/
-        ├── ConfigParserTest.kt
-        └── LaunchUrlTest.kt
+    │   ├── java/com/mbicz/androdash/
+    │   │   ├── MainActivity.kt   # activity, WebView setup, kiosk/lock-screen, bridge
+    │   │   ├── AppConfig.kt      # C-001 data model + JSON persistence shape
+    │   │   ├── ConfigParser.kt   # Intent/persisted parsing, validation, launch URL
+    │   │   ├── ConfigStore.kt    # SharedPreferences persistence
+    │   │   └── AssetServer.kt    # virtual-origin asset interception
+    │   └── res/
+    │       ├── drawable/ic_launcher.xml
+    │       └── values/
+    │           ├── colors.xml
+    │           ├── strings.xml
+    │           └── styles.xml
+    └── test/java/com/mbicz/androdash/
+        └── ConfigParserTest.kt
 ```
 
 Root Gradle files live at the repository root (`settings.gradle.kts`,
@@ -88,10 +89,12 @@ one-to-one:
 | `kiosk` | `kiosk` | boolean |
 | `debug` | `debug` | boolean |
 | `layout_mode` | `layout_mode` | string |
+| `display_mode` | `display_mode` | string |
 | `dashboard_name` | `dashboard_name` | string |
 | `capabilities` | `capabilities` | comma string |
 | `show_unsupported` | `show_unsupported` | boolean |
 | `lock_task` | — | boolean (native-only; C-007, not in AppConfig) |
+| `show_when_locked` | — | boolean (native-only; C-007, not in AppConfig) |
 
 Boolean Intent extras use `--ez`, integers `--ei`, strings `--es` when launching
 with `adb`.
@@ -171,6 +174,12 @@ small, synchronous, and incapable of arbitrary file/network/Intent access.
 - `kiosk=true` is the default. `lock_task=true` (optional, default false) calls
   `startLockTask()`; true unattended locking requires device-owner provisioning.
   The shell must tolerate failure and remain usable.
+- `show_when_locked=true` (optional, default false) keeps the activity visible
+  above the keyguard and turns the screen on. API 27+ uses
+  `setShowWhenLocked`/`setTurnScreenOn`; API 26 uses the legacy window flags.
+  It never dismisses the keyguard or reads credentials. It is ignored when
+  `kiosk=false` and is intended to be paired with `display_mode=monochrome`.
+  This is not an always-on-display guarantee; OEM behavior varies.
 - Orientation: sensor default; no lock in v1. A future `screen_orientation`
   extra needs a contract change.
 - Pause/resume: do not destroy the WebView. Notify the renderer via page
@@ -179,7 +188,7 @@ small, synchronous, and incapable of arbitrary file/network/Intent access.
 - Process death: reload from persisted config.
 - Escape hatch: when `debug=true`, the renderer shows a small debug affordance
   that can call `AndroDash.exitKiosk()`. Release builds hide it. `adb shell am
-  force-stop dev.androdash` always works for the owner.
+  force-stop com.mbicz.androdash` always works for the owner.
 
 ## 7. Native fatal screen
 

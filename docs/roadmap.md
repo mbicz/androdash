@@ -1,7 +1,8 @@
 # Roadmap and workstreams
 
 **Last updated:** 2026-10-26
-**Current milestone:** M1 — renderer + demo tooling (M0 complete).
+**Current milestone:** M3 — hardening, real phone, and production-shaped data
+(M0, M1, and M2 complete).
 **Rule:** do not start a later milestone's code before its dependencies have
 contract tests. M1 and M2 may overlap only on the shell skeleton.
 
@@ -21,7 +22,7 @@ contract tests. M1 and M2 may overlap only on the shell skeleton.
 **Acceptance evidence:** JSON fixtures parse; local doc links resolve; all
 contract docs exist; no renderer/Android code is claimed to work.
 
-### M1 — Renderer core + browser demo (next)
+### M1 — Renderer core + browser demo (complete, 2026-10-26)
 
 Goal: open the demo in a browser, see 6 supported panels with data and 3 hidden
 panels with reasons, refresh every 10 s, and pass contract tests.
@@ -47,11 +48,16 @@ Ordered tasks:
   status line, refresh, debug overlay.
 - Stop the mock → stale/error with last data; restart → recovery.
 - `node --test web/tests/` passes.
-- `contracts/fixtures/demo-dashboard.json` is the only demo dashboard needed.
+- `contracts/fixtures/demo-dashboard.json` is the minimal smoke dashboard;
+  production-shaped fixtures are added in M3.
 - No runtime dependencies, no remote assets.
 - Contract tests named `c001…c006`, `c009` exist for implemented clauses.
 
-### M2 — Android shell + emulator demo
+**M1 evidence:** 53 Node tests pass; the browser demo renders 6 panels, hides 3
+with exact reasons, refreshes, and recovers after a mock outage. The static
+server and mock are implemented in `tools/`.
+
+### M2 — Android shell + emulator demo (complete, 2026-10-26)
 
 Goal: APK installs and renders the same demo on the emulator/phone in kiosk mode.
 
@@ -73,17 +79,34 @@ Goal: APK installs and renders the same demo on the emulator/phone in kiosk mode
 - Demo launches from `adb` with `10.0.2.2` URLs.
 - 6 panels render, 3 hidden, refresh works.
 - Kiosk true: immersive, back no-op, screen awake; kiosk false: back exits.
+- `display_mode` applies `standard`, `amoled`, and `monochrome`; monochrome is
+  true black with no gradients, shadows, blur, or non-essential animation.
+- `show_when_locked` is applied only with `kiosk=true`, marks the activity as
+  the turn-screen-on activity, and is cleared by a relaunch without the extra.
 - Invalid config shows `E_CONFIG`; no uncaught crash in logcat.
 - Persisted config restores after force-stop/relaunch.
 - No secrets in logs; WebView debugging off in release.
 
-### M3 — Kiosk hardening + real phone
+**M2 evidence:** debug APK builds and installs on `emulator-5554`; the demo and
+Spark dashboards render, refresh, hide unsupported panels, retain last-good data
+during a Prometheus outage, and apply display/lock-screen modes. Screenshots live
+in the local `screenshots/` evidence directory (git-ignored). `ConfigParserTest`
+passes; `:app:lintDebug` is part of the verification pass.
 
-- Soak test (30+ min), memory/DOM bounds, reconnect behavior.
-- Device-owner/lock-task provisioning notes (optional).
-- Orientation/theme/layout refinements from phone feedback.
-- Accessibility pass (contrast, text size, chart summaries).
-- Optional static dashboard packaging (no server at all).
+### M3 — Hardening, real phone, and production-shaped data (current)
+
+- [x] Spark Exporter dashboard fixture (`spark-dashboard.json`), deterministic
+  mock coverage, physical units (`W`, `°C`, `Hz`, `Gb/s`, `tok/s`), query
+  cookbook, and tests.
+- [x] Phone-space pass: exact CSS-pixel SVG geometry (axis text was rendering at
+  4.45 px), compact chrome, content-sized stat panels, grouped same-unit metrics
+  (decision 0014). Spark fixture page height 4234 → 2834 px at 393×851.
+- [ ] Soak test (30+ min), memory/DOM bounds, reconnect behavior.
+- [ ] Physical-phone test on AMOLED hardware with the real Spark host.
+- [ ] Device-owner/lock-task provisioning notes (optional).
+- [ ] Orientation/theme/layout refinements from phone feedback.
+- [ ] Accessibility pass (contrast, text size, chart summaries).
+- [ ] Optional static dashboard packaging (no server at all).
 
 ### M4 — Capability-driven generation + auth
 
@@ -96,9 +119,9 @@ Goal: APK installs and renders the same demo on the emulator/phone in kiosk mode
 
 | Workstream | Can start | Needs | Produces |
 |---|---|---|---|
-| W1 Android shell | M2, or skeleton earlier against frozen C-001/C-007/C-008 | Gradle, SDK 35, M1 assets path | APK, config/bridge/kiosk |
-| W2 Web renderer | M1 now | contracts, fixtures, mock for integration | browser demo, tests |
-| W3 Demo tooling | M1 now | C-003 fixture expectations | mock + static server |
+| W1 Android shell | M3 hardening and physical-device feedback | device, SDK 35, M1 assets path | shell fixes, kiosk/lock-screen behavior |
+| W2 Web renderer | M3 now | contracts, fixtures, mock for integration | renderer fixes, new units/panels within C-005 |
+| W3 Demo tooling | M3 now | C-003 fixture expectations | mock coverage, static serving, deterministic tests |
 | W4 Contracts/docs | now, ongoing | changes from W1–W3 | docs, schemas, decisions, link checks |
 
 Parallel rules:

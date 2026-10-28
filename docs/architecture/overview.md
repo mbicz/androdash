@@ -1,6 +1,8 @@
 # Architecture overview
 
-**Status:** M0 — target architecture, not yet implemented.
+**Status:** implemented for M1/M2; this document describes the components that
+exist, not a future target. M3 hardening items are marked in
+[`../roadmap.md`](../roadmap.md).
 **Audience:** every workstream.
 **Contracts:** C-001 … C-009.
 

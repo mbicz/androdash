@@ -1,6 +1,6 @@
 # Web renderer architecture
 
-**Status:** planned for M1. No JavaScript exists yet.
+**Status:** implemented for M1; contract tests live in `web/tests/contract/`.
 **Workstream:** W2.
 **Contracts:** C-001 … C-006, C-009.
 **Scope:** `web/app/` runtime and `web/tests/`.
@@ -139,10 +139,13 @@ SVG, built with small helper functions:
 
 - line paths with `M/L` commands;
 - optional area fill;
-- 3–5 x ticks, 4 y ticks;
+- 3–5 x ticks, 4 y ticks (3 y ticks when the panel body is under 150 px);
 - threshold lines;
 - series legend with last values;
-- null values break the line (gap), not connect across missing data.
+- null values break the line (gap), not connect across missing data;
+- the `viewBox` equals the measured rendered box, so text keeps its CSS size
+  and the left gutter is derived from the widest tick label (capped at 72 px).
+  A `ResizeObserver` on the `svg` redraws on any box change.
 
 No canvas in v1. No tooltips in v1 (documented in C-005). Tap targets are panel
 headers/rows only.
@@ -159,6 +162,11 @@ headers/rows only.
   produces placeholders).
 - Duplicate `$ref` items render separate instances; data for the same panel ID is
   fetched once per refresh and shared.
+- `display_mode` selects presentation only: `standard`, `amoled` (true black, no
+  gradients/animations, semantic colors retained), or `monochrome` (AMOLED base
+  plus black-and-white simplified chrome and grayscale/dashed chart series).
+  The mode is applied as `data-display-mode` on the document root before the
+  dashboard renders; panel renderers receive it through `renderPanelBody`.
 
 ## 6. Panel registry
 
