@@ -57,6 +57,10 @@ const state = {
   rangeText: null,
   panelWindows: new Map(),
   locked: false,
+  pendingVariables: [],
+  variablesCheckedAt: 0,
+  probesCheckedAt: 0,
+  retryingGaps: false,
   fitCounts: null,
   relayoutTimer: null,
   sheet: null,
@@ -267,13 +271,13 @@ async function loadApp() {
       ? await probePrometheus(baseUrls, { fetchJson, onRequest: recordRequest })
       : [];
 
-  state.variables = await resolveVariables(dashboard, {
-    config: state.config,
-    advertisedCapabilities: state.advertised,
-    labelValues: ({ baseUrl, labelName, matchers }) =>
-      prometheusLabelValues(baseUrl, labelName, matchers, { onRequest: recordRequest }),
-    warn,
-  });
+  state.variables = await resolveVariablesFor(dashboard, warn);
+  state.pendingVariables = dashboard.variables
+    .filter((variable) => variable.pluginKind === "PrometheusLabelValuesVariable")
+    .map((variable) => variable.name)
+    .filter((name) => !state.variables.get(name));
+  state.variablesCheckedAt = Date.now();
+  state.probesCheckedAt = Date.now();
   applyDisplayVariables(dashboard, state.variables, warn);
 
   state.filtered = filterDashboard(dashboard, {
@@ -313,6 +317,55 @@ async function loadApp() {
   renderDashboard();
   installScheduler();
   updateStatus();
+}
+
+function resolveVariablesFor(dashboard, warnFn) {
+  return resolveVariables(dashboard, {
+    config: state.config,
+    advertisedCapabilities: state.advertised,
+    labelValues: ({ baseUrl, labelName, matchers }) =>
+      prometheusLabelValues(baseUrl, labelName, matchers, { onRequest: recordRequest }),
+    warn: warnFn,
+  });
+}
+
+/**
+ * Boot-time gaps that heal by themselves: a Prometheus probe that failed (the
+ * phone came up before Wi-Fi, or the on-phone collector was still starting)
+ * hides its panels, and a label-values variable can resolve empty before the
+ * first scrape. Both are re-checked at the start of refresh cycles — probes
+ * every 15 s, variables every 60 s — and the dashboard reloads once the gap
+ * closes (C-004, C-002 "Variables").
+ */
+async function retryBootGaps() {
+  if (state.fatal || !state.dashboard || state.retryingGaps) return;
+  const now = Date.now();
+  const failedProbes = state.probes.filter((probe) => probe.ok === false).map((probe) => probe.baseUrl);
+  const probesDue = failedProbes.length > 0 && now - (state.probesCheckedAt || 0) >= 15_000;
+  const variablesDue = state.pendingVariables.length > 0 && now - (state.variablesCheckedAt || 0) >= 60_000;
+  if (!probesDue && !variablesDue) return;
+  state.retryingGaps = true;
+  try {
+    let healed = false;
+    if (probesDue) {
+      state.probesCheckedAt = now;
+      const probes = await probePrometheus(failedProbes, { fetchJson, onRequest: recordRequest });
+      healed = probes.some((probe) => probe.ok);
+    }
+    if (!healed && variablesDue) {
+      state.variablesCheckedAt = now;
+      const values = await resolveVariablesFor(state.dashboard, () => {});
+      healed = state.pendingVariables.some((name) => values.get(name));
+    }
+    if (healed) {
+      bridgeLog("info", "boot gap closed (Prometheus reachable or variable resolved); reloading dashboard");
+      reloadDashboard();
+    }
+  } catch {
+    // Still unreachable; the next cycle tries again.
+  } finally {
+    state.retryingGaps = false;
+  }
 }
 
 function installScheduler() {
@@ -640,6 +693,8 @@ function openSettings() {
     ),
   );
   if (shellDashboardStore(bridge())) sheet.append(dashboardGroup());
+  const collector = collectorStatus();
+  if (collector?.enabled) sheet.append(collectorGroup(collector));
   if (lockSupport()) {
     sheet.append(
       settingsGroup(
@@ -725,6 +780,69 @@ function dashboardGroup() {
     wrap.append(row);
   }
   return settingsGroup("Dashboard", wrap);
+}
+
+/** The shell's on-phone Prometheus (C-007 `collectorStatus`), or null. */
+function collectorStatus() {
+  const shell = bridge();
+  if (typeof shell?.collectorStatus !== "function") return null;
+  try {
+    const status = JSON.parse(shell.collectorStatus());
+    return status && typeof status === "object" ? status : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Read-only collector status: whether the on-phone Prometheus runs and, per
+ * scrape target, whether its last scrape succeeded (`up`).
+ */
+function collectorGroup(status) {
+  const wrap = document.createElement("div");
+  wrap.className = "sheet-stack";
+  const summary = document.createElement("p");
+  summary.className = "sheet-note";
+  const restarts = Number(status.restarts) || 0;
+  summary.textContent = status.running
+    ? `Running on this phone${restarts > 0 ? ` · restarted ${restarts}×` : ""}`
+    : `Not running${status.lastExit ? ` · ${safeText(status.lastExit, 80)}` : ""}`;
+  wrap.append(summary);
+  const list = document.createElement("ul");
+  list.className = "target-list";
+  const rows = new Map();
+  for (const target of Array.isArray(status.targets) ? status.targets.slice(0, 32) : []) {
+    const item = document.createElement("li");
+    item.className = "target";
+    item.dataset.up = "unknown";
+    const dot = document.createElement("span");
+    dot.className = "status-dot";
+    dot.setAttribute("aria-hidden", "true");
+    const name = document.createElement("span");
+    name.className = "target-name";
+    name.textContent = `${safeText(target.instance, 64)} · ${safeText(target.job, 64)}`;
+    const address = document.createElement("span");
+    address.className = "target-address";
+    address.textContent = safeText(target.address, 80);
+    item.append(dot, name, address);
+    list.append(item);
+    rows.set(`${target.job}\u0000${target.instance}`, item);
+  }
+  wrap.append(list);
+  if (status.running && typeof status.url === "string") {
+    queryInstant(status.url, "up", { timeMs: Date.now(), onRequest: recordRequest, maxSeries: 64 })
+      .then((result) => {
+        for (const series of result.series) {
+          const row = rows.get(`${series.labels.job}\u0000${series.labels.instance}`);
+          const value = series.points.at(-1)?.v;
+          if (row) row.dataset.up = value === 1 ? "up" : "down";
+        }
+      })
+      .catch(() => {
+        for (const row of rows.values()) row.dataset.up = "down";
+      });
+  }
+  return settingsGroup("Collector", wrap);
 }
 
 function setDashboardSource(source) {
@@ -1117,6 +1235,7 @@ async function executePanel(entry, { startMs, endMs, signal }) {
 }
 
 async function runCycle({ reason }) {
+  retryBootGaps();
   const startedMs = Date.now();
   state.phase = "running";
   updateStatus();

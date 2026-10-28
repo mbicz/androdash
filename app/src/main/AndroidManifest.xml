@@ -2,8 +2,12 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.INTERNET" />
-    <!-- Decision 0016: one short screen wake lock re-lights the lock-screen dashboard. -->
+    <!-- Decision 0016: one short screen wake lock re-lights the lock-screen dashboard.
+         Decision 0019: a partial wake lock keeps the collector scraping while it runs. -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- Decision 0019: foreground service that runs the on-phone Prometheus collector. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
 
     <application
         android:allowBackup="false"
@@ -24,6 +28,15 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <service
+            android:name=".CollectorService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Runs a local Prometheus that scrapes LAN exporters on loopback for the on-device dashboard" />
+        </service>
     </application>
 
 </manifest>

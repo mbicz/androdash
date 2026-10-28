@@ -3,4 +3,9 @@
     <string name="app_name">AndroDash</string>
     <string name="fatal_title">Cannot start</string>
     <string name="fatal_retry">Retry</string>
+    <string name="collector_channel">Collector</string>
+    <plurals name="collector_targets">
+        <item quantity="one">Collecting %d target</item>
+        <item quantity="other">Collecting %d targets</item>
+    </plurals>
 </resources>

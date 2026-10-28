@@ -1,8 +1,9 @@
 # C-008 — WebView security
 
-- **Version:** 2
+- **Version:** 3
 - **Status:** Accepted, 2026-10-28 (v2: bundled and stored dashboards on the
-  virtual origin, decision 0018)
+  virtual origin, decision 0018; v3: bundled Prometheus executable on
+  loopback, decision 0019)
 - **Consumers:** Android shell (W1), web renderer (W2)
 - **Related:** C-001 (URL validation), C-003 (CORS/cleartext), C-007 (bridge), C-009 (redaction)
 
@@ -15,7 +16,9 @@ untrusted; the local renderer is trusted.
 ## Trust model
 
 - Trusted: APK code, `web/app` assets served from the virtual
-  `http://androdash.local` origin (decision 0007), the limited bridge.
+  `http://androdash.local` origin (decision 0007), the limited bridge, and the
+  pinned upstream Prometheus binary bundled as `libprometheus.so` (decision
+  0019; trusted as code, not its scrape data).
 - Untrusted: dashboard JSON — including the bundled `/dashboards/*.json`
   fixtures and the stored copy under `/stored/` — Markdown, labels, error
   strings, every HTTP response. Serving dashboard JSON from the virtual origin
@@ -93,6 +96,41 @@ If a setting needs to change, update this table and the security doc.
   `dashboard_source=stored` mode and never a virtual-origin URL, so a page cannot
   plant a dashboard for a different URL or overwrite a bundled one.
 - The shell never logs stored contents or source URLs; it logs byte counts.
+
+## Bundled executable (decision 0019)
+
+With C-001 `collector=true`, the shell runs a native executable: the upstream
+Prometheus linux-arm64 release, packaged as
+`lib/arm64-v8a/libprometheus.so` and executed from `nativeLibraryDir`.
+
+- **Provenance.** The build downloads one pinned release tarball and fails
+  unless both the tarball and the extracted binary match SHA-256 values pinned
+  in `app/build.gradle.kts`. The binary is packaged unstripped and unmodified;
+  its `LICENSE` and `NOTICE` ship as `assets/licenses/prometheus/`. Upgrading
+  means changing the version and both pins together (decision 0019).
+- **Loopback only.** Prometheus listens on `127.0.0.1:19090`, never on a LAN
+  interface, with at most 32 connections. No admin API, lifecycle API, or
+  remote-write receiver is enabled. The renderer reaches it as an ordinary
+  `connect-src http:` Prometheus URL; Prometheus's default CORS policy allows
+  the `http://androdash.local` origin.
+- **Other apps can read it.** Android does not isolate loopback ports by app:
+  any app on the phone with `INTERNET` can query `127.0.0.1:19090` and read
+  every collected metric (and the target list via the HTTP API). The data is
+  what the LAN exporters already serve unauthenticated; do not scrape
+  exporters whose metrics must stay private from other apps on the phone.
+- **Config from validated fields only.** `prometheus.yml` is generated from
+  the C-001 collector fields after validation: job and instance names are
+  `[A-Za-z0-9_.-]{1,64}`, addresses are `host:port` with a DNS name, IPv4, or
+  bracketed IPv6 host. Every value is double-quoted and cannot contain a quote,
+  backslash, or control character, so no input can add YAML keys. The command
+  line is a fixed argument list (no shell); only the retention value comes from
+  config, as a canonical duration. Nothing comes from the renderer, dashboard
+  JSON, or the bridge.
+- **Scrapes are outbound LAN HTTP** from the app's UID, like the renderer's
+  Prometheus queries (decision 0006). Scraped samples are untrusted data;
+  they reach the renderer only as Prometheus query results.
+- **Files** live in app-private storage (`<filesDir>/collector/`); the log is
+  capped at 1 MiB per start and contains Prometheus's own warnings.
 
 ## Content Security Policy
 
@@ -209,12 +247,17 @@ Constraints:
 - [ ] Limits still bound untrusted payload sizes (stored dashboard ≤ 5 MiB).
 - [ ] Virtual-origin routes unchanged, or this contract and
       `AssetServerRouteTest` updated; stored-dashboard files keep fixed names.
+- [ ] Bundled Prometheus still pinned by both SHA-256 values, listening on
+      `127.0.0.1` only, with no admin/lifecycle/remote-write flags
+      (`CollectorConfigTest`).
 
 ## Residual risks
 
 See `docs/architecture/security.md` §4. Accepted for v1: cleartext LAN,
 physical access, no auth, broad `connect-src`, inline styles, dashboard/Prometheus
-CORS permissiveness. Revisit each with a decision when the deployment changes.
+CORS permissiveness, and collector metrics readable by other apps over
+loopback (decision 0019). Revisit each with a decision when the deployment
+changes.
 
 ## Out of scope
 

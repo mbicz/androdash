@@ -48,6 +48,10 @@ object ConfigParser {
     private val DISPLAY_MODES = setOf("standard", "amoled", "monochrome")
     private val LOCK_STYLES = setOf("monochrome", "color")
     private val DASHBOARD_SOURCES = setOf("stored", "url")
+    private const val MIN_COLLECTOR_SCRAPE = 5
+    private const val MAX_COLLECTOR_SCRAPE = 300
+    private const val MIN_COLLECTOR_RETENTION_MILLIS = 3_600_000L
+    private const val MAX_DURATION_MILLIS = 30L * 86_400_000L
 
     /** Maximum length of a `setOption` name or value (C-007). */
     const val MAX_OPTION_INPUT = 64
@@ -158,6 +162,32 @@ object ConfigParser {
             else -> parseCapabilities(extras.getValue("capabilities")!!)
         }
 
+        val collector = parseBoolean(extras, "collector", base?.collector ?: false)
+
+        val collectorTargets = when {
+            !extras.containsKey("collector_targets") -> base?.collectorTargets
+            extras["collector_targets"].isNullOrBlank() -> base?.collectorTargets
+            else -> CollectorConfig.canonicalTargets(
+                CollectorConfig.parseTargets(extras.getValue("collector_targets")!!),
+            )
+        }
+
+        val collectorScrapeSeconds = when {
+            !extras.containsKey("collector_scrape_seconds") ->
+                base?.collectorScrapeSeconds ?: AppConfig.DEFAULT_COLLECTOR_SCRAPE_SECONDS
+            extras["collector_scrape_seconds"].isNullOrBlank() ->
+                base?.collectorScrapeSeconds ?: AppConfig.DEFAULT_COLLECTOR_SCRAPE_SECONDS
+            else -> parseInteger(extras.getValue("collector_scrape_seconds")!!, "collector_scrape_seconds")
+        }
+
+        val collectorRetention = when {
+            !extras.containsKey("collector_retention") ->
+                base?.collectorRetention ?: AppConfig.DEFAULT_COLLECTOR_RETENTION
+            extras["collector_retention"].isNullOrBlank() ->
+                base?.collectorRetention ?: AppConfig.DEFAULT_COLLECTOR_RETENTION
+            else -> extras.getValue("collector_retention")!!.trim()
+        }
+
         val config = AppConfig(
             dashboardUrl = dashboardUrl,
             prometheusUrl = prometheusUrl,
@@ -173,6 +203,10 @@ object ConfigParser {
             dashboardName = dashboardName,
             capabilities = capabilities,
             showUnsupported = showUnsupported,
+            collector = collector,
+            collectorTargets = collectorTargets,
+            collectorScrapeSeconds = collectorScrapeSeconds,
+            collectorRetention = collectorRetention,
         )
         validateConfig(config)
         validateQueryLength(config)
@@ -239,7 +273,7 @@ object ConfigParser {
             parts.add("$name=${encode(value)}")
         }
         add("dashboard_url", config.dashboardUrl)
-        add("prometheus_url", config.prometheusUrl)
+        add("prometheus_url", rendererPrometheusUrl(config))
         add("refresh_seconds", config.refreshSeconds?.toString())
         add("time_range", config.timeRange)
         add("step_seconds", config.stepSeconds?.toString())
@@ -256,6 +290,13 @@ object ConfigParser {
     }
 
     fun launchUrl(config: AppConfig): String = "$LAUNCH_URL?${buildQuery(config)}"
+
+    /**
+     * The Prometheus base URL the renderer receives: the on-phone collector's
+     * loopback listener when `collector=true` (C-001), else the configured one.
+     */
+    fun rendererPrometheusUrl(config: AppConfig): String? =
+        if (config.collector) CollectorConfig.URL else config.prometheusUrl
 
     fun validateConfig(config: AppConfig) {
         validateUrl(config.dashboardUrl, "dashboard_url")
@@ -302,7 +343,25 @@ object ConfigParser {
                 throw ConfigException("E_CONFIG", "capabilities contains duplicate IDs")
             }
         }
+        if (config.collectorScrapeSeconds !in MIN_COLLECTOR_SCRAPE..MAX_COLLECTOR_SCRAPE) {
+            throw ConfigException(
+                "E_CONFIG",
+                "collector_scrape_seconds must be between $MIN_COLLECTOR_SCRAPE and $MAX_COLLECTOR_SCRAPE",
+            )
+        }
+        if (collectorRetentionMillis(config.collectorRetention) !in
+            MIN_COLLECTOR_RETENTION_MILLIS..MAX_DURATION_MILLIS
+        ) {
+            throw ConfigException("E_CONFIG", "collector_retention must be between 1h and 30d")
+        }
+        config.collectorTargets?.let { CollectorConfig.parseTargets(it) }
+        if (config.collector && config.collectorTargets == null) {
+            throw ConfigException("E_CONFIG", "collector_targets is required when collector=true")
+        }
     }
+
+    /** Milliseconds of a C-001 duration given as `collector_retention`. */
+    fun collectorRetentionMillis(value: String): Long = durationMillis(value, "collector_retention")
 
     private fun validateUrl(value: String, name: String): String {
         if (value.length > MAX_URL) {
@@ -394,18 +453,26 @@ object ConfigParser {
     }
 
     private fun validateDuration(value: String) {
+        val total = durationMillis(value, "time_range")
+        if (total < 1_000L || total > MAX_DURATION_MILLIS) {
+            throw ConfigException("E_CONFIG", "time_range must be between 1s and 30d")
+        }
+    }
+
+    /** C-001 duration grammar (`15m`, `1h30m`, `7d`): one or more `<n><unit>` parts. */
+    private fun durationMillis(value: String, name: String): Long {
         var index = 0
         var total = 0L
         if (value.isBlank()) {
-            throw ConfigException("E_CONFIG", "time_range must not be empty")
+            throw ConfigException("E_CONFIG", "$name must not be empty")
         }
         while (index < value.length) {
             val match = DURATION_PART.find(value, index)
             if (match == null || match.range.first != index) {
-                throw ConfigException("E_CONFIG", "time_range must be a duration such as 15m or 1h30m")
+                throw ConfigException("E_CONFIG", "$name must be a duration such as 15m or 1h30m")
             }
             val number = match.groupValues[1].toLongOrNull()
-                ?: throw ConfigException("E_CONFIG", "time_range is too large")
+                ?: throw ConfigException("E_CONFIG", "$name is too large")
             val unitMillis = when (match.groupValues[2]) {
                 "ms" -> 1L
                 "s" -> 1_000L
@@ -413,18 +480,16 @@ object ConfigParser {
                 "h" -> 3_600_000L
                 "d" -> 86_400_000L
                 "w" -> 604_800_000L
-                else -> throw ConfigException("E_CONFIG", "time_range has an unsupported unit")
+                else -> throw ConfigException("E_CONFIG", "$name has an unsupported unit")
             }
             total = try {
                 Math.addExact(total, Math.multiplyExact(number, unitMillis))
             } catch (_: ArithmeticException) {
-                throw ConfigException("E_CONFIG", "time_range is too large")
+                throw ConfigException("E_CONFIG", "$name is too large")
             }
             index = match.range.last + 1
         }
-        if (total < 1_000L || total > 30L * 86_400_000L) {
-            throw ConfigException("E_CONFIG", "time_range must be between 1s and 30d")
-        }
+        return total
     }
 
     private fun encode(value: String): String =

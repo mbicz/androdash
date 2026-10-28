@@ -32,8 +32,15 @@ soak, and accessibility.
 
 - Application ID / package: `com.mbicz.androdash`.
 - Manifest: `INTERNET` permission; `usesCleartextTraffic=true` (decision 0006);
-  `WAKE_LOCK` for the lock-screen re-light (decision 0016); exported launcher
-  activity for the kiosk intent. No other permissions in v1.
+  `WAKE_LOCK` for the lock-screen re-light (decision 0016) and the collector
+  (decision 0019); `FOREGROUND_SERVICE` + `FOREGROUND_SERVICE_SPECIAL_USE` for
+  `CollectorService` (decision 0019); exported launcher activity for the kiosk
+  intent. No other permissions in v1.
+- Collector (decision 0019): `fetchPrometheus` packages the pinned upstream
+  Prometheus as `libprometheus.so` (SHA-256-verified; tarball cached in
+  `~/.gradle/androdash-cache/`). Do not modify, strip, or replace the binary
+  without updating both pins and the decision log. `CollectorConfig`,
+  `RestartPolicy`, and `CollectorStatus` stay pure and JVM-tested.
 - Kotlin, no AndroidX unless a decision entry accepts it.
 - `minSdk 26`, `compileSdk 35`, `targetSdk 35`, JDK 17 target.
 - Gradle wrapper checked in; use a Gradle/AGP/Kotlin combination that actually

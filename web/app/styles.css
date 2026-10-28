@@ -336,6 +336,41 @@ p {
   opacity: 0.5;
 }
 
+.target-list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 13px;
+}
+
+.target {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.target-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.target-address {
+  color: var(--label-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.target[data-up="up"] .status-dot {
+  background: var(--ok);
+}
+
+.target[data-up="down"] .status-dot {
+  background: var(--crit);
+}
+
 .segmented {
   display: grid;
   grid-auto-columns: 1fr;

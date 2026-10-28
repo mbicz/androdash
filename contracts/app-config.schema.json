@@ -105,6 +105,36 @@
     "showUnsupported": {
       "type": "boolean",
       "description": "Render explicit placeholders for hidden panels instead of removing them (C-004)."
+    },
+    "collector": {
+      "type": "boolean",
+      "default": false,
+      "description": "Run the bundled Prometheus on the phone (C-001, C-007, decision 0019). When true the shell passes prometheus_url=http://127.0.0.1:19090 to the renderer instead of prometheusUrl. Native-only; not a renderer query parameter. Additive; persisted objects without it default to false."
+    },
+    "collectorTargets": {
+      "type": ["string", "null"],
+      "minLength": 1,
+      "pattern": "^[^\\s,]+(,[^\\s,]+)*$",
+      "description": "Canonical collector_targets: 1-32 comma-separated entries [job:]instance=host:port or host:port; job and instance match [A-Za-z0-9_.-]{1,64}; host is a DNS name, IPv4, or bracketed IPv6; port 1-65535; job defaults to node, instance to host:port. Required when collector is true. Native-only."
+    },
+    "collectorScrapeSeconds": {
+      "type": "integer",
+      "minimum": 5,
+      "maximum": 300,
+      "default": 15,
+      "description": "Collector global scrape interval in seconds. Native-only."
+    },
+    "collectorRetention": {
+      "type": "string",
+      "pattern": "^([0-9]+(ms|s|m|h|d|w))+$",
+      "default": "24h",
+      "description": "Collector TSDB retention, C-001 duration grammar, 1h..30d at runtime. Native-only."
     }
-  }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "collector": { "const": true } }, "required": ["collector"] },
+      "then": { "required": ["collectorTargets"], "properties": { "collectorTargets": { "type": "string" } } }
+    }
+  ]
 }

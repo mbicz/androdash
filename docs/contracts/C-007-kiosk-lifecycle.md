@@ -1,10 +1,11 @@
 # C-007 — Kiosk and lifecycle
 
-- **Version:** 5
+- **Version:** 6
 - **Status:** Accepted, 2026-10-28 (v3: lock-screen grayscale, re-light, view
   and lock-screen bridge methods, decision 0016; v4: generic `setOption`
   bridge method, `lock_style`, decision 0017; v5: stored dashboard bridge
-  methods, `dashboard_source` option, decision 0018)
+  methods, `dashboard_source` option, decision 0018; v6: collector service and
+  `collectorStatus`, decision 0019)
 - **Consumers:** Android shell (W1), renderer debug affordance (W2)
 - **Related:** C-001 (config), C-008 (WebView security), C-009 (diagnostics)
 
@@ -163,7 +164,59 @@ A kiosk must be serviceable:
   launch command shape; do not open a blank WebView.
 - Do not persist secrets (none in v1).
 - Boot-to-kiosk (after device reboot) is an Android launcher/device-owner concern;
-  v1 does not add a boot receiver. Document the limitation.
+  v1 does not add a boot receiver. Document the limitation. The collector
+  service is not started at boot either; it starts with the Activity.
+- The collector's files live in `<filesDir>/collector/`: `prometheus.yml`
+  (rewritten from `AppConfig` on every service start), `data/` (the TSDB,
+  bounded by `collector_retention`), and `prometheus.log`.
+
+## Collector service
+
+Decision 0019; configuration in C-001
+[On-phone collector](C-001-launch-config.md#on-phone-collector).
+
+- `CollectorService` is a foreground service with
+  `foregroundServiceType="specialUse"` (`PROPERTY_SPECIAL_USE_FGS_SUBTYPE`
+  explains the local metrics collector). Permissions: `FOREGROUND_SERVICE`,
+  `FOREGROUND_SERVICE_SPECIAL_USE`, `WAKE_LOCK`. It does not request
+  `POST_NOTIFICATIONS`; on Android 13+ the notification is then hidden from
+  the shade but the service still runs (and is listed in the task manager).
+- Notification channel `collector` ("Collector", `IMPORTANCE_LOW`); text
+  "Collecting N targets"; tapping it opens the dashboard.
+- **Start.** `MainActivity` persists the launch config, then, when
+  `collector=true`, calls `startForegroundService` before loading the
+  renderer. The service reads the persisted `AppConfig` (so a sticky restart
+  after a process kill uses the same config), writes
+  `<filesDir>/collector/prometheus.yml`, and runs:
+
+  ```
+  <nativeLibraryDir>/libprometheus.so
+    --config.file=<filesDir>/collector/prometheus.yml
+    --storage.tsdb.path=<filesDir>/collector/data
+    --storage.tsdb.retention.time=<collector_retention>
+    --web.listen-address=127.0.0.1:19090
+    --web.max-connections=32
+    --log.level=warn
+  ```
+
+  No admin API, lifecycle API, or remote-write receiver flag is passed.
+  stdout/stderr append to `<filesDir>/collector/prometheus.log`, which is
+  deleted before a process start when it exceeds 1 MiB.
+- **Reconfigure.** A launch with changed collector fields stops the running
+  process (see Stop) and starts a new one after it has exited; an unchanged
+  config leaves it running.
+- **Supervise.** When Prometheus exits, it is restarted after the pure
+  `RestartPolicy` delay: 1, 2, 4, … s, capped at 60 s; a run of at least 10 min
+  resets the sequence to 1 s. Each exit is recorded for `collectorStatus`.
+- **Wake lock.** A `PARTIAL_WAKE_LOCK` (tag `androdash:collector`, no timeout)
+  is held while the supervisor runs, so scrapes continue in doze. This assumes
+  an always-plugged appliance (decision 0019).
+- **Stop.** `SIGTERM`; `SIGKILL` if the process has not exited after 5 s; then
+  release the wake lock. The service stops when a launch resolves
+  `collector=false` and on `AndroDash.exitKiosk()`. Leaving the Activity
+  (Home, screen off, finishing with Back) does not stop it.
+- A `startForegroundService` refusal is logged; the renderer still loads (its
+  queries then fail against the loopback URL, which the dashboard shows).
 
 ## Lifecycle
 
@@ -195,13 +248,14 @@ Optional `window.AndroDash` (present only in the Android shell):
 | `platform()` | none | Returns `"android"` |
 | `appVersion()` | none | Returns the app version string |
 | `reload()` | none | Reload the local renderer page (with the latest `setOption` choices) |
-| `exitKiosk()` | none | Finish the Activity; renderer may prompt/confirm in debug |
+| `exitKiosk()` | none | Stop the collector service (if running), then finish the Activity; renderer may prompt/confirm in debug |
 | `log(level, message)` | strings | Log a redacted, length-limited message |
 | `setOption(name, value)` | strings, ≤ 64 chars each | The user changed one renderer option. `name` is one of `time_range`, `refresh_seconds`, `layout_mode`, `lock_style`, `dashboard_source`; `value` is validated with the C-001 rules for the launch extra of that name: durations `1s…30d`; refresh `0` = manual, `5–3600`, `1–4` clamps to `5` with `W_REFRESH_CLAMPED`; `layout_mode` `auto`/`grid`/`stack`/`fit`; `lock_style` `monochrome`/`color`; `dashboard_source` `stored`/`url` (enum values are trimmed and lowercased). Runs on the UI thread, then the in-memory config, persisted `AppConfig`, and renderer URL are updated; the page is not reloaded. An unknown name, a `null`/blank value, or an invalid value logs a warning and is ignored. Returns nothing. |
 | `lockScreenEnabled()` | none | Returns the effective `show_when_locked` boolean |
 | `setLockScreen(enabled)` | boolean | Toggle `show_when_locked` at runtime: persist it, apply/clear the keyguard window flags and screen receiver immediately, and push `setLocked(false)` and undim when disabling. Enabling is ignored (warning) when `kiosk=false`. |
 | `storeDashboard(sourceUrl, json)` | strings; `json` ≤ 5 MiB UTF-8 | Store the dashboard JSON the renderer fetched (C-001 [Dashboard source](C-001-launch-config.md#dashboard-source)). Accepted only when `sourceUrl` equals the current `dashboard_url` exactly, `dashboard_source` is `stored`, and `sourceUrl` is not an `http://androdash.local/` URL; `json` must parse as one JSON object (nothing after it) and be at most 5 MiB (5 242 880 bytes) as UTF-8. Replaces the previous copy (see [Persistence](#persistence-and-relaunch)). Runs the file IO on the calling bridge thread. Returns `true` when stored, `false` on any rejection or IO failure (with a warning); never throws. Logs sizes only, never contents or URLs. |
 | `clearStoredDashboard()` | none | Delete the stored copy; `/stored/*` answers 404 afterwards. Never throws. Returns nothing. |
+| `collectorStatus()` | none | Returns the [collector](#collector-service) state as a JSON string of at most 4 KiB (UTF-8): `{"enabled": bool, "running": bool, "url": "http://127.0.0.1:19090" \| null, "targets": [{"job", "instance", "address"}], "restarts": n, "startedAt": unix ms \| null, "lastExit": string \| null}`. `enabled` is the current `collector` value; `url` and `targets` are set only when enabled (trailing targets are dropped if the list would exceed 4 KiB); `running` is true while the Prometheus process is alive; `restarts` counts supervisor restarts of the current configuration; `startedAt` is the current process's start (null when not running); `lastExit` is printable ASCII ≤ 200 characters such as `exited with code 1 after 3s`, `start failed: IOException`, or `stopped`. Never throws (falls back to the disabled shape). |
 
 Native → renderer (not a bridge method): with `show_when_locked`, the shell
 calls `window.androdash.setLocked(true|false)` through the two constant scripts
@@ -214,8 +268,8 @@ Rules:
 
 - Methods are synchronous and side-effect-minimal; `setOption` and
   `setLockScreen` post their work to the UI thread; `storeDashboard` and
-  `clearStoredDashboard` do bounded file IO on the bridge thread. None throws
-  to JS.
+  `clearStoredDashboard` do bounded file IO on the bridge thread;
+  `collectorStatus` reads in-memory state only. None throws to JS.
 - Inputs are length-limited and never injected into shell/Intent/file APIs.
   The stored dashboard uses fixed file names; no input becomes a path.
 - No arbitrary URL loading, file access, clipboard, Intent launching, or
@@ -278,6 +332,22 @@ Contents:
     logcat shows `dashboard stored (<n> bytes)`. Stop the server, force-stop,
     relaunch from the launcher: the same dashboard renders. Relaunch with
     `--es dashboard_source url`: `E_DASHBOARD_FETCH` while the server is down.
+12. Collector (physical arm64 phone): launch with
+    `--ez collector true --es collector_targets "node:mac=<mac-lan-ip>:9100"`
+    and the bundled `macos-node-dashboard.json`. Logcat shows
+    `collector=true: renderer uses prometheus_url=http://127.0.0.1:19090` and
+    `collector starting: 1 targets`; the Collector notification appears in
+    the task manager; `run-as com.mbicz.androdash ls files/collector` lists
+    `prometheus.yml`, `data`, `prometheus.log`; the dashboard renders from the
+    phone's Prometheus. `AndroDash.collectorStatus()` reports `running: true`.
+    - Kill the Prometheus process (`run-as com.mbicz.androdash kill <pid>` or
+      `kill` as shell when permitted): it is back within ~1 s and
+      `restarts` increments.
+    - Turn the screen off for 10 min while plugged in: the
+      `count_over_time(up[5m])` series has no gaps.
+    - Relaunch with `--ez collector false`: the process exits within 5 s, the
+      notification goes away, and the renderer uses the configured
+      `prometheus_url` again. `exitKiosk()` also stops the service.
 
 ## Test obligations
 
@@ -288,8 +358,11 @@ Contents:
   second press stays off, manual wake is locked-lit, unlock resets), the stored
   dashboard (`DashboardStoreTest`: write/read/meta, UTF-8 size limit,
   non-object JSON rejected, overwrite, clear, meta-last consistency, the
-  `storeDashboard` source gate), and the virtual-origin routes
-  (`AssetServerRouteTest`).
+  `storeDashboard` source gate), the virtual-origin routes
+  (`AssetServerRouteTest`), and the collector (`CollectorConfigTest`:
+  target grammar, `prometheus.yml`, arguments; `RestartPolicyTest`: backoff
+  sequence, cap, healthy reset; `CollectorStatusTest`: payload shape, 4 KiB
+  bound).
 - Manual emulator checklist above; record commands/results in the handoff.
 - Logcat: no uncaught exceptions; no secrets.
 - If `lock_task` is promoted to C-001, add a unit/manual matrix for device-owner

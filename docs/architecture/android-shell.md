@@ -18,6 +18,8 @@ The shell is deliberately thin:
 5. Expose a minimal, allowlisted JavaScript bridge.
 6. Show a native fatal screen when configuration or the local asset fails.
 7. Log lifecycle and bridge events under the `AndroDash` tag.
+8. Optionally run and supervise the bundled Prometheus collector on loopback
+   (`collector=true`, decision 0019).
 
 It must not parse Perses dashboards, build PromQL, schedule refreshes, or draw
 anything.
@@ -41,18 +43,25 @@ app/
     │   │   ├── ConfigStore.kt    # SharedPreferences persistence (+ show_when_locked)
     │   │   ├── AssetServer.kt    # virtual-origin routes: renderer, bundled + stored dashboards
     │   │   ├── DashboardStore.kt # stored remote-dashboard copy (fixed files, atomic)
-    │   │   └── LockRelightPolicy.kt # pure power-button re-light state machine
+    │   │   ├── LockRelightPolicy.kt # pure power-button re-light state machine
+    │   │   ├── CollectorConfig.kt   # pure: collector_targets grammar, prometheus.yml, arguments
+    │   │   ├── CollectorService.kt  # foreground service running/supervising libprometheus.so
+    │   │   ├── CollectorStatus.kt   # pure: collectorStatus() JSON + shared runtime state
+    │   │   └── RestartPolicy.kt     # pure collector restart backoff
     │   └── res/
-    │       ├── drawable/ic_launcher.xml
+    │       ├── drawable/ic_launcher.xml, ic_collector.xml
     │       └── values/
     │           ├── colors.xml
     │           ├── strings.xml
     │           └── styles.xml
     └── test/java/com/mbicz/androdash/
         ├── AssetServerRouteTest.kt
+        ├── CollectorConfigTest.kt
+        ├── CollectorStatusTest.kt
         ├── ConfigParserTest.kt
         ├── DashboardStoreTest.kt
-        └── LockRelightPolicyTest.kt
+        ├── LockRelightPolicyTest.kt
+        └── RestartPolicyTest.kt
 ```
 
 Root Gradle files live at the repository root (`settings.gradle.kts`,
@@ -67,8 +76,11 @@ project is a single `:app` module.
 - AGP and Kotlin versions must be compatible with the Gradle wrapper checked in.
   Record upgrades in `changelog.d`.
 - Manifest: `INTERNET` permission; `usesCleartextTraffic=true` (decision 0006);
-  `WAKE_LOCK` (normal; the lock-screen re-light, decision 0016); exported
-  launcher activity with the kiosk intent filter. No other permissions in v1.
+  `WAKE_LOCK` (normal; the lock-screen re-light, decision 0016, and the
+  collector's partial wake lock, decision 0019); `FOREGROUND_SERVICE` and
+  `FOREGROUND_SERVICE_SPECIAL_USE` for `CollectorService`
+  (`foregroundServiceType="specialUse"`, decision 0019); exported launcher
+  activity with the kiosk intent filter. No other permissions in v1.
 - Dependencies: Android framework + Kotlin standard library. No chart, network,
   JSON, or UI libraries.
 - Assets: the Gradle module maps `web/app/` as the assets root. A `shouldInterceptRequest`
@@ -80,6 +92,19 @@ project is a single `:app` module.
   registered on `sourceSets.main.assets` from the task's output, so
   `assembleDebug` runs it. Do not copy runtime assets or fixtures into `app/` by
   hand.
+- Native library (decision 0019): the `fetchPrometheus` task downloads the
+  pinned upstream `prometheus-3.15.1.linux-arm64.tar.gz` into
+  `~/.gradle/androdash-cache/` (kept across `clean`, so clean builds work
+  offline), verifies its SHA-256, streams out only `prometheus`, `LICENSE`, and
+  `NOTICE`, verifies the binary's SHA-256, and writes
+  `app/build/generated/collector-jniLibs/arm64-v8a/libprometheus.so` (a
+  `jniLibs` source dir) and `app/build/generated/collector-assets/licenses/prometheus/`
+  (an assets dir). `preBuild` depends on it. `packaging.jniLibs` uses
+  `useLegacyPackaging = true` (extracted to `nativeLibraryDir`, where it may be
+  executed) and keeps the binary unstripped; `abiFilters` is `arm64-v8a`, so
+  the APK is arm64-only (lint `ChromeOsAbiSupport` warns about that). The debug
+  APK is about 58 MiB, almost all of it the compressed binary (136 MB
+  uncompressed). Upgrade: change `prometheusVersion` and both SHA-256 pins.
 - Release build: minify is optional, but the renderer assets must remain intact.
   WebView debugging is disabled in release.
 
@@ -106,6 +131,10 @@ one-to-one:
 | `show_unsupported` | `show_unsupported` | boolean |
 | `lock_task` | — | boolean (native-only; C-007, not in AppConfig) |
 | `show_when_locked` | — | boolean (native-only; C-007, not in AppConfig; persisted as its own preference) |
+| `collector` | — (sets `prometheus_url=http://127.0.0.1:19090` when true) | boolean (native-only; in AppConfig) |
+| `collector_targets` | — | string (native-only; in AppConfig) |
+| `collector_scrape_seconds` | — | int (native-only; in AppConfig) |
+| `collector_retention` | — | string (native-only; in AppConfig) |
 
 Boolean Intent extras use `--ez`, integers `--ei`, strings `--es` when launching
 with `adb`.
@@ -151,6 +180,22 @@ URL, checks it is one JSON object of at most 5 MiB UTF-8, and writes
 meta last. `AssetServer` serves them back at `/stored/dashboard.json` and
 `/stored/meta.json`. The shell never parses dashboard semantics; it only stores
 and serves bytes.
+
+### Collector
+
+With `collector=true` (C-001, decision 0019), `MainActivity` saves the config,
+starts `CollectorService` with `startForegroundService`, and loads the renderer
+with `prometheus_url=http://127.0.0.1:19090`. The service reads the persisted
+`AppConfig`, builds `CollectorConfig`, writes `<filesDir>/collector/prometheus.yml`,
+and a supervisor thread runs `<nativeLibraryDir>/libprometheus.so` with a fixed
+argument list (loopback listener, retention, `--log.level=warn`), output
+appended to `prometheus.log` (deleted first when over 1 MiB). It restarts the
+process with `RestartPolicy` backoff, holds a `PARTIAL_WAKE_LOCK`
+(`androdash:collector`) while supervising, and on stop sends `SIGTERM`, then
+`SIGKILL` after 5 s. A changed config replaces the supervisor after the old
+process has exited. `collector=false` and `exitKiosk()` stop the service.
+`CollectorService.runtime` holds the state that `AndroDash.collectorStatus()`
+returns (C-007).
 
 ## 5. WebView configuration
 
@@ -235,7 +280,8 @@ file/network/Intent access.
 - Process death: reload from persisted config.
 - Escape hatch: when `debug=true`, the renderer shows a small debug affordance
   that can call `AndroDash.exitKiosk()`. Release builds hide it. `adb shell am
-  force-stop com.mbicz.androdash` always works for the owner.
+  force-stop com.mbicz.androdash` always works for the owner (it also kills the
+  collector process; the service is not restarted until the next launch).
 
 ## 7. Native fatal screen
 

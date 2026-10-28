@@ -13,5 +13,9 @@
   "dashboardSource": "stored",
   "dashboardName": null,
   "capabilities": null,
-  "showUnsupported": false
+  "showUnsupported": false,
+  "collector": false,
+  "collectorTargets": null,
+  "collectorScrapeSeconds": 15,
+  "collectorRetention": "24h"
 }

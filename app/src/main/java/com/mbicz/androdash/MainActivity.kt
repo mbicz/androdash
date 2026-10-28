@@ -91,6 +91,7 @@ class MainActivity : Activity() {
             configStore.save(parsed.config)
             configStore.saveShowWhenLocked(parsed.showWhenLockedPreference)
             logConfig(parsed.config, parsed.warnings)
+            syncCollector(parsed.config)
             setupWebView()
             applyKiosk(parsed.config)
             applyShowWhenLocked(parsed.showWhenLocked)
@@ -108,6 +109,23 @@ class MainActivity : Activity() {
             values[key] = bundle.get(key)?.toString()
         }
         return values
+    }
+
+    /**
+     * C-007 collector lifecycle: start (or reconfigure) the foreground service
+     * before the renderer loads when `collector=true`; stop it otherwise.
+     */
+    private fun syncCollector(config: AppConfig) {
+        if (!config.collector) {
+            CollectorService.stop(this)
+            return
+        }
+        try {
+            CollectorService.start(this)
+            Log.i(TAG, "collector service requested")
+        } catch (error: Exception) {
+            Log.w(TAG, "collector start refused: ${error.javaClass.simpleName}")
+        }
     }
 
     private fun setupWebView() {
@@ -667,8 +685,15 @@ class MainActivity : Activity() {
                 "prometheus=${config.prometheusUrl?.let(::redactUrl) ?: "none"} " +
                 "kiosk=${config.kiosk} debug=${config.debug} display=${config.displayMode} " +
                 "layout=${config.layoutMode} lock_style=${config.lockStyle} " +
-                "dashboard_source=${config.dashboardSource}",
+                "dashboard_source=${config.dashboardSource} collector=${config.collector}",
         )
+        if (config.collector) {
+            Log.i(
+                TAG,
+                "collector=true: renderer uses prometheus_url=${CollectorConfig.URL} " +
+                    "instead of the configured URL",
+            )
+        }
         warnings.forEach { Log.w(TAG, it) }
     }
 
@@ -705,6 +730,7 @@ class MainActivity : Activity() {
         @JavascriptInterface
         fun exitKiosk() {
             runOnUiThread {
+                CollectorService.stop(this@MainActivity)
                 try {
                     stopLockTask()
                 } catch (_: Exception) {
@@ -744,6 +770,19 @@ class MainActivity : Activity() {
 
         @JavascriptInterface
         fun lockScreenEnabled(): Boolean = showWhenLocked
+
+        /**
+         * On-phone collector state (C-007): JSON of at most 4 KiB with
+         * `enabled`, `running`, `url`, `targets`, `restarts`, `startedAt`,
+         * `lastExit`. Never throws to JS.
+         */
+        @JavascriptInterface
+        fun collectorStatus(): String = try {
+            CollectorStatus.of(config, CollectorService.runtime).toJson()
+        } catch (error: Exception) {
+            Log.w(TAG, "collectorStatus failed: ${error.javaClass.simpleName}")
+            CollectorStatus.UNAVAILABLE
+        }
 
         /**
          * Store the dashboard JSON the renderer just fetched from [sourceUrl]
