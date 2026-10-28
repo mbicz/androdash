@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import {
   DashboardError,
+  applyDisplayVariables,
   interpolate,
   normalizeDashboard,
   resolveVariables,
@@ -184,4 +185,20 @@ test("C-002 rejects empty and oversized dashboards", () => {
   const doc = structuredClone(fixture);
   doc.kind = "NotADashboard";
   assert.throws(() => normalize(doc), DashboardError);
+});
+
+test("C-002 titles interpolate variables and fall back when a variable is empty", () => {
+  const doc = structuredClone(fixture);
+  doc.spec.display = { name: "$host" };
+  const firstPanel = Object.keys(doc.spec.panels)[0];
+  doc.spec.panels[firstPanel].spec.display.name = "CPU on ${host}";
+  const { dashboard } = normalize(doc);
+  applyDisplayVariables(dashboard, new Map([["host", "mike"]]));
+  assert.equal(dashboard.title, "mike");
+  assert.equal(dashboard.panels.get(firstPanel).title, "CPU on mike");
+
+  const { dashboard: unresolved } = normalize(doc);
+  applyDisplayVariables(unresolved, new Map([["host", ""]]));
+  assert.equal(unresolved.title, unresolved.name);
+  assert.ok(!unresolved.title.includes("$"));
 });

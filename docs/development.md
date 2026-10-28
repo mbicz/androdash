@@ -184,22 +184,32 @@ adb shell am start -n com.mbicz.androdash/.MainActivity \
   --ez kiosk false --ez debug true
 ```
 
-AMOLED / lock-screen screensaver presentation:
+Lock-screen dashboard (Maps-like grayscale view over the keyguard):
 
 ```sh
 adb shell am start -n com.mbicz.androdash/.MainActivity \
   --es dashboard_url "http://10.0.2.2:8099/contracts/fixtures/demo-dashboard.json" \
   --es prometheus_url "http://10.0.2.2:9091" \
-  --es display_mode monochrome \
   --ez show_when_locked true \
   --ei refresh_seconds 60 \
   --ez debug true
 ```
 
-`display_mode` also accepts `amoled` (true black, no gradients, semantic colors
-retained). `show_when_locked` is ignored when `kiosk=false`; it keeps the
-activity above the keyguard without dismissing it. It is not an
-always-on-display API, and OEM keyguard behavior varies.
+The locked view does not need `display_mode`: it forces monochrome only while
+locked. `display_mode` accepts `amoled` (near-black cards; state and series
+colours retained) and `monochrome` (grayscale always, also when unlocked).
+`show_when_locked` is ignored when `kiosk=false`. With it,
+the dashboard stays visible above the keyguard without dismissing it: while
+the phone is locked the shell keeps the screen on, dims the window
+(`screenBrightness = 0.12`), and calls `window.androdash.setLocked(true)`, so
+the renderer switches to its grayscale locked view (monochrome; no toolbar,
+header actions, or page dots) and keeps refreshing. The first power press from
+the unlocked dashboard re-lights the display dimmed over the keyguard; a second
+press turns it off. Unlocking restores colour and brightness. The setting is
+persisted on its own and can be toggled at runtime from the header lock icon
+(`AndroDash.setLockScreen`). See C-007 "Lock-screen display" and decision
+0016. It is not an always-on-display API, and OEM keyguard behavior varies;
+the re-light uses a deprecated wake-up flag that a future Android may ignore.
 
 Reload / stop:
 

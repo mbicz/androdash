@@ -51,6 +51,7 @@ web/tests/contract/c001-config.test.js
 web/tests/contract/c002-dashboard.test.js
 web/tests/contract/c003-prometheus.test.js
 web/tests/contract/c004-capabilities.test.js
+web/tests/contract/c005-layout.test.js
 web/tests/contract/c005-panels.test.js
 web/tests/contract/c006-refresh.test.js
 web/tests/contract/c009-diagnostics.test.js
@@ -76,6 +77,7 @@ web/tests/contract/c009-diagnostics.test.js
 - duration parsing (`5m`, `1h30m`, `0s` refresh);
 - limits (size/panel/item counts);
 - variable defaults and interpolation (`$job`, `${job}`, `$$`);
+- title interpolation into dashboard/row/panel titles with fallback;
 - unknown layout/panel handling.
 
 **C-003 Prometheus**
@@ -95,14 +97,18 @@ web/tests/contract/c009-diagnostics.test.js
 - hidden reasons and counts;
 - `show_unsupported` placeholders.
 
-**C-005 panels**
+**C-005 panels and layout**
 - demo dashboard renders/ hides the expected panel IDs;
-- TimeSeriesChart series/legend/limit;
-- Stat/Gauge calculations and thresholds;
+- TimeSeriesChart series/legend/limit; series colour by position; x axis on
+  the cycle window with round time ticks;
+- `niceTicks`/`timeTicks` round values, 1024-step bytes, wall-clock alignment;
+- Stat/Gauge calculations and thresholds; state word only on crossing; meter
+  only with thresholds;
 - Table rows and limit;
 - Markdown escaping (no HTML/JS);
 - formatting units;
 - DOM state attributes;
+- bands, strips with page dots, and row folding (`c005-layout.test.js`);
 - responsive ordering (stack/grid).
 
 **C-006 refresh**
@@ -113,7 +119,8 @@ web/tests/contract/c009-diagnostics.test.js
 - shared time window per cycle;
 - keep-last-good on error;
 - dashboard not re-fetched per tick;
-- manual refresh coalescing.
+- manual refresh coalescing;
+- runtime interval change reschedules; `0` switches to manual.
 
 **C-009 diagnostics**
 - required fields and error codes;
@@ -141,9 +148,15 @@ before asserting where order is not contractual.
 `app/src/test/java/com/mbicz/androdash/`:
 
 - `ConfigParserTest` — Intent extras, defaults, invalid schemes, integer/duration
-  bounds, persistence precedence, capability limits, `display_mode` validation,
-  and `show_when_locked` gating. Launch-URL encoding is covered here too (the
-  planned standalone `LaunchUrlTest` was folded in).
+  bounds, persistence precedence (including the separately persisted
+  `show_when_locked`), capability limits, `display_mode` validation,
+  `show_when_locked` gating, and `setView` validation. Launch-URL encoding is
+  covered here too (the planned standalone `LaunchUrlTest` was folded in).
+- `LockRelightPolicyTest` — the lock-screen re-light state machine (C-007):
+  first power press re-lights, a second press (even before the re-light lands)
+  stays off, manual wake returns to locked-lit, a late screen-on counts as a
+  wake, unlock resets, and no re-light when another app is in the foreground
+  or the keyguard is not engaged.
 
 Use plain JUnit 4 (no AndroidX test runner) for pure Kotlin classes. Activity,
 WebView, and kiosk behavior are verified manually on the emulator for v1.
@@ -165,7 +178,8 @@ Expected:
 - 6 panels visible: CPU, load, RAM stat, disk gauge, requests table, notes;
 - 3 panels hidden: Tempo traces, Loki logs, unknown chart;
 - debug overlay lists hidden reasons;
-- status line shows a successful update and a next refresh;
+- the header status shows the last successful update time with a green dot
+  (no countdown); panel headers show no `Live` badge;
 - waiting one interval updates values without a full page reload;
 - stopping the mock marks panels stale/error while keeping last data;
 - restarting the mock recovers on the next cycle.
@@ -180,7 +194,8 @@ http://localhost:8099/web/app/index.html?dashboard_url=http://localhost:8099/con
 
 Expected: 14 panels in 5 rows; `gpu` and `engine` variables resolve from label
 values; units render as `°C`, `W`, `%`, `tok/s`, `ms`, `Gb/s`, and `GHz`;
-stopping the mock leaves last-good data and an error badge. See
+stopping the mock leaves last-good data with `Stale` badges and an amber
+`Stale since …` header status. See
 [`integrations/spark-exporter.md`](../integrations/spark-exporter.md) for the
 query semantics.
 

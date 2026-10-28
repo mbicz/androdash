@@ -5,11 +5,11 @@
     "project": "androdash",
     "createdAt": "2026-10-27T00:00:00Z",
     "updatedAt": "2026-10-27T00:00:00Z",
-    "version": 1
+    "version": 2
   },
   "spec": {
     "display": {
-      "name": "macOS host",
+      "name": "$host",
       "description": "node_exporter on Darwin via Prometheus"
     },
     "duration": "15m",
@@ -37,6 +37,23 @@
             "kind": "DatasourceVariable",
             "spec": {
               "datasourcePluginKind": "PrometheusDatasource"
+            }
+          }
+        }
+      },
+      {
+        "kind": "ListVariable",
+        "spec": {
+          "name": "host",
+          "allowMultiple": false,
+          "allowAllValue": false,
+          "plugin": {
+            "kind": "PrometheusLabelValuesVariable",
+            "spec": {
+              "labelName": "nodename",
+              "matchers": [
+                "node_uname_info"
+              ]
             }
           }
         }

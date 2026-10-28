@@ -1,10 +1,11 @@
-import { calculations, formatValue, sortedThresholds, thresholdState } from "./format.js";
+import { calculations, formatValue, sortedThresholds, splitUnit, thresholdState } from "./format.js";
 import { seriesDisplayName } from "../prometheus.js";
 
 /**
- * Stat tiles are deliberately dense: label, value, state word, and a 3px meter
- * on the tile's bottom edge. A single-series panel drops the label because the
- * panel header already names it.
+ * Stat tiles: label, number, quieter unit. State is carried by a coloured edge
+ * on the tile (green / amber / red); a word appears only when something needs
+ * attention (the threshold's name, e.g. "High"). A panel without thresholds
+ * makes no judgement, so its tiles have a neutral edge and no meter.
  */
 export function renderStat(panel, series, { warn = null } = {}) {
   const wrapper = document.createElement("div");
@@ -39,37 +40,47 @@ export function renderStat(panel, series, { warn = null } = {}) {
   grid.className = `stat-grid${single ? " single" : ""}`;
 
   for (const { item, value } of tiles.slice(0, maxTiles)) {
-    const state = thresholdState(value, steps);
+    const state = steps.length > 0 ? thresholdState(value, steps) : { state: "none", label: "" };
     const label = seriesDisplayName(item.labels);
     const tile = document.createElement("div");
     tile.className = `stat-tile state-${state.state}${single ? " single" : ""}`;
     tile.setAttribute("data-series-label", label);
+    const formatted = formatValue(value, format, { warn });
+    tile.setAttribute(
+      "aria-label",
+      [single ? null : label, formatted, state.state === "warn" || state.state === "crit" ? state.label : null]
+        .filter(Boolean)
+        .join(", "),
+    );
 
     if (!single) {
       const labelEl = document.createElement("div");
-      labelEl.className = "stat-label";
+      labelEl.className = "metric-label";
       labelEl.textContent = label;
       tile.append(labelEl);
     }
 
-    const valueRow = document.createElement("div");
-    valueRow.className = "stat-value-row";
-    const valueEl = document.createElement("span");
-    valueEl.className = "stat-value";
-    valueEl.textContent = formatValue(value, format, { warn });
-    valueRow.append(valueEl);
+    const { number, unit } = splitUnit(formatted);
+    const valueEl = document.createElement("div");
+    valueEl.className = "metric-value";
+    valueEl.textContent = number;
+    if (unit) {
+      const unitEl = document.createElement("span");
+      unitEl.className = "metric-unit";
+      unitEl.textContent = unit;
+      valueEl.append(unitEl);
+    }
+    tile.append(valueEl);
 
-    const stateRow = document.createElement("div");
-    stateRow.className = "stat-state";
-    const dot = document.createElement("span");
-    dot.className = "state-dot";
-    const stateText = document.createElement("span");
-    stateText.textContent = state.label;
-    stateRow.append(dot, stateText);
+    if (state.state === "warn" || state.state === "crit") {
+      const stateEl = document.createElement("div");
+      stateEl.className = "metric-state";
+      stateEl.textContent = state.label;
+      tile.append(stateEl);
+    }
 
-    // The meter is a position against the panel's threshold scale. With no
-    // thresholds there is no scale, and a bar pinned at 100% would read as
-    // "maximum" for any value; omit it instead.
+    // The meter is a position on the threshold scale (value / highest step).
+    // Without thresholds there is no scale, so there is no meter.
     if (steps.length > 0) {
       const meter = document.createElement("div");
       meter.className = "stat-meter";
@@ -80,7 +91,6 @@ export function renderStat(panel, series, { warn = null } = {}) {
       tile.append(meter);
     }
 
-    tile.append(valueRow, stateRow);
     grid.append(tile);
   }
 

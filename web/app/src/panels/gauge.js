@@ -1,130 +1,125 @@
-import { calculations, formatValue, sortedThresholds, thresholdState } from "./format.js";
+import { calculations, formatValue, sortedThresholds, splitUnit, thresholdState } from "./format.js";
 import { seriesDisplayName } from "../prometheus.js";
-import { arcPath, svgEl, svgText } from "./svg.js";
+import { arcPath, polar, svgEl, svgText } from "./svg.js";
 
-const START = -120;
+/** Screen angles (0° = right, clockwise): a 240° arc open at the bottom. */
+const START = 150;
 const SWEEP = 240;
+const LABEL_HEIGHT = 18;
+const GAP = 12;
 
 function clampedRatio(value, max) {
   if (!Number.isFinite(value) || !Number.isFinite(max) || max <= 0) return 0;
   return Math.min(1, Math.max(0, value / max));
 }
 
-function zonesFor(steps, max) {
-  if (steps.length === 0) return [{ from: 0, to: max, state: "ok" }];
-  if (steps.length === 1) {
-    return [
-      { from: 0, to: steps[0].value, state: "ok" },
-      { from: steps[0].value, to: max, state: "crit" },
-    ];
-  }
-  return [
-    { from: 0, to: steps[0].value, state: "ok" },
-    { from: steps[0].value, to: steps[1].value, state: "warn" },
-    { from: steps[1].value, to: max, state: "crit" },
-  ];
+const attention = (state) => state.state === "warn" || state.state === "crit";
+
+/** Radius and stroke for an arc that must fit a width × height box. */
+function ringGeometry(width, height) {
+  const byWidth = width / 2;
+  const byHeight = height / 1.5;
+  const outer = Math.max(14, Math.min(byWidth, byHeight));
+  const stroke = Math.min(10, Math.max(4, outer * 0.13));
+  const radius = outer - stroke / 2 - 1;
+  return { radius, stroke, width: Math.round(outer * 2), height: Math.round(outer * 1.5 + stroke / 2 + 2) };
 }
 
 /**
- * Draw a 240° arc into an exact CSS-pixel box. The viewBox equals the rendered
- * size, so nothing is scaled: strokes stay 1:1 with the phone's CSS pixels.
- *
- * `text: false` omits the inner value/state labels; the caller then shows them
- * as HTML beside the arc, which is how a single-gauge panel uses the full width
- * of a phone card instead of centering a small dial.
+ * One open ring drawn at exact CSS pixels. The track is a quiet hairline-dark
+ * arc; the value arc carries the state colour (C-005). Thresholds are notches
+ * cut into the track, not coloured zones. `text` puts the value in the ring.
  */
-function gaugeSvg({ width, height, value, state, format, steps, max, warn, text = true }) {
-  const w = Math.max(40, Math.round(width));
-  const h = Math.max(40, Math.round(height));
+function ring({ width, height, value, state, format, steps, max, warn, text }) {
+  const geometry = ringGeometry(width, height);
+  const { radius, stroke } = geometry;
+  const w = geometry.width;
+  const h = geometry.height;
   const cx = w / 2;
-  const radius = Math.max(12, Math.min(w / 2 - 6, h / 2 - 4));
-  const cy = h / 2 + radius * 0.06;
-  const stroke = Math.max(5, radius * 0.2);
+  const cy = stroke / 2 + 1 + radius;
+  const formatted = formatValue(value, format, { warn });
 
   const svg = svgEl("svg", {
     class: "gauge-svg",
     viewBox: `0 0 ${w} ${h}`,
+    width: w,
+    height: h,
     role: "img",
-    "aria-label": `${formatValue(value, format, { warn })} (${state.label})`,
+    "aria-label": attention(state) ? `${formatted}, ${state.label}` : formatted,
   });
-
   svg.append(
     svgEl("path", {
       d: arcPath(cx, cy, radius, START, START + SWEEP),
       fill: "none",
-      stroke: "var(--gauge-track)",
       "stroke-width": stroke,
       "stroke-linecap": "round",
+      class: "gauge-track",
     }),
   );
-
-  for (const zone of zonesFor(steps, max)) {
-    const from = clampedRatio(zone.from, max);
-    const to = clampedRatio(zone.to, max);
-    if (to <= from) continue;
-    svg.append(
-      svgEl("path", {
-        d: arcPath(cx, cy, radius, START + SWEEP * from, START + SWEEP * to),
-        fill: "none",
-        stroke: `var(--state-${zone.state})`,
-        "stroke-width": Math.max(4, radius * 0.14),
-        "stroke-opacity": 0.34,
-        "stroke-linecap": "butt",
-      }),
-    );
-  }
-
   const ratio = clampedRatio(value, max);
   if (ratio > 0) {
     svg.append(
       svgEl("path", {
-        d: arcPath(cx, cy, radius, START, START + SWEEP * ratio),
+        d: arcPath(cx, cy, radius, START, START + SWEEP * Math.max(ratio, 0.004)),
         fill: "none",
-        stroke: `var(--state-${state.state === "muted" ? "muted" : state.state})`,
-        "stroke-width": Math.max(5, radius * 0.17),
+        "stroke-width": stroke,
         "stroke-linecap": "round",
-        class: "gauge-value-arc",
+        class: `gauge-value-arc state-${state.state}`,
       }),
     );
   }
-
   for (const step of steps) {
-    const angle = ((START + SWEEP * clampedRatio(step.value, max)) * Math.PI) / 180;
-    const inner = radius * 0.88;
-    const outer = radius * 1.12;
+    const angle = START + SWEEP * clampedRatio(step.value, max);
+    const inner = polar(cx, cy, radius - stroke / 2 - 0.5, angle);
+    const outer = polar(cx, cy, radius + stroke / 2 + 0.5, angle);
     svg.append(
-      svgEl("line", {
-        x1: cx + Math.cos(angle) * inner,
-        y1: cy + Math.sin(angle) * inner,
-        x2: cx + Math.cos(angle) * outer,
-        y2: cy + Math.sin(angle) * outer,
-        stroke: "var(--panel)",
-        "stroke-width": 2,
-      }),
+      svgEl("line", { x1: inner.x, y1: inner.y, x2: outer.x, y2: outer.y, class: "gauge-notch" }),
     );
   }
-
   if (text) {
-    const valueSize = Math.max(14, Math.min(30, radius * 0.66));
-    svg.append(
-      svgText(formatValue(value, format, { warn }), {
-        x: cx,
-        y: cy + valueSize * 0.14,
-        "text-anchor": "middle",
-        class: "gauge-value",
-        "font-size": valueSize,
-      }),
-    );
-    svg.append(
-      svgText(state.label, {
-        x: cx,
-        y: cy + valueSize * 0.14 + Math.max(10, radius * 0.34),
-        "text-anchor": "middle",
-        class: `gauge-state state-${state.state}`,
-      }),
-    );
+    const { number, unit } = splitUnit(formatted);
+    const size = Math.max(14, Math.min(30, radius * 0.56));
+    const label = svgEl("text", {
+      x: cx,
+      y: cy + size * 0.36,
+      "text-anchor": "middle",
+      class: "gauge-value",
+      "font-size": size.toFixed(1),
+    });
+    const numberSpan = svgEl("tspan", {});
+    numberSpan.textContent = number;
+    label.append(numberSpan);
+    if (unit) {
+      const unitSpan = svgEl("tspan", { class: "gauge-unit", "font-size": (size * 0.55).toFixed(1), dx: "1" });
+      unitSpan.textContent = unit;
+      label.append(unitSpan);
+    }
+    svg.append(label);
   }
   return svg;
+}
+
+function readout(value, state, format, warn) {
+  const element = document.createElement("div");
+  element.className = `gauge-readout state-${state.state}`;
+  const { number, unit } = splitUnit(formatValue(value, format, { warn }));
+  const valueEl = document.createElement("span");
+  valueEl.className = "metric-value";
+  valueEl.textContent = number;
+  if (unit) {
+    const unitEl = document.createElement("span");
+    unitEl.className = "metric-unit";
+    unitEl.textContent = unit;
+    valueEl.append(unitEl);
+  }
+  element.append(valueEl);
+  if (attention(state)) {
+    const stateEl = document.createElement("span");
+    stateEl.className = "metric-state";
+    stateEl.textContent = state.label;
+    element.append(stateEl);
+  }
+  return element;
 }
 
 export function renderGauge(panel, series, { warn = null, size = null } = {}) {
@@ -155,77 +150,66 @@ export function renderGauge(panel, series, { warn = null, size = null } = {}) {
     warn?.("W_GAUGES_TRUNCATED", `Gauge panel kept ${maxGauges} gauges`, panel.id, null);
   }
   wrapper.dataset.empty = "false";
-  const kept = gauges.slice(0, maxGauges);
+  const kept = gauges.slice(0, maxGauges).map((gauge) => ({
+    ...gauge,
+    state: steps.length > 0 ? thresholdState(gauge.value, steps) : { state: "none", label: "" },
+    max:
+      format.unit === "percent"
+        ? 100
+        : Math.max(1, ...steps.map((step) => step.value), Number(gauge.value) || 0) * 1.12,
+  }));
   const single = kept.length === 1;
   const grid = document.createElement("div");
   grid.className = `gauge-grid${single ? " single" : ""}`;
+  const box = { width: size?.width ?? 338, height: size?.height ?? 120 };
 
-  const box = { width: size?.width ?? 338, height: size?.height ?? 104 };
-
-  function maxFor(value) {
-    return format.unit === "percent"
-      ? 100
-      : Math.max(1, ...steps.map((step) => step.value), Number(value) || 0) * 1.12;
+  function cellBox() {
+    if (single) {
+      const side = Math.min(box.height, box.width * 0.42);
+      return { width: side, height: side };
+    }
+    const rows = Math.ceil(kept.length / 2);
+    return {
+      width: (box.width - GAP) / 2,
+      height: (box.height - GAP * (rows - 1)) / rows - LABEL_HEIGHT,
+    };
   }
 
-  for (const { item, value } of kept) {
-    const state = thresholdState(value, steps);
-    const max = maxFor(value);
-    const card = document.createElement("div");
-    card.className = `gauge-card state-${state.state}${single ? " inline" : ""}`;
+  function dial(gauge) {
+    const cell = cellBox();
+    return ring({
+      width: cell.width,
+      height: cell.height,
+      value: gauge.value,
+      state: gauge.state,
+      format,
+      steps,
+      max: gauge.max,
+      warn,
+      text: !single,
+    });
+  }
 
+  for (const gauge of kept) {
+    const cell = document.createElement("div");
+    cell.className = `gauge-cell state-${gauge.state.state}`;
+    cell.append(dial(gauge));
     if (single) {
-      // Dial on the left, large readout on the right: no half-empty card.
-      const dial = Math.round(Math.min(box.height, box.width * 0.44));
-      card.append(
-        gaugeSvg({
-          width: dial,
-          height: Math.min(box.height, dial),
-          value,
-          state,
-          format,
-          steps,
-          max,
-          warn,
-          text: false,
-        }),
-      );
-      const readout = document.createElement("div");
-      readout.className = "gauge-readout";
-      const valueEl = document.createElement("span");
-      valueEl.className = "gauge-value-text";
-      valueEl.textContent = formatValue(value, format, { warn });
-      const stateEl = document.createElement("span");
-      stateEl.className = `gauge-state-text state-${state.state}`;
-      const dot = document.createElement("span");
-      dot.className = "state-dot";
-      const stateText = document.createElement("span");
-      stateText.textContent = state.label;
-      stateEl.append(dot, stateText);
-      readout.append(valueEl, stateEl);
-      card.append(readout);
+      cell.append(readout(gauge.value, gauge.state, format, warn));
     } else {
-      card.append(
-        gaugeSvg({
-          width: Math.round(box.width / 2 - 12),
-          height: Math.max(56, Math.round(box.height / 2 - 12)),
-          value,
-          state,
-          format,
-          steps,
-          max,
-          warn,
-          text: true,
-        }),
-      );
       const label = document.createElement("div");
       label.className = "gauge-label";
-      label.textContent = seriesDisplayName(item.labels);
-      card.append(label);
+      label.textContent = seriesDisplayName(gauge.item.labels);
+      if (attention(gauge.state)) {
+        const stateEl = document.createElement("span");
+        stateEl.className = "metric-state";
+        stateEl.textContent = gauge.state.label;
+        label.append(stateEl);
+      }
+      cell.append(label);
     }
-    grid.append(card);
+    grid.append(cell);
   }
-
   wrapper.append(grid);
 
   if (typeof ResizeObserver === "function") {
@@ -235,36 +219,14 @@ export function renderGauge(panel, series, { warn = null, size = null } = {}) {
         return;
       }
       const rect = wrapper.getBoundingClientRect?.();
-      if (!rect || !(rect.width > 0)) return;
+      if (!rect || !(rect.width > 0) || !(rect.height > 0)) return;
       const next = { width: Math.round(rect.width), height: Math.round(rect.height) };
-      if (Math.abs(next.width - box.width) < 1) return;
+      if (Math.abs(next.width - box.width) < 1 && Math.abs(next.height - box.height) < 1) return;
       box.width = next.width;
-      box.height = Math.max(56, next.height);
-      for (const card of grid.children) {
-        const dial = card.children[0];
-        if (!dial) continue;
-        const index = [...grid.children].indexOf(card);
-        const { value } = kept[index];
-        const state = thresholdState(value, steps);
-        const max = maxFor(value);
-        dial.replaceWith(
-          gaugeSvg({
-            width: single
-              ? Math.round(Math.min(box.height, box.width * 0.44))
-              : Math.round(box.width / 2 - 12),
-            height: single
-              ? Math.min(box.height, Math.round(Math.min(box.height, box.width * 0.44)))
-              : Math.max(56, Math.round(box.height / 2 - 12)),
-            value,
-            state,
-            format,
-            steps,
-            max,
-            warn,
-            text: !single,
-          }),
-        );
-      }
+      box.height = next.height;
+      [...grid.children].forEach((cell, index) => {
+        cell.firstChild.replaceWith(dial(kept[index]));
+      });
     });
     observer.observe(wrapper);
   }

@@ -564,3 +564,21 @@ export function interpolate(text, variables, warn = () => {}) {
   }
   return output;
 }
+
+/**
+ * Interpolate resolved variables into the dashboard, row, and panel titles
+ * (C-002 "Display and metadata"), e.g. a `$host` title shows the machine name.
+ * Titles are only ever written with textContent. A title that interpolates to
+ * an empty string falls back to the dashboard name / panel id, so an
+ * unresolved variable never leaves a blank or `$host` heading.
+ */
+export function applyDisplayVariables(dashboard, variables, warn = () => {}) {
+  const resolve = (text, fallback) => {
+    if (typeof text !== "string" || !text.includes("$")) return text;
+    return interpolate(text, variables, warn).trim() || fallback;
+  };
+  dashboard.title = resolve(dashboard.title, dashboard.name);
+  for (const panel of dashboard.panels.values()) panel.title = resolve(panel.title, panel.id);
+  for (const row of dashboard.rows || []) row.title = resolve(row.title, "");
+  return dashboard;
+}

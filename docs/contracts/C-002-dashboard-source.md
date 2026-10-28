@@ -1,10 +1,12 @@
 # C-002 — Dashboard source and normalization
 
 - **Version:** 1 (AndroDash Perses subset v1)
-- **Status:** Accepted, 2026-10-26
+- **Status:** Accepted, 2026-10-26; amended 2026-10-27 (variables in titles;
+  decision 0015)
 - **Consumers:** Web renderer (W2)
 - **Fixtures:** [`demo-dashboard.json`](../../contracts/fixtures/demo-dashboard.json),
-  [`spark-dashboard.json`](../../contracts/fixtures/spark-dashboard.json)
+  [`spark-dashboard.json`](../../contracts/fixtures/spark-dashboard.json),
+  [`macos-node-dashboard.json`](../../contracts/fixtures/macos-node-dashboard.json)
 - **Related:** C-001 (URL), C-003 (datasources), C-004 (filtering), C-005 (panels)
 
 ## Purpose
@@ -259,7 +261,8 @@ not mutate the dashboard.
 ## Variables
 
 Variables are resolved **once at boot** (and on reload). There is no variable
-picker in v1. Values are used for query/datasource interpolation.
+picker in v1. Values are used for query/datasource interpolation and for
+display titles (see [Display and metadata](#display-and-metadata)).
 
 | Kind | v1 resolution |
 |---|---|
@@ -288,6 +291,19 @@ Variable resolution must not execute arbitrary code or interpolate into HTML.
 
 - Dashboard title: `spec.display.name`, else `metadata.name`.
 - Dashboard description: `spec.display.description`, else `""`.
+- After variables resolve, `applyDisplayVariables()` interpolates `$var` and
+  `${var}` (rules above) into the dashboard title, every row title, and every
+  panel title. Titles are written with `textContent` only. If a title that
+  contained `$` interpolates to an empty (whitespace-only) string, it falls back
+  to the dashboard `metadata.name`, the panel ID, or `""` for a row (the row
+  header then shows `Overview`, C-005), so an unresolved variable never leaves a
+  blank or literal `$host` heading. Missing variables still warn
+  `W_VARIABLE_MISSING`.
+- Example: `macos-node-dashboard.json` sets `display.name: "$host"` with a
+  `host` `PrometheusLabelValuesVariable` (`labelName: nodename`, matcher
+  `node_uname_info`), so the header shows the machine name; if the variable
+  does not resolve, it shows `macOS host`.
+- Descriptions are not interpolated.
 - Metadata `project`, timestamps, and version are kept for diagnostics only.
 - No remote images/logos in v1.
 
@@ -321,6 +337,8 @@ Warnings are collected in diagnostics and do not block rendering.
 - resolve `$ref`, escaped pointers, inline panels, duplicates;
 - duration grammar and invalid fallbacks;
 - variable defaults, interpolation, `$$`, missing vars;
+- title interpolation into dashboard/row/panel titles, with the empty-result
+  fallback;
 - layout limits/fallbacks/collapse;
 - panel/query normalization;
 - size/limit errors;

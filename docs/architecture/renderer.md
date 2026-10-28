@@ -14,29 +14,29 @@
 - Rendering is client-side and bounded for a phone.
 - All externally visible behavior follows the contracts.
 
-## 2. Target layout
+## 2. Layout
 
 ```
 web/
 ├── AGENTS.md
 ├── app/                      # served as Android assets; runtime only
 │   ├── index.html
-│   ├── styles.css
+│   ├── styles.css            # visual system; display modes are CSS variables
 │   └── src/
-│       ├── main.js           # boot and wiring
+│       ├── main.js           # boot, header/toolbar, wiring, window.androdash
 │       ├── config.js         # query → canonical AppConfig
 │       ├── fetch-json.js     # timeout/redirect/error helpers
 │       ├── dashboard/
 │       │   ├── load.js       # fetch and select a dashboard
-│       │   ├── normalize.js  # Perses subset → internal model
-│       │   ├── duration.js   # duration parsing
-│       │   └── variables.js  # defaults + interpolation
+│       │   ├── normalize.js  # Perses subset → internal model, variables,
+│       │   │                 # interpolation, title variables
+│       │   └── duration.js   # duration parsing
 │       ├── capabilities.js   # probe + capability set
 │       ├── eligibility.js    # panel filtering and reasons
-│       ├── prometheus.js     # HTTP client and response normalization
+│       ├── prometheus.js     # HTTP client, response normalization, series names/colours
 │       ├── scheduler.js      # refresh state machine
 │       ├── diagnostics.js    # error codes, redaction, status model
-│       ├── layout.js         # rows/grid/stack + DOM structure
+│       ├── layout.js         # rows, bands/strips, folding, grid/stack placement
 │       └── panels/
 │           ├── index.js      # panel plugin registry
 │           ├── time-series.js
@@ -44,31 +44,25 @@ web/
 │           ├── gauge.js
 │           ├── table.js
 │           ├── markdown.js
-│           ├── format.js
+│           ├── format.js     # units, calculations, thresholds
+│           ├── scale.js      # nice value ticks and wall-clock time ticks
 │           └── svg.js        # small SVG helpers
 └── tests/
-    ├── config.test.js
-    ├── duration.test.js
-    ├── dashboard.test.js
-    ├── variables.test.js
-    ├── capabilities.test.js
-    ├── eligibility.test.js
-    ├── prometheus.test.js
-    ├── format.test.js
-    ├── markdown.test.js
+    ├── helpers/
+    │   └── mini-dom.js       # minimal DOM for Node tests
     └── contract/
         ├── c001-config.test.js
         ├── c002-dashboard.test.js
         ├── c003-prometheus.test.js
         ├── c004-capabilities.test.js
+        ├── c005-layout.test.js
         ├── c005-panels.test.js
         ├── c006-refresh.test.js
         └── c009-diagnostics.test.js
 ```
 
-Test file names can be refined, but contract tests must map one-to-one to the
-contract IDs and be named accordingly. C-007/C-008 are Android-shell checks, not
-web tests.
+Contract tests map to contract IDs and are named accordingly. C-007/C-008 are
+Android-shell checks, not web tests.
 
 ## 3. Boot pipeline
 
@@ -81,11 +75,13 @@ web tests.
    model (C-002).
 4. **Capabilities** — collect datasource URLs, probe Prometheus, apply the
    advertised override (C-004).
-5. **Variables** — resolve defaults; label variables may call Prometheus.
+5. **Variables** — resolve defaults; label variables may call Prometheus; then
+   interpolate variables into dashboard/row/panel titles (C-002).
 6. **Eligibility** — filter panels and rows, record reasons (C-004).
-7. **Layout** — build rows/panels once (C-005).
+7. **Layout** — build the header, time toolbar, rows, and panels once (C-005).
 8. **Data** — first refresh cycle (C-006), then schedule.
-9. **Status** — update the status line and diagnostics after each cycle.
+9. **Status** — update the header status and diagnostics when a cycle settles
+   or the scheduler state changes.
 
 The renderer should paint the dashboard shell and Markdown/unsupported states
 before all data arrives, then fill panels progressively. A slow Prometheus must
@@ -119,17 +115,20 @@ ignored, not copied into the DOM.
 ### DOM
 
 - One root element (`#app`) with:
-  - a header (dashboard name, optional description);
-  - a status line/footer;
-  - one element per row;
-  - one element per panel instance.
-- Structure is created once per dashboard load. A refresh updates panel bodies,
-  not the entire tree.
+  - a sticky header: dashboard title (variables interpolated), one
+    dashboard-wide status line (C-009), and icon actions (refresh now,
+    lock-screen toggle when the shell bridge offers it, diagnostics in debug);
+  - a time toolbar: range segmented control and refresh `<select>` (C-006);
+  - one section per row with a folding header button;
+  - one element per panel instance, either stacked or inside a horizontal
+    strip with page dots (C-005).
+- Structure is created once per dashboard load. A refresh updates panel bodies
+  and the header status, not the entire tree. There is no per-second timer.
 - Panels expose test hooks:
   - `data-panel-id`
   - `data-panel-kind`
-  - `data-panel-state="loading|ready|empty|error|unsupported|hidden"`
-  - `[data-row-title]`
+  - `data-panel-state="loading|ready|empty|stale|error|unsupported|hidden"`
+  - `[data-row-title]`, `[data-row-collapsed]`
 - No `innerHTML` with untrusted strings. Use `textContent` and DOM builders.
   Markdown is rendered through a sanitizing subset renderer.
 
@@ -138,35 +137,49 @@ ignored, not copied into the DOM.
 SVG, built with small helper functions:
 
 - line paths with `M/L` commands;
-- optional area fill;
-- 3–5 x ticks, 4 y ticks (3 y ticks when the panel body is under 150 px);
-- threshold lines;
+- optional area fill (`--area-opacity`);
+- x domain = the cycle window (`timeWindow`), not the data extent;
+- round ticks from `panels/scale.js`: `niceTicks` (1/2/2.5/5 × 10^k, powers of
+  1024 for bytes; 4 intervals, 3 under 150 px) and `timeTicks` (wall-clock
+  aligned, at most `min(8, plotWidth / 84)`);
+- value labels on the right in a 22–64 px gutter; no vertical grid lines;
+  10 px axis labels;
+- dashed threshold lines in the state colour;
+- series colour by position (`seriesColor(index)` → `var(--series-N)`, 8 slots);
 - series legend with last values;
 - null values break the line (gap), not connect across missing data;
-- the `viewBox` equals the measured rendered box, so text keeps its CSS size
-  and the left gutter is derived from the widest tick label (capped at 72 px).
-  A `ResizeObserver` on the `svg` redraws on any box change.
+- the `viewBox` equals the measured rendered box, so text keeps its CSS size.
+  A `ResizeObserver` redraws on any box change.
 
-No canvas in v1. No tooltips in v1 (documented in C-005). Tap targets are panel
-headers/rows only.
+No canvas in v1. No tooltips in v1 (documented in C-005). Tap targets are row
+headers, page dots, the toolbar, and header actions.
 
 ### Layout
 
 - `layout_mode=auto` (default):
-  - viewport CSS width ≥ 900 px → 24-column grid at 30 px row units;
-  - narrower → single-column stack in reading order.
+  - viewport CSS width ≥ 900 px → 24-column grid with `minmax(30px, auto)` row
+    tracks;
+  - narrower → single-column stack.
 - `grid` forces the 24-column grid; `stack` forces the single column.
-- Row collapse is honored; collapsed rows show only their header and can be
-  expanded by tapping.
+- `bandItems()` groups a row's items whose vertical extents overlap into
+  bands. In stack mode a band of two or more becomes a horizontally swipeable
+  `.panel-strip` (scroll-snap `x mandatory`, pages `calc(100% - 26px)` wide,
+  page dots driven by an `IntersectionObserver`); a band of one stays in the
+  vertical stack. The page snaps vertically (`y proximity`) to the toolbar,
+  rows, and stacked bands under the header (`--header-h`, measured with a
+  `ResizeObserver`). In grid mode strips are `display: contents`.
+- Row headers fold/unfold rows (`hidden` on `.row-body`, `aria-expanded`);
+  dashboard-collapsed rows start folded.
 - A row with no eligible items is omitted (unless `show_unsupported=true`
   produces placeholders).
 - Duplicate `$ref` items render separate instances; data for the same panel ID is
   fetched once per refresh and shared.
-- `display_mode` selects presentation only: `standard`, `amoled` (true black, no
-  gradients/animations, semantic colors retained), or `monochrome` (AMOLED base
-  plus black-and-white simplified chrome and grayscale/dashed chart series).
-  The mode is applied as `data-display-mode` on the document root before the
-  dashboard renders; panel renderers receive it through `renderPanelBody`.
+- `display_mode` (`standard`, `amoled`, `monochrome`) is a pure stylesheet
+  switch: it is applied as `data-display-mode` on the document root and every
+  colour is a CSS variable, so renderers never receive it and switching never
+  re-renders. `window.androdash.setLocked(true)` (from the shell, C-007) sets
+  `data-locked` and forces `monochrome`; the locked view hides the toolbar,
+  header actions, and page dots while refreshing continues.
 
 ## 6. Panel registry
 
@@ -174,9 +187,9 @@ v1 renderers:
 
 | Kind | Data | Notes |
 |---|---|---|
-| `TimeSeriesChart` | conditional range queries | SVG multi-series |
-| `StatChart` | range queries + calculation | tiles per series |
-| `GaugeChart` | range queries + calculation | arc gauge, thresholds |
+| `TimeSeriesChart` | conditional range queries | SVG multi-series on the cycle window |
+| `StatChart` | range queries + calculation | tiles per series, state edge |
+| `GaugeChart` | range queries + calculation | 240° open arc, threshold notches |
 | `Table` | instant queries | series + value rows |
 | `Markdown` | none | sanitized subset |
 
@@ -202,17 +215,25 @@ network prerequisites, not renderer bugs. Error messages must say so.
 - No overlapping cycles; if a cycle is running, a manual refresh request is
   coalesced into "run once after".
 - `refreshSeconds = 0` means manual only.
+- `setIntervalSeconds()` changes the interval at runtime (in-app refresh
+  control) and reschedules from now.
 - Pauses while `document.visibilityState === "hidden"`; refreshes immediately on
   visibility if stale.
 - Keeps last good data on errors; marks stale; continues other panels.
 - Dashboard JSON is fetched at boot/reload, not each tick.
-- Exposes `window.androdash.refresh()` and `reloadDashboard()` for the debug
-  affordance and tests.
+- Exposes `window.androdash.refresh()` and `reloadDashboard()` for the header
+  refresh action, the debug overlay, and tests.
+- In-app range/refresh choices are passed to `AndroDash.setView()` when the
+  shell is present, which persists them (C-006, C-007).
 
 ## 9. Diagnostics and status
 
-- A small footer/status line is always present in debug; in release it is compact
-  but still shows live/stale/error and last update.
+- One dashboard-wide status in the sticky header (release and debug): a state
+  dot and the last successful update time, `Stale since …`,
+  `N of M failing · …`, `Offline [since …]`, or `Loading` (C-009). No
+  countdown; it updates only when a cycle settles or the scheduler state
+  changes.
+- Panel badges appear only for `Stale`, `Error`, and `Hidden` (C-005).
 - `debug=true` enables an overlay with config (redacted), capabilities, probe
   results, hidden panels and reasons, request timings, and errors.
 - `window.androdash.getDiagnostics()` returns the C-009 object.
@@ -253,7 +274,8 @@ Export pure functions for:
 - Prometheus URL building and response normalization;
 - calculations and value formatting;
 - Markdown escaping;
-- layout ordering.
+- layout ordering and banding (`bandItems`);
+- value and time tick selection (`niceTicks`, `timeTicks`).
 
 `main.js` should be a thin composition layer with little untested logic.
 

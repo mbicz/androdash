@@ -20,7 +20,7 @@ diverge.
 ## Current state
 
 M1 is implemented. `web/app/` contains the runtime; `web/tests/contract/` holds
-55 passing Node contract tests. M3 is adding production-shaped fixtures and
+66 passing Node contract tests. M3 is adding production-shaped fixtures and
 polish; the contracts remain the interface.
 
 ## Requirements
