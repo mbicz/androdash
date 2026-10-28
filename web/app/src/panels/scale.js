@@ -58,27 +58,44 @@ const TIME_STEPS = [
 export function timeTicks(start, end, maxTicks = 4, offsetSeconds = null) {
   const span = Math.max(1, end - start);
   const limit = Math.max(2, Math.floor(maxTicks));
-  const step = TIME_STEPS.find((candidate) => span / candidate <= limit) ?? TIME_STEPS.at(-1);
   const offset =
     offsetSeconds ?? -new Date(start * 1000).getTimezoneOffset() * 60;
-  const ticks = [];
-  for (let t = Math.ceil((start + offset) / step) * step - offset; t <= end; t += step) {
-    ticks.push(t);
+  const ticksFor = (step) => {
+    const ticks = [];
+    for (let t = Math.ceil((start + offset) / step) * step - offset; t <= end; t += step) ticks.push(t);
+    return ticks;
+  };
+  let index = TIME_STEPS.findIndex((candidate) => span / candidate <= limit);
+  if (index < 0) index = TIME_STEPS.length - 1;
+  let ticks = ticksFor(TIME_STEPS[index]);
+  // A round step can land only once in the window; take the next finer step
+  // rather than leave the axis with a single time.
+  if (ticks.length < 2 && index > 0 && ticksFor(TIME_STEPS[index - 1]).length <= limit + 1) {
+    index -= 1;
+    ticks = ticksFor(TIME_STEPS[index]);
   }
-  return { step, ticks };
+  return { step: TIME_STEPS[index], ticks };
 }
 
-/** Label for a time tick, as short as the step allows. */
-export function timeTickLabel(seconds, step, span) {
+/**
+ * Label for a time tick, as short as the step allows. `compact` drops the
+ * AM/PM marker for narrow plots; the header clock carries it.
+ */
+export function timeTickLabel(seconds, step, span, { compact = false } = {}) {
   const date = new Date(seconds * 1000);
   if (step >= 86400) {
     return date.toLocaleDateString([], span > 7 * 86400 ? { month: "short", day: "numeric" } : { weekday: "short" });
   }
-  const time = date.toLocaleTimeString([], {
+  const parts = new Intl.DateTimeFormat([], {
     hour: "numeric",
     minute: "2-digit",
     ...(step < 60 ? { second: "2-digit" } : {}),
-  });
+  }).formatToParts(date);
+  const time = parts
+    .filter((part) => !compact || part.type !== "dayPeriod")
+    .map((part) => part.value)
+    .join("")
+    .trim();
   if (span > 86400 && date.getHours() === 0 && date.getMinutes() === 0) {
     return date.toLocaleDateString([], { weekday: "short" });
   }

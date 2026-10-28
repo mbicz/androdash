@@ -1,6 +1,7 @@
 import { calculations, formatValue, sortedThresholds, splitUnit, thresholdState } from "./format.js";
 import { seriesDisplayName } from "../prometheus.js";
-import { arcPath, polar, svgEl, svgText } from "./svg.js";
+import { arcPath, polar, svgEl } from "./svg.js";
+import { bestCellGrid } from "../fit.js";
 
 /** Screen angles (0° = right, clockwise): a 240° arc open at the bottom. */
 const START = 150;
@@ -78,7 +79,7 @@ function ring({ width, height, value, state, format, steps, max, warn, text }) {
   }
   if (text) {
     const { number, unit } = splitUnit(formatted);
-    const size = Math.max(14, Math.min(30, radius * 0.56));
+    const size = Math.max(13, Math.min(40, radius * 0.56));
     const label = svgEl("text", {
       x: cx,
       y: cy + size * 0.36,
@@ -163,39 +164,58 @@ export function renderGauge(panel, series, { warn = null, size = null } = {}) {
   grid.className = `gauge-grid${single ? " single" : ""}`;
   const box = { width: size?.width ?? 338, height: size?.height ?? 120 };
 
-  function cellBox() {
+  /**
+   * Arrange the rings for the box they were given: a single gauge sits beside
+   * its readout when the box is wide and alone with the value inside when it
+   * is not; several gauges take the column count that makes rings largest.
+   */
+  function arrangement() {
     if (single) {
-      const side = Math.min(box.height, box.width * 0.42);
-      return { width: side, height: side };
+      const inline = box.width >= box.height * 1.5;
+      const side = inline ? Math.min(box.height, box.width * 0.42) : Math.min(box.width, box.height);
+      return { inline, columns: 1, cell: { width: side, height: side } };
     }
-    const rows = Math.ceil(kept.length / 2);
+    const layout = bestCellGrid(kept.length, box.width, box.height, { aspect: 1.05, gap: GAP });
     return {
-      width: (box.width - GAP) / 2,
-      height: (box.height - GAP * (rows - 1)) / rows - LABEL_HEIGHT,
+      inline: false,
+      columns: layout.columns,
+      cell: {
+        width: (box.width - GAP * (layout.columns - 1)) / layout.columns,
+        height: (box.height - GAP * (layout.rows - 1)) / layout.rows - LABEL_HEIGHT,
+      },
     };
   }
 
+  let shape = arrangement();
+
   function dial(gauge) {
-    const cell = cellBox();
     return ring({
-      width: cell.width,
-      height: cell.height,
+      width: shape.cell.width,
+      height: shape.cell.height,
       value: gauge.value,
       state: gauge.state,
       format,
       steps,
       max: gauge.max,
       warn,
-      text: !single,
+      text: !shape.inline,
     });
   }
+
+  function applyShape() {
+    grid.style.gridTemplateColumns = `repeat(${shape.columns}, minmax(0, 1fr))`;
+    grid.classList.toggle("inline", shape.inline);
+  }
+  applyShape();
 
   for (const gauge of kept) {
     const cell = document.createElement("div");
     cell.className = `gauge-cell state-${gauge.state.state}`;
     cell.append(dial(gauge));
     if (single) {
-      cell.append(readout(gauge.value, gauge.state, format, warn));
+      const read = readout(gauge.value, gauge.state, format, warn);
+      read.hidden = !shape.inline;
+      cell.append(read);
     } else {
       const label = document.createElement("div");
       label.className = "gauge-label";
@@ -224,8 +244,11 @@ export function renderGauge(panel, series, { warn = null, size = null } = {}) {
       if (Math.abs(next.width - box.width) < 1 && Math.abs(next.height - box.height) < 1) return;
       box.width = next.width;
       box.height = next.height;
+      shape = arrangement();
+      applyShape();
       [...grid.children].forEach((cell, index) => {
         cell.firstChild.replaceWith(dial(kept[index]));
+        if (single) cell.lastChild.hidden = !shape.inline;
       });
     });
     observer.observe(wrapper);

@@ -233,7 +233,7 @@ If any step is impossible using only this repository, fix the repository
 - **M0 (complete):** constitution, contracts, architecture, decision log,
   fixtures, scoped guides.
 - **M1 (complete):** web renderer, mock Prometheus, static demo server, browser
-  demo, 66 renderer tests.
+  demo, 73 renderer tests.
 - **M2 (complete):** Android shell, emulator demo, kiosk/lock-screen modes,
    config tests, lint/build/install.
 - **M3 (current):** soak test, physical AMOLED phone, accessibility, reconnect

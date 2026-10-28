@@ -65,7 +65,8 @@ export function renderTimeSeries(panel, series, { warn = null, size = null, time
   function draw(box) {
     const width = Math.max(96, Math.round(box.width));
     const height = Math.max(64, Math.round(box.height));
-    const scale = niceTicks(dataMin, dataMax, height >= 150 ? 4 : 3, unit);
+    // One value label per ~22 px of plot so labels never touch on short charts.
+    const scale = niceTicks(dataMin, dataMax, Math.max(1, Math.min(4, Math.floor((height - 25) / 22))), unit);
     const minY = scale.min;
     const rangeY = scale.max - scale.min || 1;
     const tickLabels = scale.ticks.map((value) => formatAxis(value, format));
@@ -100,12 +101,13 @@ export function renderTimeSeries(panel, series, { warn = null, size = null, time
         }),
       );
     });
-    const time = timeTicks(minT, maxT, Math.min(8, Math.floor(plotW / 84)));
+    const compact = plotW < 260;
+    const time = timeTicks(minT, maxT, Math.max(2, Math.min(8, Math.floor(plotW / (compact ? 46 : 84)))));
     for (const t of time.ticks) {
       const xx = x(t);
       const anchor = xx - padding.left < 22 ? "start" : padding.left + plotW - xx < 22 ? "end" : "middle";
       grid.append(
-        svgText(timeTickLabel(t, time.step, rangeT), {
+        svgText(timeTickLabel(t, time.step, rangeT, { compact }), {
           x: xx,
           y: height - 4,
           "text-anchor": anchor,

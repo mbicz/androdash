@@ -1,10 +1,12 @@
 # C-006 — Refresh and time semantics
 
-- **Version:** 2
+- **Version:** 3
 - **Status:** Accepted, 2026-10-27 (v2: in-app time range and refresh controls,
-  runtime interval change, header status without a countdown; decision 0015)
+  runtime interval change, header status without a countdown; decision 0015);
+  amended 2026-10-28 (v3: controls move to the settings sheet, persisted one
+  option at a time with `setOption`; decision 0017)
 - **Consumers:** Web renderer (W2)
-- **Related:** C-001 (refresh/time params), C-002 (dashboard duration/refresh), C-003 (range queries), C-005 (time axis), C-007 (`setView` bridge), C-009 (status)
+- **Related:** C-001 (refresh/time params), C-002 (dashboard duration/refresh), C-003 (range queries), C-005 (time axis, settings sheet), C-007 (`setOption` bridge), C-009 (status)
 
 ## Purpose
 
@@ -22,7 +24,7 @@ For a dashboard boot/refresh cycle:
 4. else `1h`.
 
 In the Android app an in-app choice is persisted by the shell into the launch
-config (C-007 `setView`), so on later loads it arrives as `time_range` (1 → 2)
+config (C-007 `setOption`), so on later loads it arrives as `time_range` (1 → 2)
 until a launch with an explicit extra replaces it. In a plain browser it lasts
 for the session only.
 
@@ -62,16 +64,18 @@ header refresh action, the debug overlay, or `window.androdash.refresh()`.
 
 ## In-app view controls
 
-A toolbar directly below the sticky header (C-005 snaps to it) offers:
+The header's settings button (sliders icon, `aria-label="View settings"`) opens
+the view settings sheet (C-005); the page itself carries no time controls. The
+sheet offers:
 
 - **Time range:** a segmented control (`role="radiogroup"`, each segment
   `role="radio"` with `aria-checked` and `aria-label="Last <range>"`) with the
   presets `5m`, `15m`, `1h`, `6h`, `24h`, `7d`. If the effective range (launch
   param or dashboard) is not one of them, it is added as one more segment,
   sorted by duration.
-- **Refresh:** a native `<select>` (`aria-label="Refresh interval"`; the
-  platform picker on Android) with `Manual`, `5 s`, `10 s`, `30 s`, `1 min`,
-  `5 min`, plus the effective interval if it is not one of them.
+- **Refresh:** a segmented control (`aria-label="Refresh interval"`) with
+  `Off`, `5s`, `10s`, `30s`, `1m`, `5m`, plus the effective interval if it is
+  not one of them (sorted).
 
 A choice applies immediately:
 
@@ -85,11 +89,14 @@ A choice applies immediately:
   interval when it settles;
 - choosing the current value is a no-op;
 - then, when the shell bridge is present, the renderer calls
-  `AndroDash.setView(timeRange, refreshSeconds)` with both effective values
-  (strings). The shell validates and persists them (C-007); bridge errors are
+  `AndroDash.setOption(name, value)` for the option that changed —
+  `("time_range", "<range>")` or `("refresh_seconds", "<seconds>")`, values as
+  strings. The shell validates and persists it (C-007); bridge errors are
   swallowed. Without a shell the choice is session-only.
 
-The locked view (C-005) hides the toolbar; refreshing continues.
+The sheet also holds the layout and lock-screen choices (C-005). The locked
+view (C-005) hides the header actions and closes an open sheet, so the sheet
+is never shown while locked; refreshing continues.
 
 ## Cycle lifecycle
 

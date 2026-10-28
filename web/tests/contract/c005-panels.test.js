@@ -200,7 +200,8 @@ test("C-005 Table renders sorted deterministic rows and keeps raw values without
   assert.equal(element.dataset.empty, "false");
   const rows = element.querySelectorAll("tbody tr");
   assert.equal(rows.length, 2);
-  assert.match(rows[0].textContent, /code="200"/);
+  assert.equal(element.querySelector("th").textContent, "code");
+  assert.equal(rows[0].querySelector(".series-cell").textContent, "200");
   assert.match(rows[0].textContent, /18432/);
   assert.match(rows[1].textContent, /17.25/);
 });
@@ -213,4 +214,14 @@ test("C-005 empty series produce an empty state, not fabricated data", () => {
   assert.equal(emptyGauge.dataset.empty, "true");
   const emptyTable = renderTable(panel("Table"), []);
   assert.equal(emptyTable.dataset.empty, "true");
+});
+
+test("C-005 fit tables show the rows their box holds and count the rest", () => {
+  const series = Array.from({ length: 13 }, (_, index) => ({
+    labels: { __name__: "up", collector: `c${String(index).padStart(2, "0")}` },
+    points: [{ t: 1, v: 1 }],
+  }));
+  const element = renderTable(panel("Table"), series, { fit: true, size: { width: 160, height: 90 } });
+  assert.equal(element.querySelectorAll("tbody tr").length, 4);
+  assert.equal(element.querySelector(".table-more").textContent, "+9 more");
 });

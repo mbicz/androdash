@@ -1,7 +1,7 @@
 # C-001 — Launch configuration
 
-- **Version:** 2
-- **Status:** Accepted, 2026-10-26
+- **Version:** 3
+- **Status:** Accepted, 2026-10-28
 - **Consumers:** Android shell (W1), web renderer config (W2)
 - **Machine-readable:** [`contracts/app-config.schema.json`](../../contracts/app-config.schema.json)
 - **Fixtures:** [`app-config.example.json`](../../contracts/fixtures/app-config.example.json)
@@ -46,8 +46,9 @@ This is deliberate: one name per concept, easy to debug with `adb`.
 | `step_seconds` | integer | `null` | Prometheus range-query step. `null` = auto (C-003); max `86400`. |
 | `kiosk` | boolean | `true` | Native-only behavior (C-007). The renderer records it but does not enforce it. |
 | `debug` | boolean | `false` | Enables the diagnostics overlay and debug affordances (C-009). |
-| `layout_mode` | enum | `auto` | `auto` \| `grid` \| `stack` (C-005). |
+| `layout_mode` | enum | `auto` | `auto` \| `grid` \| `stack` \| `fit` (C-005). `fit` is the fit-to-screen layout; added in v3. |
 | `display_mode` | enum | `standard` | `standard` \| `amoled` \| `monochrome` (C-005). Additive in v2; older persisted configs without it default to `standard`. |
+| `lock_style` | enum | `monochrome` | `monochrome` \| `color`. Renderer palette while the phone is locked with `show_when_locked` (C-007): `monochrome` is the grayscale locked view; `color` uses the `amoled` palette (near-black cards, full state and series colour) regardless of `display_mode`. The renderer decides the colours; the shell only passes the value. Additive in v3; older persisted configs without it default to `monochrome`. |
 | `dashboard_name` | string | `null` | Selects a dashboard when the URL returns an array (C-002). Must be non-empty when set. |
 | `capabilities` | string | `null` | Comma-separated capability IDs; when present, authoritative for filtering (C-004). 1–16 entries after deduplication. |
 | `show_unsupported` | boolean | `false` | Render explicit placeholders for hidden panels instead of removing them. |
@@ -76,6 +77,7 @@ decision 0016).
   "debug": true,
   "layoutMode": "auto",
   "displayMode": "standard",
+  "lockStyle": "monochrome",
   "dashboardName": null,
   "capabilities": null,
   "showUnsupported": false
@@ -93,6 +95,9 @@ for types and constraints; this table is normative for semantics.
 - `kiosk`, `debug`, and `showUnsupported` are always booleans after defaults.
 - `displayMode` always resolves to one of the three enum values; it is omitted
   only by pre-v2 persisted objects, which default to `standard`.
+- `lockStyle` always resolves to `monochrome` or `color`; it is omitted only by
+  pre-v3 persisted objects, which default to `monochrome`. The field is
+  additive, so `schemaVersion` stays `1`.
 
 ## Precedence
 
@@ -125,6 +130,7 @@ An implementation MUST reject:
 - `time_range` that is not a supported duration or outside `1s…30d`;
 - `layout_mode` outside the enum;
 - `display_mode` outside the enum;
+- `lock_style` outside the enum;
 - an explicit empty `capabilities` list in the canonical object (an empty wire
   value is unset);
 - more than 16 capability IDs after deduplication, or IDs not matching
@@ -165,9 +171,10 @@ The native shell shows `E_CONFIG` on its fatal screen. The renderer shows an
 - Explicit extras override persisted fields; missing optional metadata does not
   erase persisted values unless the operator explicitly clears it (a future
   settings UI may add `--ez reset_config true`, not in v1).
-- The renderer may change `timeRange`/`refreshSeconds` at runtime through
-  `AndroDash.setView()` (C-007). The shell validates them with the rules below,
-  persists the updated `AppConfig`, and rebuilds the local URL (decision 0016).
+- The renderer may change `timeRange`, `refreshSeconds`, `layoutMode`, and
+  `lockStyle` at runtime through `AndroDash.setOption(name, value)` (C-007).
+  The shell validates the value with the same rules as the launch extra of that
+  name, persists the updated `AppConfig`, and rebuilds the local URL.
 - Log the result with redacted URLs only.
 - If the local asset fails to load, show the native fatal screen.
 
@@ -188,8 +195,10 @@ The native shell shows `E_CONFIG` on its fatal screen. The renderer shows an
 - valid example → canonical object;
 - defaults applied;
 - missing dashboard URL rejected;
-- scheme/userinfo/length/type/enum rejections, including `display_mode`;
+- scheme/userinfo/length/type/enum rejections, including `display_mode` and
+  `lock_style`;
 - display mode defaults and `standard`/`amoled`/`monochrome` round-trip;
+- `layout_mode=fit` and `lock_style` default/`color` round-trip;
 - refresh clamping and bounds;
 - duration parsing delegated to C-002 (validated here for range);
 - capability list parsing, deduplication, sorting, 16-entry limit, and empty-list
@@ -200,16 +209,18 @@ The native shell shows `E_CONFIG` on its fatal screen. The renderer shows an
 `app/src/test/java/com/mbicz/androdash/ConfigParserTest.kt` (M2):
 
 - Intent extras → `AppConfig`;
-- persisted config precedence;
+- persisted config precedence, including `lockStyle` round-trip and the
+  `monochrome` default for persisted objects without it;
 - invalid input → `E_CONFIG`;
-- local URL encoding and parameter names match the renderer parser.
+- local URL encoding and parameter names match the renderer parser;
+- `setOption` for every allowed name, invalid values, and unknown names.
 
 ## Out of scope
 
 - Authentication/secrets.
 - Remote config files.
 - Multiple dashboards in one launch (array selection is dashboard-level).
-- Changing kiosk settings at runtime (other than the C-007 `setView` and
-  `setLockScreen` bridge methods, decision 0016).
+- Changing kiosk settings at runtime (other than the C-007 `setOption` and
+  `setLockScreen` bridge methods).
 
 Adding any of these requires a contract change and a decision entry.

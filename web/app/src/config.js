@@ -11,6 +11,7 @@ export const DEFAULT_CONFIG = Object.freeze({
   debug: false,
   layoutMode: "auto",
   displayMode: "standard",
+  lockStyle: "monochrome",
   dashboardName: null,
   capabilities: null,
   showUnsupported: false,
@@ -30,6 +31,8 @@ const MAX_QUERY = 2000;
 const MAX_CAPABILITIES = 16;
 const CAPABILITY_RE = /^[a-z0-9][a-z0-9_-]*$/;
 const DISPLAY_MODES = ["standard", "amoled", "monochrome"];
+const LAYOUT_MODES = ["auto", "grid", "stack", "fit"];
+const LOCK_STYLES = ["monochrome", "color"];
 const DURATION_RE = /^\d+(?:ms|s|m|h|d|w)(?:\d+(?:ms|s|m|h|d|w))*$/;
 
 function warning(code, message, detail = null) {
@@ -160,8 +163,8 @@ export function parseConfig(search = "") {
   }
 
   const layoutMode = params.get("layout_mode") || "auto";
-  if (!["auto", "grid", "stack"].includes(layoutMode)) {
-    throw new ConfigError("layout_mode must be auto, grid, or stack", "layout_mode");
+  if (!LAYOUT_MODES.includes(layoutMode)) {
+    throw new ConfigError("layout_mode must be auto, grid, stack, or fit", "layout_mode");
   }
 
   const displayMode = params.get("display_mode") || "standard";
@@ -170,6 +173,11 @@ export function parseConfig(search = "") {
       "display_mode must be standard, amoled, or monochrome",
       "display_mode",
     );
+  }
+
+  const lockStyle = params.get("lock_style") || "monochrome";
+  if (!LOCK_STYLES.includes(lockStyle)) {
+    throw new ConfigError("lock_style must be monochrome or color", "lock_style");
   }
 
   const config = Object.freeze({
@@ -183,6 +191,7 @@ export function parseConfig(search = "") {
     debug: parseBoolean(params, "debug", false),
     layoutMode,
     displayMode,
+    lockStyle,
     dashboardName,
     capabilities: parseCapabilities(params.get("capabilities")),
     showUnsupported: parseBoolean(params, "show_unsupported", false),
@@ -203,6 +212,7 @@ export function buildQuery(config) {
   params.set("debug", String(config.debug));
   params.set("layout_mode", config.layoutMode);
   params.set("display_mode", config.displayMode);
+  params.set("lock_style", config.lockStyle);
   if (config.dashboardName !== null) params.set("dashboard_name", config.dashboardName);
   if (config.capabilities !== null) params.set("capabilities", config.capabilities.join(","));
   params.set("show_unsupported", String(config.showUnsupported));

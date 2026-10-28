@@ -1,8 +1,9 @@
 # C-007 — Kiosk and lifecycle
 
-- **Version:** 3
-- **Status:** Accepted, 2026-10-27 (v3: lock-screen grayscale, re-light, view
-  and lock-screen bridge methods; decision 0016)
+- **Version:** 4
+- **Status:** Accepted, 2026-10-28 (v3: lock-screen grayscale, re-light, view
+  and lock-screen bridge methods, decision 0016; v4: generic `setOption`
+  bridge method, `lock_style`, decision 0017)
 - **Consumers:** Android shell (W1), renderer debug affordance (W2)
 - **Related:** C-001 (config), C-008 (WebView security), C-009 (diagnostics)
 
@@ -20,7 +21,7 @@ with physical access can always use recovery/ADB. Do not overclaim.
 |---|---|---|
 | `kiosk` | `true` | Apply immersive fullscreen, keep awake, and back-disabled behavior |
 | `lock_task` | `false` | Attempt Android lock task (`startLockTask()`); requires device-owner/provisioning for unattended use. Native-only; not part of `AppConfig` (C-001 note). If promoted, update C-001 and the schema. |
-| `show_when_locked` | `false` | Keep the Activity visible above the keyguard and turn the screen on when locked; while locked, dim the window and switch the renderer to its simplified grayscale view; re-light the display once after the first power press (see [Lock-screen display](#lock-screen-display)). Native-only (not in `AppConfig`, not a renderer query parameter); persisted under its own preferences key; ignored when `kiosk=false`. Does not dismiss or bypass the keyguard. Runtime toggle: `AndroDash.setLockScreen()`. |
+| `show_when_locked` | `false` | Keep the Activity visible above the keyguard and turn the screen on when locked; while locked, dim the window and switch the renderer to its simplified locked view (grayscale unless C-001 `lock_style=color`); re-light the display once after the first power press (see [Lock-screen display](#lock-screen-display)). Native-only (not in `AppConfig`, not a renderer query parameter); persisted under its own preferences key; ignored when `kiosk=false`. Does not dismiss or bypass the keyguard. Runtime toggle: `AndroDash.setLockScreen()`. |
 
 `lock_task` is intentionally separate from `kiosk`. Immersive mode works on any
 phone; lock task often requires provisioning and can surprise the user with a
@@ -81,8 +82,13 @@ false none of this runs and the renderer never sees `locked=true`.
   - push `false` on `ACTION_USER_PRESENT` (unlock) and on `onResume` when not
     locked;
   - push the current state once from `onPageFinished`, so a cold start or reload
-    on the lock screen starts grayscale;
+    on the lock screen starts in the locked view;
   - push `false` once when the mode is disabled at runtime.
+- The shell does not choose locked colours. C-001 `lock_style` (`monochrome`
+  default, or `color`) reaches the renderer in the launch URL; the renderer
+  decides the palette: the grayscale `monochrome` palette, or the `amoled`
+  palette (near-black cards, full state and series colour) for `color`.
+  Dimming, `setLocked`, and re-light behave the same for both values.
 - While locked, dim the window (`screenBrightness = 0.12`); restore
   `BRIGHTNESS_OVERRIDE_NONE` on unlock or disable.
 - Power-button re-light (Maps-like). While the Activity exists, a runtime
@@ -139,8 +145,8 @@ A kiosk must be serviceable:
   boolean under `show_when_locked` in the same preferences file. An explicit
   extra overrides and replaces it; `AndroDash.setLockScreen()` updates it. The
   effective value is still gated by `kiosk`. `lock_task` is never persisted.
-- `AndroDash.setView()` updates `timeRange`/`refreshSeconds` in the persisted
-  `AppConfig` and the current renderer URL.
+- `AndroDash.setOption()` updates `timeRange`, `refreshSeconds`, `layoutMode`,
+  or `lockStyle` in the persisted `AppConfig` and the current renderer URL.
 - If no valid config exists, show the native fatal screen (`E_CONFIG`) with the
   launch command shape; do not open a blank WebView.
 - Do not persist secrets (none in v1).
@@ -176,10 +182,10 @@ Optional `window.AndroDash` (present only in the Android shell):
 |---|---|---|
 | `platform()` | none | Returns `"android"` |
 | `appVersion()` | none | Returns the app version string |
-| `reload()` | none | Reload the local renderer page (with the latest `setView` choice) |
+| `reload()` | none | Reload the local renderer page (with the latest `setOption` choices) |
 | `exitKiosk()` | none | Finish the Activity; renderer may prompt/confirm in debug |
 | `log(level, message)` | strings | Log a redacted, length-limited message |
-| `setView(timeRange, refreshSeconds)` | strings or `null`, ≤ 64 chars each | The user picked a time range (`5m`/`15m`/`1h`/`6h`/`24h`/`7d` or any C-001 duration, `1s…30d`) and/or refresh interval (`0` = manual, `5–3600`; `1–4` clamps to `5` with `W_REFRESH_CLAMPED`). `null`/blank leaves a field unchanged. Validated with the C-001 rules on the UI thread, then the in-memory config, persisted `AppConfig`, and renderer URL are updated; the page is not reloaded. Invalid input logs a warning and is ignored. Returns nothing. |
+| `setOption(name, value)` | strings, ≤ 64 chars each | The user changed one renderer option. `name` is one of `time_range`, `refresh_seconds`, `layout_mode`, `lock_style`; `value` is validated with the C-001 rules for the launch extra of that name: durations `1s…30d`; refresh `0` = manual, `5–3600`, `1–4` clamps to `5` with `W_REFRESH_CLAMPED`; `layout_mode` `auto`/`grid`/`stack`/`fit`; `lock_style` `monochrome`/`color` (enum values are trimmed and lowercased). Runs on the UI thread, then the in-memory config, persisted `AppConfig`, and renderer URL are updated; the page is not reloaded. An unknown name, a `null`/blank value, or an invalid value logs a warning and is ignored. Returns nothing. |
 | `lockScreenEnabled()` | none | Returns the effective `show_when_locked` boolean |
 | `setLockScreen(enabled)` | boolean | Toggle `show_when_locked` at runtime: persist it, apply/clear the keyguard window flags and screen receiver immediately, and push `setLocked(false)` and undim when disabling. Enabling is ignored (warning) when `kiosk=false`. |
 
@@ -193,7 +199,7 @@ same value, and must not assume the call happens at all (browser dev, or
 Rules:
 
 - Methods are synchronous and side-effect-minimal; state-changing methods
-  (`setView`, `setLockScreen`) post their work to the UI thread and never throw
+  (`setOption`, `setLockScreen`) post their work to the UI thread and never throw
   to JS.
 - Inputs are length-limited and never injected into shell/Intent/file APIs.
 - No arbitrary URL loading, file access, clipboard, Intent launching, or
@@ -236,6 +242,9 @@ Contents:
    - `AndroDash.setLockScreen(false)` from the renderer: the next lock shows
      the normal keyguard, no re-light; `lockScreenEnabled()` returns `false`
      and the setting survives relaunch without extras.
+   - `lock_style=color` (extra or `AndroDash.setOption("lock_style", "color")`):
+     the locked view is dimmed exactly as above but uses the colour `amoled`
+     palette; the choice survives relaunch without extras.
 5. Rotate: layout reflows; page does not lose data unexpectedly.
 6. Force-stop + launcher relaunch: persisted demo restores.
 7. Kill the WebView renderer (DevTools/`chrome://inspect` or low-memory): shell
@@ -249,7 +258,7 @@ Contents:
 
 - Android unit tests: config persistence, URL building (C-001), native-only
   `lock_task`/`show_when_locked` gating by `kiosk`, the persisted
-  `show_when_locked` precedence, `setView` validation (`ConfigParserTest`), and
+  `show_when_locked` precedence, `setOption` validation (`ConfigParserTest`), and
   the re-light transitions (`LockRelightPolicyTest`: first press re-lights,
   second press stays off, manual wake is locked-lit, unlock resets).
 - Manual emulator checklist above; record commands/results in the handoff.

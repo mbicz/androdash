@@ -195,20 +195,25 @@ adb shell am start -n com.mbicz.androdash/.MainActivity \
   --ez debug true
 ```
 
-The locked view does not need `display_mode`: it forces monochrome only while
-locked. `display_mode` accepts `amoled` (near-black cards; state and series
-colours retained) and `monochrome` (grayscale always, also when unlocked).
+The locked view does not need `display_mode`: it uses the grayscale
+`monochrome` palette only while locked, or the colour `amoled` palette with
+`--es lock_style color`. `display_mode` accepts `amoled` (near-black cards;
+state and series colours retained) and `monochrome` (grayscale always, also
+when unlocked). `--es layout_mode fit` fits every panel on one screen while
+unlocked too.
 `show_when_locked` is ignored when `kiosk=false`. With it,
 the dashboard stays visible above the keyguard without dismissing it: while
 the phone is locked the shell keeps the screen on, dims the window
 (`screenBrightness = 0.12`), and calls `window.androdash.setLocked(true)`, so
-the renderer switches to its grayscale locked view (monochrome; no toolbar,
-header actions, or page dots) and keeps refreshing. The first power press from
-the unlocked dashboard re-lights the display dimmed over the keyguard; a second
-press turns it off. Unlocking restores colour and brightness. The setting is
-persisted on its own and can be toggled at runtime from the header lock icon
-(`AndroDash.setLockScreen`). See C-007 "Lock-screen display" and decision
-0016. It is not an always-on-display API, and OEM keyguard behavior varies;
+the renderer switches to its locked view (fit-to-screen layout, grayscale or
+colour per `lock_style`, no header actions) and keeps refreshing. The first
+power press from the unlocked dashboard re-lights the display dimmed over the
+keyguard; a second press turns it off. Unlocking restores the configured
+colours and layout, and brightness. The setting is persisted on its own and
+can be changed at runtime in the header's view settings sheet ("On the lock
+screen": Off, Grayscale, Color; `AndroDash.setLockScreen` and
+`setOption("lock_style", …)`). See C-007 "Lock-screen display", decisions 0016
+and 0017. It is not an always-on-display API, and OEM keyguard behavior varies;
 the re-light uses a deprecated wake-up flag that a future Android may ignore.
 
 Reload / stop:

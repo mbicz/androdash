@@ -63,13 +63,20 @@
     },
     "layoutMode": {
       "type": "string",
-      "enum": ["auto", "grid", "stack"]
+      "enum": ["auto", "grid", "stack", "fit"],
+      "description": "Panel layout (C-005). fit sizes the layout to the viewport (fit-to-screen)."
     },
     "displayMode": {
       "type": "string",
       "enum": ["standard", "amoled", "monochrome"],
       "default": "standard",
       "description": "Presentation mode (C-005). amoled removes gradients on true black; monochrome is the high-contrast black-and-white lock-screen presentation."
+    },
+    "lockStyle": {
+      "type": "string",
+      "enum": ["monochrome", "color"],
+      "default": "monochrome",
+      "description": "Renderer colours while the phone is locked with show_when_locked (C-007). monochrome is the grayscale locked view; color keeps the configured display_mode colours. Additive; persisted objects without it default to monochrome."
     },
     "dashboardName": {
       "type": ["string", "null"],

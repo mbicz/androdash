@@ -1,6 +1,7 @@
 package com.mbicz.androdash
 
 import java.net.URLDecoder
+import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -70,6 +71,7 @@ class ConfigParserTest {
             debug = true,
             layoutMode = "grid",
             displayMode = "amoled",
+            lockStyle = "color",
             dashboardName = "Persisted",
             capabilities = listOf("prometheus"),
             showUnsupported = true,
@@ -226,6 +228,7 @@ class ConfigParserTest {
             debug = true,
             layoutMode = "grid",
             displayMode = "monochrome",
+            lockStyle = "color",
             dashboardName = "Main wall",
             capabilities = listOf("prometheus", "tempo"),
             showUnsupported = true,
@@ -246,6 +249,7 @@ class ConfigParserTest {
         assertEquals("true", parameters["debug"])
         assertEquals("grid", parameters["layout_mode"])
         assertEquals("monochrome", parameters["display_mode"])
+        assertEquals("color", parameters["lock_style"])
         assertEquals("Main wall", parameters["dashboard_name"])
         assertEquals("prometheus,tempo", parameters["capabilities"])
         assertEquals("true", parameters["show_unsupported"])
@@ -309,38 +313,96 @@ class ConfigParserTest {
     }
 
     @Test
-    fun `setView applies validated time range and refresh`() {
-        val base = AppConfig(dashboardUrl = dashboard, refreshSeconds = 30, timeRange = "1h")
-
-        val range = ConfigParser.applyView(base, "15m", null)
-        assertEquals("15m", range.config.timeRange)
-        assertEquals(30, range.config.refreshSeconds)
-
-        val both = ConfigParser.applyView(base, " 7d ", "0")
-        assertEquals("7d", both.config.timeRange)
-        assertEquals(0, both.config.refreshSeconds)
-
-        val refresh = ConfigParser.applyView(base, "", "3600")
-        assertEquals("1h", refresh.config.timeRange)
-        assertEquals(3600, refresh.config.refreshSeconds)
-        assertTrue(ConfigParser.launchUrl(refresh.config).contains("refresh_seconds=3600"))
-
-        val clamped = ConfigParser.applyView(base, null, "3")
-        assertEquals(5, clamped.config.refreshSeconds)
-        assertTrue(clamped.warnings.single().startsWith("W_REFRESH_CLAMPED"))
+    fun `layout_mode fit is accepted and round-trips`() {
+        val parsed = ConfigParser.parse(extras("dashboard_url" to dashboard, "layout_mode" to " FIT "))
+        assertEquals("fit", parsed.config.layoutMode)
+        assertTrue(ConfigParser.launchUrl(parsed.config).contains("&layout_mode=fit&"))
     }
 
     @Test
-    fun `setView rejects invalid input`() {
+    fun `lock_style defaults to monochrome and accepts color`() {
+        val defaulted = ConfigParser.parse(extras("dashboard_url" to dashboard))
+        assertEquals("monochrome", defaulted.config.lockStyle)
+        assertTrue(ConfigParser.launchUrl(defaulted.config).contains("&lock_style=monochrome&"))
+
+        val explicit = ConfigParser.parse(extras("dashboard_url" to dashboard, "lock_style" to "Color"))
+        assertEquals("color", explicit.config.lockStyle)
+        assertTrue(ConfigParser.launchUrl(explicit.config).contains("&lock_style=color&"))
+
+        val kept = ConfigParser.parse(
+            extras("lock_style" to ""),
+            AppConfig(dashboardUrl = dashboard, lockStyle = "color"),
+        )
+        assertEquals("color", kept.config.lockStyle)
+
+        assertFails { ConfigParser.parse(extras("dashboard_url" to dashboard, "lock_style" to "colour")) }
+        assertFails { ConfigParser.validateConfig(AppConfig(dashboardUrl = dashboard, lockStyle = "sepia")) }
+    }
+
+    @Test
+    fun `persisted config round-trips lock_style and defaults it when missing`() {
+        val config = AppConfig(dashboardUrl = dashboard, layoutMode = "fit", lockStyle = "color")
+        assertEquals(config, ConfigParser.decodePersisted(config.toJson()))
+
+        val legacy = JSONObject(AppConfig(dashboardUrl = dashboard).toJson()).apply {
+            remove("lockStyle")
+        }.toString()
+        val decoded = ConfigParser.decodePersisted(legacy)
+        assertEquals("monochrome", decoded?.lockStyle)
+        assertEquals(1, JSONObject(legacy).getInt("schemaVersion"))
+
+        val invalid = JSONObject(config.toJson()).put("lockStyle", "sepia").toString()
+        assertNull(ConfigParser.decodePersisted(invalid))
+    }
+
+    @Test
+    fun `setOption applies each validated option`() {
+        val base = AppConfig(dashboardUrl = dashboard, refreshSeconds = 30, timeRange = "1h")
+
+        val range = ConfigParser.applyOption(base, "time_range", " 7d ")
+        assertEquals("7d", range.config.timeRange)
+        assertEquals(30, range.config.refreshSeconds)
+
+        val manual = ConfigParser.applyOption(base, "refresh_seconds", "0")
+        assertEquals(0, manual.config.refreshSeconds)
+        assertEquals("1h", manual.config.timeRange)
+
+        val refresh = ConfigParser.applyOption(base, "refresh_seconds", "3600")
+        assertEquals(3600, refresh.config.refreshSeconds)
+        assertTrue(ConfigParser.launchUrl(refresh.config).contains("refresh_seconds=3600"))
+
+        val clamped = ConfigParser.applyOption(base, "refresh_seconds", "3")
+        assertEquals(5, clamped.config.refreshSeconds)
+        assertTrue(clamped.warnings.single().startsWith("W_REFRESH_CLAMPED"))
+
+        val layout = ConfigParser.applyOption(base, "layout_mode", "Fit")
+        assertEquals("fit", layout.config.layoutMode)
+        assertEquals(base.copy(layoutMode = "fit"), layout.config)
+        assertTrue(ConfigParser.launchUrl(layout.config).contains("layout_mode=fit"))
+
+        val lock = ConfigParser.applyOption(base, "lock_style", "color")
+        assertEquals(base.copy(lockStyle = "color"), lock.config)
+        assertTrue(ConfigParser.launchUrl(lock.config).contains("lock_style=color"))
+        assertTrue(lock.warnings.isEmpty())
+    }
+
+    @Test
+    fun `setOption rejects invalid values and unknown names`() {
         val base = AppConfig(dashboardUrl = dashboard)
-        assertFails { ConfigParser.applyView(base, null, null) }
-        assertFails { ConfigParser.applyView(base, " ", "") }
-        assertFails { ConfigParser.applyView(base, "31d", null) }
-        assertFails { ConfigParser.applyView(base, "15 minutes", null) }
-        assertFails { ConfigParser.applyView(base, "1h".repeat(20), null) }
-        assertFails { ConfigParser.applyView(base, null, "3601") }
-        assertFails { ConfigParser.applyView(base, null, "-1") }
-        assertFails { ConfigParser.applyView(base, null, "fast") }
+        assertFails { ConfigParser.applyOption(base, "time_range", "31d") }
+        assertFails { ConfigParser.applyOption(base, "time_range", "15 minutes") }
+        assertFails { ConfigParser.applyOption(base, "time_range", "1h".repeat(33)) }
+        assertFails { ConfigParser.applyOption(base, "time_range", " ") }
+        assertFails { ConfigParser.applyOption(base, "time_range", null) }
+        assertFails { ConfigParser.applyOption(base, "refresh_seconds", "3601") }
+        assertFails { ConfigParser.applyOption(base, "refresh_seconds", "-1") }
+        assertFails { ConfigParser.applyOption(base, "refresh_seconds", "fast") }
+        assertFails { ConfigParser.applyOption(base, "layout_mode", "wide") }
+        assertFails { ConfigParser.applyOption(base, "lock_style", "sepia") }
+        assertFails { ConfigParser.applyOption(base, "display_mode", "amoled") }
+        assertFails { ConfigParser.applyOption(base, "dashboard_url", "https://example.com/d.json") }
+        assertFails { ConfigParser.applyOption(base, "x".repeat(65), "1h") }
+        assertFails { ConfigParser.applyOption(base, null, "1h") }
     }
 
     private fun assertFails(block: () -> Unit) {

@@ -51,6 +51,7 @@ web/tests/contract/c001-config.test.js
 web/tests/contract/c002-dashboard.test.js
 web/tests/contract/c003-prometheus.test.js
 web/tests/contract/c004-capabilities.test.js
+web/tests/contract/c005-fit.test.js
 web/tests/contract/c005-layout.test.js
 web/tests/contract/c005-panels.test.js
 web/tests/contract/c006-refresh.test.js
@@ -104,12 +105,17 @@ web/tests/contract/c009-diagnostics.test.js
 - `niceTicks`/`timeTicks` round values, 1024-step bytes, wall-clock alignment;
 - Stat/Gauge calculations and thresholds; state word only on crossing; meter
   only with thresholds;
-- Table rows and limit;
+- Table rows and limit; a shared single label key becomes the heading; fit
+  tables show the rows their box holds plus `+N more`;
 - Markdown escaping (no HTML/JS);
 - formatting units;
 - DOM state attributes;
 - bands, strips with page dots, and row folding (`c005-layout.test.js`);
-- responsive ordering (stack/grid).
+- responsive ordering (stack/grid);
+- fit planner (`c005-fit.test.js`): every panel on one phone screen in reading
+  order, one full-width column when it fits, no panel below its minimum width,
+  type shrinks to the 0.72 floor then overflow is reported, charts take the
+  growth while tables stop at their rows, cell grids follow the box shape.
 
 **C-006 refresh**
 - precedence: param > dashboard > default;
@@ -150,8 +156,12 @@ before asserting where order is not contractual.
 - `ConfigParserTest` — Intent extras, defaults, invalid schemes, integer/duration
   bounds, persistence precedence (including the separately persisted
   `show_when_locked`), capability limits, `display_mode` validation,
-  `show_when_locked` gating, and `setView` validation. Launch-URL encoding is
-  covered here too (the planned standalone `LaunchUrlTest` was folded in).
+  `layout_mode=fit`, `lock_style` defaults/round-trip (missing → `monochrome`),
+  `show_when_locked` gating, and `setOption` validation (each allowed name
+  applied; invalid values and unknown names rejected). Launch-URL encoding is
+  covered here too (the planned standalone `LaunchUrlTest` was folded in). The
+  JVM tests use a test-scope `org.json:json` because android.jar's `org.json`
+  is a stub there.
 - `LockRelightPolicyTest` — the lock-screen re-light state machine (C-007):
   first power press re-lights, a second press (even before the re-light lands)
   stays off, manual wake returns to locked-lit, a late screen-on counts as a

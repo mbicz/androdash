@@ -20,7 +20,24 @@ function compactLabel(labels, { includeName }) {
   return `${name}${body ? `{${body}}` : ""}`;
 }
 
-export function renderTable(panel, series, { warn = null } = {}) {
+/** Fit-mode row height (C-005 "Fit layout"). */
+export const FIT_ROW_HEIGHT = 18;
+
+/**
+ * When every row is identified by the same single label (e.g. `collector`),
+ * that key becomes the column heading and cells show only its value.
+ */
+function sharedKey(rows) {
+  let key = null;
+  for (const row of rows) {
+    const keys = Object.keys(row.labels).filter((name) => name !== "__name__" && !NOISE_LABELS.has(name));
+    if (keys.length !== 1 || (key !== null && keys[0] !== key)) return null;
+    key = keys[0];
+  }
+  return key;
+}
+
+export function renderTable(panel, series, { warn = null, size = null, fit = false } = {}) {
   const wrapper = document.createElement("div");
   wrapper.className = "table-wrap";
   const format = panel.panelSpec?.format || {};
@@ -49,12 +66,23 @@ export function renderTable(panel, series, { warn = null } = {}) {
 
   const names = new Set(rows.map((row) => row.labels.__name__ || ""));
   const includeName = names.size > 1;
+  const key = includeName ? null : sharedKey(rows);
+
+  // Fit layout: show the rows the box holds and say how many are not shown.
+  let hidden = 0;
+  if (fit && size?.height > 0) {
+    const capacity = Math.max(1, Math.floor(size.height / FIT_ROW_HEIGHT));
+    if (rows.length > capacity) {
+      hidden = rows.length - (capacity - 1);
+      rows = rows.slice(0, Math.max(1, capacity - 1));
+    }
+  }
 
   const table = document.createElement("table");
   table.className = "data-table";
   const thead = document.createElement("thead");
   const headRow = document.createElement("tr");
-  for (const title of ["Series", "Value"]) {
+  for (const title of [key || "Series", "Value"]) {
     const th = document.createElement("th");
     th.textContent = title;
     headRow.append(th);
@@ -65,7 +93,7 @@ export function renderTable(panel, series, { warn = null } = {}) {
     const tr = document.createElement("tr");
     const label = document.createElement("td");
     label.className = "series-cell";
-    label.textContent = compactLabel(row.labels, { includeName });
+    label.textContent = key ? String(row.labels[key]) : compactLabel(row.labels, { includeName });
     label.title = row.full;
     const value = document.createElement("td");
     value.className = "value-cell";
@@ -80,5 +108,11 @@ export function renderTable(panel, series, { warn = null } = {}) {
   }
   table.append(thead, tbody);
   wrapper.append(table);
+  if (hidden > 0) {
+    const more = document.createElement("div");
+    more.className = "table-more";
+    more.textContent = `+${hidden} more`;
+    wrapper.append(more);
+  }
   return wrapper;
 }

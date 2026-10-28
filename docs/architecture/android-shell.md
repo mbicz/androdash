@@ -90,8 +90,9 @@ one-to-one:
 | `step_seconds` | `step_seconds` | int |
 | `kiosk` | `kiosk` | boolean |
 | `debug` | `debug` | boolean |
-| `layout_mode` | `layout_mode` | string |
+| `layout_mode` | `layout_mode` | string (`auto`/`grid`/`stack`/`fit`) |
 | `display_mode` | `display_mode` | string |
+| `lock_style` | `lock_style` | string (`monochrome`/`color`) |
 | `dashboard_name` | `dashboard_name` | string |
 | `capabilities` | `capabilities` | comma string |
 | `show_unsupported` | `show_unsupported` | boolean |
@@ -121,8 +122,12 @@ After a valid launch, persist the canonical config JSON under
 `SharedPreferences("androdash").getString("launch_config")`. On a later launch
 without extras, use the persisted config, so tapping the launcher icon restores
 the kiosk. Explicit extras override persisted fields; omitted optional fields
-fall back to defaults (C-001). Do not persist secrets if auth is added later;
-record the storage decision first.
+fall back to defaults (C-001). A persisted object without `lockStyle` (written
+before it existed) decodes as `monochrome`. The renderer's
+`AndroDash.setOption(name, value)` (`time_range`, `refresh_seconds`,
+`layout_mode`, `lock_style`) is validated with the same rules as the launch
+extra, saved into this config, and folded into the renderer URL (C-007). Do not
+persist secrets if auth is added later; record the storage decision first.
 
 ## 5. WebView configuration
 
@@ -148,7 +153,7 @@ C-008 is normative. The shell applies at least:
 
 The bridge (`window.AndroDash`) is added only for the virtual app origin and
 exposes only the methods in C-007/C-008 (`platform`, `appVersion`, `reload`,
-`exitKiosk`, `log`, `setView`, `lockScreenEnabled`, `setLockScreen`). Keep
+`exitKiosk`, `log`, `setOption`, `lockScreenEnabled`, `setLockScreen`). Keep
 `@JavascriptInterface` methods small, synchronous, and incapable of arbitrary
 file/network/Intent access.
 
@@ -182,11 +187,12 @@ file/network/Intent access.
   above the keyguard and turns the screen on. API 27+ uses
   `setShowWhenLocked`/`setTurnScreenOn`; API 26 uses the legacy window flags.
   It never dismisses the keyguard or reads credentials. It is ignored when
-  `kiosk=false` and is intended to be paired with `display_mode=monochrome`.
-  This is not an always-on-display guarantee; OEM behavior varies.
+  `kiosk=false`. This is not an always-on-display guarantee; OEM behavior varies.
   While locked the shell dims the window (`screenBrightness=0.12`) and calls
   the constant `window.androdash.setLocked(true)` script so the renderer
-  shows its simplified grayscale view; unlock restores brightness and pushes
+  shows its simplified locked view — grayscale by default, the colour
+  `amoled` palette with C-001 `lock_style=color` (the renderer chooses; the
+  shell only passes the value); unlock restores brightness and pushes
   `false`. A runtime `SCREEN_OFF`/`SCREEN_ON`/`USER_PRESENT` receiver plus the
   pure `LockRelightPolicy` re-light the display once after the first power
   press (≤ 3 s `androdash:relight` wake lock); a second press leaves it off.

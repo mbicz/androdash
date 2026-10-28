@@ -660,7 +660,8 @@ class MainActivity : Activity() {
             TAG,
             "config dashboard=${redactUrl(config.dashboardUrl)} " +
                 "prometheus=${config.prometheusUrl?.let(::redactUrl) ?: "none"} " +
-                "kiosk=${config.kiosk} debug=${config.debug} display=${config.displayMode}",
+                "kiosk=${config.kiosk} debug=${config.debug} display=${config.displayMode} " +
+                "layout=${config.layoutMode} lock_style=${config.lockStyle}",
         )
         warnings.forEach { Log.w(TAG, it) }
     }
@@ -720,16 +721,19 @@ class MainActivity : Activity() {
         }
 
         /**
-         * Renderer view choice (C-007): validated with the C-001 launch rules,
+         * Renderer option choice (C-007): one of `time_range`, `refresh_seconds`,
+         * `layout_mode`, `lock_style`, validated with the C-001 launch rules,
          * persisted, and folded into the renderer URL so `reload()` keeps it.
          */
         @JavascriptInterface
-        fun setView(timeRange: String?, refreshSeconds: String?) {
-            if ((timeRange?.length ?: 0) > MAX_BRIDGE_INPUT || (refreshSeconds?.length ?: 0) > MAX_BRIDGE_INPUT) {
-                Log.w(TAG, "setView rejected: input too long")
+        fun setOption(name: String?, value: String?) {
+            if ((name?.length ?: 0) > ConfigParser.MAX_OPTION_INPUT ||
+                (value?.length ?: 0) > ConfigParser.MAX_OPTION_INPUT
+            ) {
+                Log.w(TAG, "setOption rejected: input too long")
                 return
             }
-            runOnUiThread { updateView(timeRange, refreshSeconds) }
+            runOnUiThread { updateOption(name, value) }
         }
 
         @JavascriptInterface
@@ -741,22 +745,23 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun updateView(timeRange: String?, refreshSeconds: String?) {
+    private fun updateOption(name: String?, value: String?) {
         val current = config ?: return
         if (fatal) return
         try {
-            val update = ConfigParser.applyView(current, timeRange, refreshSeconds)
+            val update = ConfigParser.applyOption(current, name, value)
             config = update.config
             rendererUrl = ConfigParser.launchUrl(update.config)
             configStore.save(update.config)
             update.warnings.forEach { Log.w(TAG, it) }
             Log.i(
                 TAG,
-                "view set time_range=${update.config.timeRange ?: "default"} " +
-                    "refresh_seconds=${update.config.refreshSeconds ?: "default"}",
+                "option set time_range=${update.config.timeRange ?: "default"} " +
+                    "refresh_seconds=${update.config.refreshSeconds ?: "default"} " +
+                    "layout_mode=${update.config.layoutMode} lock_style=${update.config.lockStyle}",
             )
         } catch (error: ConfigException) {
-            Log.w(TAG, "setView rejected: ${sanitize(error.message.orEmpty(), 120)}")
+            Log.w(TAG, "setOption rejected: ${sanitize(error.message.orEmpty(), 120)}")
         }
     }
 
@@ -773,7 +778,6 @@ class MainActivity : Activity() {
 
     companion object {
         private const val TAG = "AndroDash"
-        private const val MAX_BRIDGE_INPUT = 64
         private const val LOCKED_BRIGHTNESS = 0.12f
         private const val RELIGHT_SETTLE_MILLIS = 300L
         private const val RELIGHT_WAKE_LOCK_TAG = "androdash:relight"
