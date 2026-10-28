@@ -1,5 +1,29 @@
 import { calculations, formatValue, sortedThresholds, splitUnit, thresholdState } from "./format.js";
 import { seriesDisplayName } from "../prometheus.js";
+import { bestCellGrid } from "../fit.js";
+
+const TILE_GAP = 6;
+const TILE_ASPECT = 2.2;
+
+/**
+ * Fit layout: the tiles fill the panel box. Columns follow the box shape and
+ * the number size follows the cell, bounded by the longest value so every
+ * tile in a panel uses one type size.
+ */
+function fitTiles(grid, count, longest, box, single) {
+  const layout = single
+    ? { columns: 1, rows: 1 }
+    : bestCellGrid(count, box.width, box.height, { aspect: TILE_ASPECT, gap: TILE_GAP });
+  const cellW = (box.width - TILE_GAP * (layout.columns - 1)) / layout.columns;
+  const cellH = (box.height - TILE_GAP * (layout.rows - 1)) / layout.rows;
+  const label = single ? 0 : 15;
+  const byHeight = (cellH - label) * 0.78;
+  const byWidth = (cellW - 14) / Math.max(3, longest * 0.58);
+  const size = Math.max(14, Math.min(single ? 56 : 44, byHeight, byWidth));
+  grid.style.gridTemplateColumns = `repeat(${layout.columns}, minmax(0, 1fr))`;
+  grid.style.gridTemplateRows = `repeat(${layout.rows}, minmax(0, 1fr))`;
+  grid.style.setProperty("--value-size", `${size.toFixed(1)}px`);
+}
 
 /**
  * Stat tiles: label, number, quieter unit. State is carried by a coloured edge
@@ -7,7 +31,7 @@ import { seriesDisplayName } from "../prometheus.js";
  * attention (the threshold's name, e.g. "High"). A panel without thresholds
  * makes no judgement, so its tiles have a neutral edge and no meter.
  */
-export function renderStat(panel, series, { warn = null } = {}) {
+export function renderStat(panel, series, { warn = null, size = null, fit = false } = {}) {
   const wrapper = document.createElement("div");
   wrapper.className = "stat-wrap";
   const calculation = panel.panelSpec?.calculation || "last-number";
@@ -38,6 +62,7 @@ export function renderStat(panel, series, { warn = null } = {}) {
   const single = tiles.length === 1;
   const grid = document.createElement("div");
   grid.className = `stat-grid${single ? " single" : ""}`;
+  let longest = 0;
 
   for (const { item, value } of tiles.slice(0, maxTiles)) {
     const state = steps.length > 0 ? thresholdState(value, steps) : { state: "none", label: "" };
@@ -61,6 +86,7 @@ export function renderStat(panel, series, { warn = null } = {}) {
     }
 
     const { number, unit } = splitUnit(formatted);
+    longest = Math.max(longest, number.length + unit.length * 0.55);
     const valueEl = document.createElement("div");
     valueEl.className = "metric-value";
     valueEl.textContent = number;
@@ -95,5 +121,25 @@ export function renderStat(panel, series, { warn = null } = {}) {
   }
 
   wrapper.append(grid);
+
+  if (fit) {
+    const count = Math.min(tiles.length, maxTiles);
+    if (size?.width > 0 && size?.height > 0) fitTiles(grid, count, longest, size, single);
+    if (typeof ResizeObserver === "function") {
+      let last = size ? `${size.width}x${size.height}` : "";
+      const observer = new ResizeObserver(() => {
+        if (!wrapper.isConnected) {
+          observer.disconnect();
+          return;
+        }
+        const rect = wrapper.getBoundingClientRect();
+        const key = `${Math.round(rect.width)}x${Math.round(rect.height)}`;
+        if (key === last || !(rect.width > 0) || !(rect.height > 0)) return;
+        last = key;
+        fitTiles(grid, count, longest, { width: rect.width, height: rect.height }, single);
+      });
+      observer.observe(wrapper);
+    }
+  }
   return wrapper;
 }

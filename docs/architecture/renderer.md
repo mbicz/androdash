@@ -23,7 +23,7 @@ web/
 │   ├── index.html
 │   ├── styles.css            # visual system; display modes are CSS variables
 │   └── src/
-│       ├── main.js           # boot, header/toolbar, wiring, window.androdash
+│       ├── main.js           # boot, header + settings sheet, wiring, window.androdash
 │       ├── config.js         # query → canonical AppConfig
 │       ├── fetch-json.js     # timeout/redirect/error helpers
 │       ├── dashboard/
@@ -37,6 +37,7 @@ web/
 │       ├── scheduler.js      # refresh state machine
 │       ├── diagnostics.js    # error codes, redaction, status model
 │       ├── layout.js         # rows, bands/strips, folding, grid/stack placement
+│       ├── fit.js            # fit-to-screen planner (pure: rows, spans, scale)
 │       └── panels/
 │           ├── index.js      # panel plugin registry
 │           ├── time-series.js
@@ -55,6 +56,7 @@ web/
         ├── c002-dashboard.test.js
         ├── c003-prometheus.test.js
         ├── c004-capabilities.test.js
+        ├── c005-fit.test.js
         ├── c005-layout.test.js
         ├── c005-panels.test.js
         ├── c006-refresh.test.js
@@ -78,7 +80,8 @@ Android-shell checks, not web tests.
 5. **Variables** — resolve defaults; label variables may call Prometheus; then
    interpolate variables into dashboard/row/panel titles (C-002).
 6. **Eligibility** — filter panels and rows, record reasons (C-004).
-7. **Layout** — build the header, time toolbar, rows, and panels once (C-005).
+7. **Layout** — build the header and the scroll or fit layout with its panels
+   (C-005).
 8. **Data** — first refresh cycle (C-006), then schedule.
 9. **Status** — update the header status and diagnostics when a cycle settles
    or the scheduler state changes.
@@ -115,15 +118,26 @@ ignored, not copied into the DOM.
 ### DOM
 
 - One root element (`#app`) with:
-  - a sticky header: dashboard title (variables interpolated), one
-    dashboard-wide status line (C-009), and icon actions (refresh now,
-    lock-screen toggle when the shell bridge offers it, diagnostics in debug);
-  - a time toolbar: range segmented control and refresh `<select>` (C-006);
-  - one section per row with a folding header button;
-  - one element per panel instance, either stacked or inside a horizontal
-    strip with page dots (C-005).
-- Structure is created once per dashboard load. A refresh updates panel bodies
-  and the header status, not the entire tree. There is no per-second timer.
+  - a header: dashboard title (variables interpolated), one dashboard-wide
+    status line (C-009), and icon actions (refresh now, view settings,
+    diagnostics in debug). It is sticky in the scroll layouts and one compact
+    non-sticky line in fit;
+  - scroll layouts: one section per row with a folding header button and one
+    element per panel instance, either stacked or inside a horizontal strip
+    with page dots (C-005);
+  - fit layout: a `.fit-grid` of `.fit-row`s planned by `fit.js` (C-005 "Fit
+    layout").
+- The page has no toolbar. View settings open a modal sheet (`openSettings`)
+  with segmented controls for time range, refresh, layout (Scroll | Fit to
+  screen), and — only when the shell bridge exposes `lockScreenEnabled` and
+  `setLockScreen` — "On the lock screen" (Off | Grayscale | Color). Choices
+  apply at once and are persisted through `AndroDash.setOption(name, value)`
+  (C-006, C-007).
+- `renderDashboard()` builds the page for the current layout. It is cheap and
+  idempotent: it recreates the panel shells and repaints every panel's retained
+  data or error (`restorePanels`), so layout switches, rotation, and
+  lock/unlock never wait for a refresh. A refresh updates panel bodies and the
+  header status, not the entire tree. There is no per-second timer.
 - Panels expose test hooks:
   - `data-panel-id`
   - `data-panel-kind`
@@ -140,19 +154,21 @@ SVG, built with small helper functions:
 - optional area fill (`--area-opacity`);
 - x domain = the cycle window (`timeWindow`), not the data extent;
 - round ticks from `panels/scale.js`: `niceTicks` (1/2/2.5/5 × 10^k, powers of
-  1024 for bytes; 4 intervals, 3 under 150 px) and `timeTicks` (wall-clock
-  aligned, at most `min(8, plotWidth / 84)`);
+  1024 for bytes; about one value label per 22 px of chart height, at most 4)
+  and `timeTicks` (wall-clock aligned, at most `min(8, plotWidth / 84)`, or
+  `/ 46` with AM/PM dropped for plots under 260 px; never a single tick when a
+  finer round step gives two);
 - value labels on the right in a 22–64 px gutter; no vertical grid lines;
-  10 px axis labels;
+  10 px axis labels (scaled by `--fit-scale` in fit);
 - dashed threshold lines in the state colour;
 - series colour by position (`seriesColor(index)` → `var(--series-N)`, 8 slots);
-- series legend with last values;
+- series legend with last values (a grid of one-line entries in fit);
 - null values break the line (gap), not connect across missing data;
 - the `viewBox` equals the measured rendered box, so text keeps its CSS size.
   A `ResizeObserver` redraws on any box change.
 
 No canvas in v1. No tooltips in v1 (documented in C-005). Tap targets are row
-headers, page dots, the toolbar, and header actions.
+headers, page dots, header actions, and the settings sheet.
 
 ### Layout
 
@@ -165,9 +181,21 @@ headers, page dots, the toolbar, and header actions.
   bands. In stack mode a band of two or more becomes a horizontally swipeable
   `.panel-strip` (scroll-snap `x mandatory`, pages `calc(100% - 26px)` wide,
   page dots driven by an `IntersectionObserver`); a band of one stays in the
-  vertical stack. The page snaps vertically (`y proximity`) to the toolbar,
-  rows, and stacked bands under the header (`--header-h`, measured with a
+  vertical stack. The page snaps vertically (`y proximity`) to rows and
+  stacked bands under the header (`--header-h`, measured with a
   `ResizeObserver`). In grid mode strips are `display: contents`.
+- `layout_mode=fit` (and always while locked): `planFit()` in `fit.js` turns
+  the screen size and each panel's kind and series count into rows of column
+  spans by dynamic programming over contiguous runs (reading order kept),
+  choosing the fewest columns (≤ 6) with ≥ 1.12× room. Rows become CSS grid
+  tracks `minmax(min px, weight fr)` (tables capped at their rows), so spare
+  height goes to charts first. A shortfall shrinks type and minimums to
+  `--fit-scale` ≥ 0.72; below that the grid scrolls and `W_FIT_OVERFLOW` is
+  recorded. Markdown panels are not shown in fit. Resize/rotation re-plans
+  after 120 ms (`scheduleRelayout`), as does a cycle that changes a panel's
+  series count. Renderers get `fit: true` and fill their box: stat tiles size
+  their numbers to the cell (`fitTiles`), gauges pick columns by box shape
+  (`bestCellGrid`, all layouts), tables show the rows that fit plus `+N more`.
 - Row headers fold/unfold rows (`hidden` on `.row-body`, `aria-expanded`);
   dashboard-collapsed rows start folded.
 - A row with no eligible items is omitted (unless `show_unsupported=true`
@@ -178,8 +206,10 @@ headers, page dots, the toolbar, and header actions.
   switch: it is applied as `data-display-mode` on the document root and every
   colour is a CSS variable, so renderers never receive it and switching never
   re-renders. `window.androdash.setLocked(true)` (from the shell, C-007) sets
-  `data-locked` and forces `monochrome`; the locked view hides the toolbar,
-  header actions, and page dots while refreshing continues.
+  `data-locked`, switches to the `monochrome` palette (`lock_style=monochrome`,
+  default) or the `amoled` palette (`lock_style=color`), and forces the fit
+  layout (rebuilding if needed); the locked view hides the header actions
+  while refreshing continues.
 
 ## 6. Panel registry
 
@@ -190,7 +220,7 @@ v1 renderers:
 | `TimeSeriesChart` | conditional range queries | SVG multi-series on the cycle window |
 | `StatChart` | range queries + calculation | tiles per series, state edge |
 | `GaugeChart` | range queries + calculation | 240° open arc, threshold notches |
-| `Table` | instant queries | series + value rows |
+| `Table` | instant queries | series + value rows; a shared single label key becomes the heading |
 | `Markdown` | none | sanitized subset |
 
 Everything else is unsupported and filtered. Adding a panel kind requires:
@@ -223,12 +253,12 @@ network prerequisites, not renderer bugs. Error messages must say so.
 - Dashboard JSON is fetched at boot/reload, not each tick.
 - Exposes `window.androdash.refresh()` and `reloadDashboard()` for the header
   refresh action, the debug overlay, and tests.
-- In-app range/refresh choices are passed to `AndroDash.setView()` when the
+- In-app range/refresh choices are passed to `AndroDash.setOption()` when the
   shell is present, which persists them (C-006, C-007).
 
 ## 9. Diagnostics and status
 
-- One dashboard-wide status in the sticky header (release and debug): a state
+- One dashboard-wide status in the header (release and debug): a state
   dot and the last successful update time, `Stale since …`,
   `N of M failing · …`, `Offline [since …]`, or `Loading` (C-009). No
   countdown; it updates only when a cycle settles or the scheduler state
@@ -275,6 +305,7 @@ Export pure functions for:
 - calculations and value formatting;
 - Markdown escaping;
 - layout ordering and banding (`bandItems`);
+- fit planning and cell grids (`planFit`, `panelDemand`, `bestCellGrid`);
 - value and time tick selection (`niceTicks`, `timeTicks`).
 
 `main.js` should be a thin composition layer with little untested logic.

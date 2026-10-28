@@ -1,9 +1,12 @@
 # C-005 — Panel rendering
 
-- **Version:** 5
+- **Version:** 6
 - **Status:** Accepted, 2026-10-27 (v5: phone pagination, working folding,
   round axes on the cycle window, series colour by position, flat visual system
-  and locked view; decision 0015)
+  and locked view; decision 0015); amended 2026-10-28 (v6: fit-to-screen
+  layout, settings sheet, box-shaped gauges and stat tiles, shared table label
+  heading, height-aware axes, `lock_style` palette for the locked view;
+  decision 0017)
 - **Consumers:** Web renderer (W2)
 - **Fixtures:** [`demo-dashboard.json`](../../contracts/fixtures/demo-dashboard.json),
   [`spark-dashboard.json`](../../contracts/fixtures/spark-dashboard.json)
@@ -30,10 +33,10 @@ rendered as generic charts.
 Not supported in v1: `BarChart`, `ScatterChart`, `TraceTable`, `LogsTable`,
 `TracingGanttChart`, `PieChart`, `Heatmap`, and any unknown kind.
 
-No tooltips, zoom, pan, annotations, exemplars, or chart interaction in v1.
 The only interactions are folding rows, paging horizontal strips (swipe or page
-dots), and the header time controls (C-006). Folding and paging are per page
-load, not persisted.
+dots), and the header actions — refresh now and the view settings sheet (see
+[Header and settings sheet](#header-and-settings-sheet)). Folding and paging
+are per page load, not persisted.
 
 ## Layout and responsive behavior
 
@@ -46,6 +49,11 @@ Input: normalized rows/items from C-002.
   - otherwise → single-column stack.
 - `grid`: always 24 columns.
 - `stack`: always single column.
+- `fit`: fit-to-screen layout (see [Fit layout](#fit-layout)). The locked view
+  always uses it, whatever `layout_mode` says.
+
+`auto`, `grid`, and `stack` are the scroll layouts; the settings sheet offers
+them as one "Scroll" choice next to "Fit to screen".
 
 ### Grid
 
@@ -72,7 +80,8 @@ Input: normalized rows/items from C-002.
   height-derived slot left more than half of it empty. Every other kind keeps
   the slot so long content scrolls inside the panel instead of growing the page.
 - Stat tiles flow in an internal `repeat(auto-fit, minmax(120px, 1fr))` grid;
-  multi-gauge panels use 2 columns; charts remain full width.
+  multi-gauge panels choose their column count from the box shape (see
+  GaugeChart); charts remain full width.
 
 ### Pagination (stack mode)
 
@@ -96,12 +105,76 @@ horizontally instead of being stacked into one long column.
   `data-active="true"` on the dot of the visible page; tapping a dot scrolls
   smoothly to its page. No timer or scroll handler runs while a strip is still.
 - **Vertical snap.** In stack mode the document uses
-  `scroll-snap-type: y proximity` with `scroll-snap-align: start` on the time
-  toolbar, each row section, and each stacked slot or strip. The snap offset is
+  `scroll-snap-type: y proximity` with `scroll-snap-align: start` on each row
+  section and each stacked slot or strip. The snap offset is
   `scroll-padding-top: var(--header-h)`; `--header-h` is the sticky header
   height, kept current by a `ResizeObserver`, so snapped content lands just
   below the header. Proximity (not mandatory) keeps free scrolling.
 - Grid mode does not page (see Grid).
+
+### Fit layout
+
+`layout_mode=fit`, and always while locked. The screen dictates the layout:
+every panel on one screen, in dashboard reading order, at a size that keeps its
+content legible, with no scrolling and no padding with empty space. The planner
+is `web/app/src/fit.js` (pure functions, no DOM); `main.js` builds the DOM.
+
+- **Items.** Rows in order; inside a row, items by `y`, then `x`. Unsupported
+  placeholders and `Markdown` panels (`FIT_EXCLUDED_KINDS`: documentation, not
+  readings) are **not shown** in fit. Row headers, folding, strips, and page
+  dots are not used; panels of folded rows are shown. Each item carries its
+  kind and a display count: after data, its series count (gauges capped at 4);
+  before the first data, 6 for a `Table`, otherwise its query count (≥ 1).
+- **Demand** (`panelDemand(kind, count, width)`): the minimum legible height of
+  a panel `width` px wide, its minimum width, and its growth weight. Panel
+  chrome (title + padding) is 36 px; the inner width is `width − 20`.
+
+  | Kind | Minimum height after the 36 px chrome | Min width | Weight |
+  |---|---|---:|---:|
+  | `StatChart` | one tile: 34; else tile rows × 44 + 6 px gaps, tiles ≥ 76 px wide | 96 | 1 |
+  | `GaugeChart` | one ring: 64; else ring rows × 74 + 6 px gaps, rings ≥ 70 px wide (≤ 4) | 90 | 2 |
+  | `TimeSeriesChart` | plot 56 + time axis 14 + legend `lines × 15 + 4`; legend entries are 140 px one-liners, `lines = ceil(min(n, 8) / floor(inner / 140))` | 150 | 3 |
+  | `Table` | `min(n, 3)` rows × 18, + 14 for `+N more` when `n > 3`; capped at all `n` rows × 18 | 140 | 1 |
+  | other | 40 | 120 | 1 |
+
+- **Plan** (`planFit(items, { width, height })`, 8 px gap):
+  - column counts `C = 1 … min(6, floor((width + 8) / 158))` (columns ≥
+    150 px);
+  - for each `C`, dynamic programming over contiguous runs of up to `C` panels
+    (reading order is kept, like breaking a paragraph into lines) and every
+    split of the `C` columns among a run's panels; a split is valid only when
+    each panel gets at least its minimum width. A row's minimum height is its
+    tallest member's, its weight the largest member weight; a row of only
+    tables is capped at its tallest table's full height. The plan minimises
+    the total minimum height (gaps included); ties prefer fewer rows;
+  - `room = height / total minimum height`. The fewest columns with
+    `room ≥ 1.12` wins (wider panels read better); otherwise the plan with the
+    most room;
+  - `scale = min(1, room)`, floored at **0.72**. Below the floor the plan
+    overflows: the grid scrolls vertically and `W_FIT_OVERFLOW` (C-009) is
+    recorded. Panels are never dropped to make room.
+- **DOM.** `<main class="fit-grid">` is as tall as the visual viewport below
+  the header (minus the bottom safe-area margin), with `--fit-scale` set to the
+  scale and one `grid-template-rows` track per planned row:
+  `minmax(<min × scale>px, <weight>fr)`, or `minmax(<min × scale>px,
+  <max × scale>px)` for a capped row. Left-over height therefore goes to charts
+  first, then gauges, never past a table's rows. Each row is a `.fit-row` grid
+  with one `minmax(0, <span>fr)` column per panel, each panel in a
+  `.panel-slot`. Panel titles, tile and gauge labels, state words, legends,
+  axis labels, and table cells scale with `--fit-scale`. `html[data-layout="fit"]`
+  and the body do not scroll; `.fit-grid.overflow` does.
+- **Header.** One compact line: title (20 px), the status beside it, and 30 px
+  icon buttons; it is not sticky.
+- **Rebuild instead of waiting.** `renderDashboard()` rebuilds the page and
+  repaints every panel's retained data or error, so a layout switch, rotation,
+  and lock/unlock never wait for the next refresh. In fit, a window resize
+  (including rotation) re-plans after a 120 ms debounce; after each cycle, if
+  any panel's display count differs from the planned count, it re-plans the
+  same way.
+- **Content.** Renderers receive `fit: true` and the measured body box and fill
+  it: stat tiles size to the box (StatChart), gauges choose columns by box
+  shape (GaugeChart, all layouts), chart legends become a grid of one-line
+  entries, and tables show the rows that fit plus `+N more` (Table).
 
 ### Rows
 
@@ -129,6 +202,29 @@ horizontally instead of being stacked into one long column.
   Dashboard freshness is reported once, in the header status (C-009).
 - Body: renderer-specific.
 - Error/stale badges do not resize the panel unexpectedly.
+
+## Header and settings sheet
+
+The header (`.app-header`) holds the dashboard title, the one dashboard status
+(C-009), and icon actions: **Refresh now**, **View settings** (sliders icon),
+and diagnostics (only with `debug=true`). The page carries no toolbar or other
+controls.
+
+View settings opens a bottom sheet (`.sheet-overlay` > `.sheet`,
+`role="dialog"`, `aria-modal="true"`, `aria-label="View settings"`) titled
+"View" with a Done button; Done, Escape, or a tap outside the sheet closes it.
+Each group is a segmented control (`role="radiogroup"`, segments
+`role="radio"` with `aria-checked`). A choice applies at once and, when the
+shell bridge is present, is persisted with C-007
+`AndroDash.setOption(name, value)`; in a plain browser it lasts for the
+session.
+
+| Group | Choices | Effect |
+|---|---|---|
+| Time range | `5m` `15m` `1h` `6h` `24h` `7d` (+ the effective range) | `time_range`; refresh now (C-006) |
+| Refresh | `Off` `5s` `10s` `30s` `1m` `5m` (+ the effective interval) | `refresh_seconds`; reschedule (C-006) |
+| Layout | Scroll \| Fit to screen | `layout_mode`: `fit`, or back to the scroll mode used before (`auto` if none); the page is rebuilt at once |
+| On the lock screen | Off \| Grayscale \| Color | Only when the bridge exposes `lockScreenEnabled` and `setLockScreen` (C-007). Off → `setLockScreen(false)`; Grayscale/Color → `lock_style` `monochrome`/`color`, then `setLockScreen(true)`. Shows Off while `lockScreenEnabled()` is false, else the current `lock_style`. |
 
 ## Common data semantics
 
@@ -269,22 +365,29 @@ carries a short name (`gpu`, `hbm`, `zone`, `hwmon`, `sm`, `mem`, `cpu`, `draw`,
     used.
   - **Time ticks** (`timeTicks`): the smallest step from 1 s, 2 s, 5 s, 10 s,
     15 s, 30 s, 1 m, 2 m, 5 m, 10 m, 15 m, 30 m, 1 h, 2 h, 3 h, 6 h, 12 h, 1 d,
-    2 d, 7 d that yields at most `min(8, floor(plotWidth / 84))` ticks (at
-    least 2), aligned to local wall-clock boundaries (a 5 m step falls on
-    :00, :05; a 6 h step on 00:00, 06:00). Labels are local `h:mm`, with
+    2 d, 7 d that yields at most `max(2, min(8, floor(plotWidth / w)))` ticks,
+    with `w` = 46 px for a compact plot (under 260 px wide) and 84 px
+    otherwise. If that round step lands only once in the window, the next
+    finer step is used (when it gives at most one tick more than the limit),
+    so the axis does not show a single time. Ticks align to local wall-clock
+    boundaries (a 5 m step falls on :00, :05; a 6 h step on 00:00, 06:00).
+    Labels are local `h:mm` (compact plots drop the AM/PM marker), with
     seconds when the step is below 60 s, the weekday for steps ≥ 1 day (month
     and day when the span exceeds 7 days), and the weekday at midnight ticks on
     multi-day spans.
   - **Value ticks** (`niceTicks`): steps of 1, 2, 2.5, or 5 × 10^k; the domain
-    extends to the enclosing ticks; 4 intervals (3 when the body is under
-    150 px tall). `bytes` axes step in powers of 1024 (512 MiB, 1 GiB, 1.5 GiB).
+    extends to the enclosing ticks; the target interval count follows the
+    chart height, about one label per 22 px:
+    `max(1, min(4, floor((height − 25) / 22)))`, so labels never touch on short
+    charts. `bytes` axes step in powers of 1024 (512 MiB, 1 GiB, 1.5 GiB).
     Threshold values are included in the domain. A constant series is padded
     (±50%, or 0…1 for all-zero) without going below 0 for non-negative data;
     positive-only data never gets a negative axis.
   - Value labels sit on the **right**, in a gutter sized from the widest tick
     label (5.6 px per character + 8, clamped to 22–64 px); the plot starts at
     the left edge. Time labels sit in an 18 px bottom row, edge labels anchored
-    inward. Axis labels are 10 px with tabular numerals.
+    inward. Axis labels are 10 px with tabular numerals (9.5 px × fit scale in
+    the fit layout).
   - Horizontal hairlines at value ticks; no vertical grid lines.
   - null values break the path; the last point is marked with a dot.
   - Threshold lines are dashed in the state colour (step 1 amber, step 2+ red).
@@ -292,7 +395,9 @@ carries a short name (`gpu`, `hbm`, `zone`, `hwmon`, `sm`, `mem`, `cpu`, `draw`,
     unless `spec.visual.areaOpacity` is set.
   - Legend always below the plot (`spec.legend.position` and `spec.legend.mode`
     are ignored); cap 8 entries + "+N more"; each entry shows its series
-    swatch, name, and last value formatted.
+    swatch, name, and last value formatted. In the fit layout the legend is a
+    grid of one-line entries (columns ≥ 140 px; the name is ellipsised, the
+    value kept whole).
 - Chart height fills the panel body; width is responsive.
 - Geometry is CSS-pixel exact: the `viewBox` equals the measured rendered box,
   so text keeps its CSS size instead of being scaled with the drawing (a fixed
@@ -317,6 +422,14 @@ carries a short name (`gpu`, `hbm`, `zone`, `hwmon`, `sm`, `mem`, `cpu`, `draw`,
 - A single-series tile omits the label because the panel header names it and
   uses a 40 px number; the tile fills its slot with `space-between` instead of
   centering content in a fixed-height box.
+- In the fit layout tiles fill the panel box (`fitTiles`, re-run on
+  `ResizeObserver` changes): columns and rows from `bestCellGrid` with a tile
+  aspect of 2.2 (one cell for a single tile), and one number size for the
+  whole panel, `--value-size` = the smallest of `0.78 × (cell height − 15)`
+  (no label allowance for a single tile) and
+  `(cell width − 14) / max(3, 0.58 × L)`, where `L` is the longest number's
+  length plus 0.55 × its unit's length, clamped to 14…44 px (14…56 px for a
+  single tile).
 - Layout: flex/grid; one tile per series; max 12.
 - `spec.format` controls value formatting; `spec.thresholds` controls color.
 - No sparkline in v1.
@@ -332,11 +445,18 @@ carries a short name (`gpu`, `hbm`, `zone`, `hwmon`, `sm`, `mem`, `cpu`, `draw`,
   notch cut into the track; there are no coloured zones.
 - Scale maximum: 100 for `percent`; otherwise
   `max(1, every step value, the value) × 1.12`.
-- One gauge: arc on the left, large readout on the right (44 px value, smaller
-  unit, state word only for `warn`/`crit`), using the full panel width. The
-  arc is sized from the measured body box rather than a fixed viewBox.
-- Multiple gauges: 2-column grid, value + unit inside each arc, series label
-  below with the state word only for `warn`/`crit`; max 4 gauges.
+- Arrangement follows the measured body box, in every layout, and is redone on
+  `ResizeObserver` changes:
+  - **One gauge:** when the box is at least 1.5× as wide as tall, the arc
+    (side `min(height, 0.42 × width)`) sits left of a large readout (44 px
+    value, 34 px in fit; smaller unit; state word only for `warn`/`crit`).
+    Otherwise the ring alone takes `min(width, height)` with value + unit
+    inside the arc and the readout hidden.
+  - **Multiple gauges:** columns from `bestCellGrid(count, width, height,
+    { aspect: 1.05, gap: 12 })` — the split that makes the rings largest for
+    the box shape — with value + unit inside each arc and the series label
+    below (state word only for `warn`/`crit`); max 4 gauges.
+  - The value inside a ring is `0.56 × radius`, clamped to 13–40 px.
 - No bordered card per gauge; no needle.
 - No values → the panel's empty state ("No data").
 
@@ -350,6 +470,16 @@ carries a short name (`gpu`, `hbm`, `zone`, `hwmon`, `sm`, `mem`, `cpu`, `draw`,
   (e.g. `code="200"`; full form `demo_requests_total{code="200"}` stays in the
   cell `title` and in diagnostics). `job`/`instance` identify the scrape target,
   not the series, and wrapping them cost 30–50 px per row on a phone.
+- Shared label key: when rows agree on `__name__` and every row is identified
+  by the same single label (after excluding `__name__`, `job`, `instance`),
+  that key becomes the first column heading and cells show only its value
+  (heading `collector`, cells `cpu`, `disk`; heading `code`, cell `200`). This
+  applies in every layout, but the fit layout hides the header row, so there
+  the cells show the bare values.
+- Fit layout: rows are 18 px and the header row is hidden. The body box holds
+  `capacity = floor(height / 18)` rows; when there are more, the first
+  `max(1, capacity − 1)` rows are shown followed by a `.table-more` line
+  `+N more` counting the rest.
 - Max 100 rows; extra → `W_ROWS_TRUNCATED`.
 - Numeric values formatted with `spec.format` if present; raw otherwise.
 - No sorting/pagination/column settings in v1.
@@ -385,6 +515,24 @@ Rows and pagination:
   </div>
 </section>
 ```
+
+Fit layout:
+
+```html
+<main class="fit-grid" style="--fit-scale: 1.000; grid-template-rows: minmax(118px, 1fr) minmax(144px, 3fr)">
+  <div class="fit-row" style="grid-template-columns: minmax(0, 1fr) minmax(0, 1fr)">
+    <div class="panel-slot">…</div>
+    <div class="panel-slot">…</div>
+  </div>
+  <div class="fit-row" style="grid-template-columns: minmax(0, 1fr)">
+    <div class="panel-slot">…</div>
+  </div>
+</main>
+```
+
+`html[data-layout]` is `fit` or `scroll`; the app shell's `data-layout-mode`
+is `fit`, `grid`, or `stack`. An overflowing fit plan adds `.overflow` to
+`.fit-grid`.
 
 Placeholders:
 
@@ -475,13 +623,18 @@ No hue at all:
 
 `window.androdash.setLocked(bool)` — pushed by the Android shell while the
 phone is locked with `show_when_locked` (C-007) — sets `html[data-locked]` and
-forces `data-display-mode="monochrome"` without re-rendering; `setLocked(false)`
-restores the configured mode. While locked the time toolbar, header actions,
-and page dots are hidden and panel padding tightens; refreshing continues. The
-header status stays visible.
+switches the palette by C-001 `lock_style`: `monochrome` (default) →
+`data-display-mode="monochrome"`; `color` → `data-display-mode="amoled"`
+(near-black cards, full state and series colour), whatever `display_mode` is
+configured. `setLocked(false)` restores the configured mode. The locked view
+always uses the [fit layout](#fit-layout): when the layout in use is not fit,
+locking and unlocking rebuild the page and repaint retained data at once.
+While locked the header actions are hidden; the header status stays visible
+and refreshing continues.
 
-`monochrome` and the locked view change presentation only; showing the Activity
-over the keyguard is C-007's `show_when_locked`.
+`monochrome` changes presentation only; the locked view changes presentation
+and layout. Showing the Activity over the keyguard is C-007's
+`show_when_locked`.
 
 ## Limits summary
 
@@ -493,12 +646,15 @@ over the keyguard is C-007's `show_when_locked`.
 | Gauges per panel | 4 |
 | Table rows | 100 |
 | Legend entries | 8 + "more" |
+| Fit columns | 6 |
+| Fit minimum type scale | 0.72 (then scroll + `W_FIT_OVERFLOW`) |
 | Markdown render size | bounded by panel scroll, text capped at 100 KB |
 
 ## Test obligations
 
-`web/tests/contract/c005-panels.test.js` and
-`web/tests/contract/c005-layout.test.js`:
+`web/tests/contract/c005-panels.test.js`,
+`web/tests/contract/c005-layout.test.js`, and
+`web/tests/contract/c005-fit.test.js`:
 
 - demo fixture: exact visible/hidden panel IDs and kinds;
 - time series path generation with gaps/limits;
@@ -510,7 +666,8 @@ over the keyguard is C-007's `show_when_locked`.
   alignment;
 - stat/gauge calculations, thresholds, state word only on crossing, meter only
   with thresholds, multiple series;
-- table rows/sort/limit;
+- table rows/sort/limit; a shared single label key becomes the column heading;
+  fit tables show the rows their box holds and count the rest (`+N more`);
 - Markdown escaping: `<script>`, raw HTML, links, code blocks;
 - formatting units/decimals/unknown unit;
 - bands: side-by-side items form one band, full-width items stay vertical, tall
@@ -518,6 +675,11 @@ over the keyguard is C-007's `show_when_locked`.
 - a band renders as a strip with one page dot per panel;
 - tapping a row header folds and unfolds it; a dashboard-collapsed row starts
   folded;
+- fit: every panel stays on one phone screen in reading order; one full-width
+  column when the screen allows it; no panel narrower than its minimum width;
+  type shrinks to the 0.72 floor, then the plan reports overflow instead of
+  hiding panels; charts take the growth while a table never grows past its
+  rows; cell grids follow the box shape;
 - DOM hooks/states;
 - empty/error/stale states;
 - accessibility labels present.

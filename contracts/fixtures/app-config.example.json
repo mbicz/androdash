@@ -9,6 +9,7 @@
   "debug": true,
   "layoutMode": "auto",
   "displayMode": "standard",
+  "lockStyle": "monochrome",
   "dashboardName": null,
   "capabilities": null,
   "showUnsupported": false

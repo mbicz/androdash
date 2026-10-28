@@ -309,7 +309,8 @@
             "W_VALUES_TRUNCATED",
             "W_GAUGES_TRUNCATED",
             "W_CALCULATION_UNKNOWN",
-            "W_UNIT_UNKNOWN"
+            "W_UNIT_UNKNOWN",
+            "W_FIT_OVERFLOW"
           ]
         },
         "message": {

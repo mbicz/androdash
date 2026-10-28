@@ -22,8 +22,8 @@ data class ParsedLaunch(
     val warnings: List<String>,
 )
 
-/** Result of a renderer `AndroDash.setView` request (C-007). */
-data class ViewUpdate(
+/** Result of a renderer `AndroDash.setOption` request (C-007). */
+data class OptionUpdate(
     val config: AppConfig,
     val warnings: List<String>,
 )
@@ -44,9 +44,12 @@ object ConfigParser {
     private const val MAX_REFRESH = 3600
     private const val MAX_STEP = 86400
     private val CAPABILITY = Regex("^[a-z0-9][a-z0-9_-]*$")
-    private val LAYOUTS = setOf("auto", "grid", "stack")
+    private val LAYOUTS = setOf("auto", "grid", "stack", "fit")
     private val DISPLAY_MODES = setOf("standard", "amoled", "monochrome")
-    private const val MAX_VIEW_INPUT = 32
+    private val LOCK_STYLES = setOf("monochrome", "color")
+
+    /** Maximum length of a `setOption` name or value (C-007). */
+    const val MAX_OPTION_INPUT = 64
     private val INTEGER = Regex("^-?\\d+$")
     private val DURATION_PART = Regex("(\\d+)(ms|s|m|h|d|w)")
 
@@ -115,28 +118,19 @@ object ConfigParser {
         val layoutMode = when {
             !extras.containsKey("layout_mode") -> base?.layoutMode ?: "auto"
             extras["layout_mode"].isNullOrBlank() -> base?.layoutMode ?: "auto"
-            else -> {
-                val value = extras.getValue("layout_mode")!!.trim().lowercase()
-                if (value !in LAYOUTS) {
-                    throw ConfigException("E_CONFIG", "layout_mode must be auto, grid, or stack")
-                }
-                value
-            }
+            else -> parseEnum(extras.getValue("layout_mode")!!, "layout_mode", LAYOUTS)
         }
 
         val displayMode = when {
             !extras.containsKey("display_mode") -> base?.displayMode ?: "standard"
             extras["display_mode"].isNullOrBlank() -> base?.displayMode ?: "standard"
-            else -> {
-                val value = extras.getValue("display_mode")!!.trim().lowercase()
-                if (value !in DISPLAY_MODES) {
-                    throw ConfigException(
-                        "E_CONFIG",
-                        "display_mode must be standard, amoled, or monochrome",
-                    )
-                }
-                value
-            }
+            else -> parseEnum(extras.getValue("display_mode")!!, "display_mode", DISPLAY_MODES)
+        }
+
+        val lockStyle = when {
+            !extras.containsKey("lock_style") -> base?.lockStyle ?: "monochrome"
+            extras["lock_style"].isNullOrBlank() -> base?.lockStyle ?: "monochrome"
+            else -> parseEnum(extras.getValue("lock_style")!!, "lock_style", LOCK_STYLES)
         }
 
         val dashboardName = when {
@@ -167,6 +161,7 @@ object ConfigParser {
             debug = debug,
             layoutMode = layoutMode,
             displayMode = displayMode,
+            lockStyle = lockStyle,
             dashboardName = dashboardName,
             capabilities = capabilities,
             showUnsupported = showUnsupported,
@@ -187,28 +182,33 @@ object ConfigParser {
     }
 
     /**
-     * Apply a renderer view choice (C-007 `AndroDash.setView`) to the current
-     * config with the same rules as the launch extras. A null or blank value
-     * leaves that field unchanged; at least one value is required.
+     * Apply one renderer option (C-007 `AndroDash.setOption`) to the current
+     * config with the same rules as the launch extra of that name. Unknown
+     * names, blank or over-long values, and invalid values are `E_CONFIG`.
      */
-    fun applyView(config: AppConfig, timeRange: String?, refreshSeconds: String?): ViewUpdate {
-        val range = timeRange?.trim()?.takeIf { it.isNotEmpty() }
-        val refresh = refreshSeconds?.trim()?.takeIf { it.isNotEmpty() }
-        if (range == null && refresh == null) {
-            throw ConfigException("E_CONFIG", "setView needs time_range or refresh_seconds")
+    fun applyOption(config: AppConfig, name: String?, value: String?): OptionUpdate {
+        val option = name?.trim().orEmpty()
+        val raw = value?.trim().orEmpty()
+        if (option.length > MAX_OPTION_INPUT || raw.length > MAX_OPTION_INPUT) {
+            throw ConfigException("E_CONFIG", "setOption inputs must be at most $MAX_OPTION_INPUT characters")
         }
-        if ((range?.length ?: 0) > MAX_VIEW_INPUT || (refresh?.length ?: 0) > MAX_VIEW_INPUT) {
-            throw ConfigException("E_CONFIG", "setView values must be at most $MAX_VIEW_INPUT characters")
+        if (raw.isEmpty()) {
+            throw ConfigException("E_CONFIG", "setOption needs a value")
         }
         val warnings = ArrayList<String>()
-        range?.let { validateDuration(it) }
-        val updated = config.copy(
-            timeRange = range ?: config.timeRange,
-            refreshSeconds = refresh?.let { parseRefresh(it, warnings) } ?: config.refreshSeconds,
-        )
+        val updated = when (option) {
+            "time_range" -> {
+                validateDuration(raw)
+                config.copy(timeRange = raw)
+            }
+            "refresh_seconds" -> config.copy(refreshSeconds = parseRefresh(raw, warnings))
+            "layout_mode" -> config.copy(layoutMode = parseEnum(raw, "layout_mode", LAYOUTS))
+            "lock_style" -> config.copy(lockStyle = parseEnum(raw, "lock_style", LOCK_STYLES))
+            else -> throw ConfigException("E_CONFIG", "setOption does not accept this option name")
+        }
         validateConfig(updated)
         validateQueryLength(updated)
-        return ViewUpdate(updated, warnings)
+        return OptionUpdate(updated, warnings)
     }
 
     fun decodePersisted(raw: String?): AppConfig? {
@@ -236,6 +236,7 @@ object ConfigParser {
         add("debug", config.debug.toString())
         add("layout_mode", config.layoutMode)
         add("display_mode", config.displayMode)
+        add("lock_style", config.lockStyle)
         add("dashboard_name", config.dashboardName)
         add("capabilities", config.capabilities?.joinToString(","))
         add("show_unsupported", config.showUnsupported.toString())
@@ -259,13 +260,13 @@ object ConfigParser {
             }
         }
         if (config.layoutMode !in LAYOUTS) {
-            throw ConfigException("E_CONFIG", "layout_mode must be auto, grid, or stack")
+            throw ConfigException("E_CONFIG", enumMessage("layout_mode", LAYOUTS))
         }
         if (config.displayMode !in DISPLAY_MODES) {
-            throw ConfigException(
-                "E_CONFIG",
-                "display_mode must be standard, amoled, or monochrome",
-            )
+            throw ConfigException("E_CONFIG", enumMessage("display_mode", DISPLAY_MODES))
+        }
+        if (config.lockStyle !in LOCK_STYLES) {
+            throw ConfigException("E_CONFIG", enumMessage("lock_style", LOCK_STYLES))
         }
         config.dashboardName?.let {
             if (it.isEmpty() || it.length > MAX_NAME) {
@@ -320,6 +321,17 @@ object ConfigParser {
             else -> throw ConfigException("E_CONFIG", "$name must be true or false")
         }
     }
+
+    private fun parseEnum(value: String, name: String, allowed: Set<String>): String {
+        val normalized = value.trim().lowercase()
+        if (normalized !in allowed) {
+            throw ConfigException("E_CONFIG", enumMessage(name, allowed))
+        }
+        return normalized
+    }
+
+    private fun enumMessage(name: String, allowed: Set<String>): String =
+        "$name must be one of ${allowed.joinToString(", ")}"
 
     /** `0` = manual, `1–4` clamps to `5` with `W_REFRESH_CLAMPED`, max [MAX_REFRESH] (C-001). */
     private fun parseRefresh(value: String, warnings: MutableList<String>): Int {

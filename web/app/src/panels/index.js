@@ -15,10 +15,10 @@ export const PANEL_RENDERERS = Object.freeze({
 export function renderPanelBody(
   panel,
   series = [],
-  { warn = null, size = null, timeWindow = null } = {},
+  { warn = null, size = null, timeWindow = null, fit = false } = {},
 ) {
   const renderer = PANEL_RENDERERS[panel.panelKind];
   if (!renderer) return null;
   if (panel.panelKind === "Markdown") return renderer(panel, { warn });
-  return renderer(panel, series, { warn, size, timeWindow });
+  return renderer(panel, series, { warn, size, timeWindow, fit });
 }

@@ -22,7 +22,8 @@ import {
   redactUrl,
   statusLabel,
 } from "./diagnostics.js";
-import { renderRows, resolveLayoutMode } from "./layout.js";
+import { orderedItems, renderRows, resolveLayoutMode } from "./layout.js";
+import { FIT_EXCLUDED_KINDS, planFit } from "./fit.js";
 import { renderPanelBody } from "./panels/index.js";
 import { labelValues as prometheusLabelValues, queryInstant, queryRange, stepFor } from "./prometheus.js";
 import { Scheduler } from "./scheduler.js";
@@ -56,7 +57,9 @@ const state = {
   rangeText: null,
   panelWindows: new Map(),
   locked: false,
-  toolbar: null,
+  fitCounts: null,
+  relayoutTimer: null,
+  sheet: null,
   debugOverlay: null,
 };
 
@@ -114,8 +117,18 @@ const RANGE_PRESETS = ["5m", "15m", "1h", "6h", "24h", "7d"];
 const REFRESH_PRESETS = [0, 5, 10, 30, 60, 300];
 
 function refreshLabel(seconds) {
-  if (seconds === 0) return "Manual";
-  return seconds % 60 === 0 ? `${seconds / 60} min` : `${seconds} s`;
+  if (seconds === 0) return "Off";
+  return seconds % 60 === 0 ? `${seconds / 60}m` : `${seconds}s`;
+}
+
+/** Fit layout is on when chosen, and always on the lock screen (C-005). */
+function fitActive() {
+  return state.locked || state.config?.layoutMode === "fit";
+}
+
+function scrollMode() {
+  const configured = state.config.layoutMode === "fit" ? "auto" : state.config.layoutMode;
+  return resolveLayoutMode(configured, window.innerWidth);
 }
 
 function makeIcon(pathData, viewBox = "0 0 24 24") {
@@ -293,7 +306,7 @@ async function loadApp() {
     ...state.filtered.counts,
     errors: 0,
   });
-  state.mode = resolveLayoutMode(state.config.layoutMode, window.innerWidth);
+  state.fitCounts = null;
   renderDashboard();
   installScheduler();
   updateStatus();
@@ -311,33 +324,143 @@ function installScheduler() {
   state.scheduler.start();
 }
 
+/**
+ * Build the page for the current layout. Rebuilding is cheap and idempotent:
+ * panel shells are recreated and every panel's last data (or error) is
+ * painted again, so layout switches, rotation, and lock/unlock never wait for
+ * the next refresh.
+ */
 function renderDashboard() {
+  state.panelElements = new Map();
+  const fit = fitActive();
+  state.mode = fit ? "fit" : scrollMode();
+  app.dataset.layoutMode = state.mode;
+  document.documentElement.dataset.layout = fit ? "fit" : "scroll";
+
   const header = createHeader();
   const main = document.createElement("main");
-  main.className = "rows";
   main.setAttribute("aria-label", state.dashboard.title);
-  const rows = renderRows(state.filtered.rows, { createPanel });
-  main.append(rows);
-  if (state.filtered.rows.length === 0) {
-    main.append(createNoPanels());
+  if (fit) {
+    main.className = "fit-grid";
+    app.replaceChildren(header, main);
+    buildFit(main);
+  } else {
+    main.className = "rows";
+    main.append(renderRows(state.filtered.rows, { createPanel }));
+    if (state.filtered.rows.length === 0) main.append(createNoPanels());
+    app.replaceChildren(header, main);
+    // Sections snap under the sticky header; keep the snap offset equal to it.
+    if (typeof ResizeObserver === "function") {
+      new ResizeObserver(([entry]) => {
+        const height = Math.round(entry.target.getBoundingClientRect().height);
+        document.documentElement.style.setProperty("--header-h", `${height}px`);
+      }).observe(header);
+    }
   }
-
-  app.replaceChildren(header, createToolbar(), main);
-  // Sections snap under the sticky header; keep the snap offset equal to it.
-  if (typeof ResizeObserver === "function") {
-    new ResizeObserver(([entry]) => {
-      const height = Math.round(entry.target.getBoundingClientRect().height);
-      document.documentElement.style.setProperty("--header-h", `${height}px`);
-    }).observe(header);
-  }
-  app.dataset.layoutMode = state.mode;
   app.setAttribute("aria-busy", "false");
   document.title = `${state.dashboard.title} · AndroDash`;
 
   for (const entry of state.filtered.visible.values()) {
     if (entry.panel.panelKind === "Markdown") renderMarkdownPanel(entry.panel.id);
   }
+  restorePanels();
   updateStatus();
+}
+
+/** Repaint every panel from retained data after a rebuild. */
+function restorePanels() {
+  for (const [panelId, series] of state.lastSeries) {
+    applyDataPanel(panelId, series, state.panelErrors.get(panelId) || null);
+  }
+  for (const [panelId, error] of state.panelErrors) {
+    if (!state.lastSeries.has(panelId)) paintPanelError(panelId, error);
+  }
+}
+
+/** How many tiles, rings, lines, or rows a panel shows (estimated until data). */
+function displayCount(panel) {
+  const series = state.lastSeries.get(panel.id);
+  if (series) {
+    if (panel.panelKind === "GaugeChart") return Math.max(1, Math.min(4, series.length));
+    return Math.max(1, series.length);
+  }
+  if (panel.panelKind === "Table") return 6;
+  return Math.max(1, panel.queries?.length || 1);
+}
+
+function fitItems() {
+  const items = [];
+  for (const row of state.filtered.rows) {
+    for (const item of orderedItems(row.items)) {
+      if (item.state === "unsupported" || !item.panel) continue;
+      if (FIT_EXCLUDED_KINDS.has(item.panel.panelKind)) continue;
+      items.push({
+        id: String(items.length),
+        kind: item.panel.panelKind,
+        count: displayCount(item.panel),
+        item,
+      });
+    }
+  }
+  return items;
+}
+
+/**
+ * Fit layout (C-005): one screen, no scrolling. The planner turns the screen
+ * size and what each panel shows into rows and column spans; CSS grid gives
+ * left-over height to the rows that benefit, and renderers size their content
+ * to the box they get.
+ */
+function buildFit(main) {
+  const items = fitItems();
+  state.fitCounts = items.map((item) => `${item.item.panel.id}:${item.count}`).join(",");
+  if (items.length === 0) {
+    main.append(createNoPanels());
+    return;
+  }
+  const rect = main.getBoundingClientRect();
+  const viewport = window.visualViewport?.height || window.innerHeight;
+  const bottom = parseFloat(getComputedStyle(main).marginBottom) || 0;
+  const width = Math.max(120, Math.floor(rect.width));
+  const height = Math.max(160, Math.floor(viewport - rect.top - bottom));
+  const plan = planFit(items, { width, height });
+  if (plan.overflow) {
+    warn("W_FIT_OVERFLOW", "Panels do not fit on one screen at the smallest legible size; scrolling", null, `${items.length} panels`);
+  }
+  main.style.height = `${height}px`;
+  main.style.setProperty("--fit-scale", plan.scale.toFixed(3));
+  main.classList.toggle("overflow", plan.overflow);
+  main.style.gridTemplateRows = plan.rows
+    .map((row) => {
+      const min = Math.round(row.minHeight * plan.scale);
+      return row.maxHeight
+        ? `minmax(${min}px, ${Math.round(row.maxHeight * plan.scale)}px)`
+        : `minmax(${min}px, ${row.weight}fr)`;
+    })
+    .join(" ");
+  const byId = new Map(items.map((item) => [item.id, item]));
+  for (const row of plan.rows) {
+    const rowEl = document.createElement("div");
+    rowEl.className = "fit-row";
+    rowEl.style.gridTemplateColumns = row.cells.map((cell) => `minmax(0, ${cell.span}fr)`).join(" ");
+    for (const cell of row.cells) {
+      const slot = document.createElement("div");
+      slot.className = "panel-slot";
+      const panel = createPanel(byId.get(cell.id).item);
+      if (panel) slot.append(panel);
+      rowEl.append(slot);
+    }
+    main.append(rowEl);
+  }
+}
+
+/** Re-plan after rotation/resize or when panels show a different count. */
+function scheduleRelayout() {
+  if (state.relayoutTimer) clearTimeout(state.relayoutTimer);
+  state.relayoutTimer = setTimeout(() => {
+    state.relayoutTimer = null;
+    if (state.dashboard && state.filtered && !state.fatal) renderDashboard();
+  }, 120);
 }
 
 /**
@@ -373,36 +496,11 @@ function createHeader() {
       icon: makeIcon("M20 11a8 8 0 1 0-2.3 5.6M20 4v7h-7"),
       onClick: () => state.scheduler?.refresh("manual"),
     }),
+    makeButton("View settings", {
+      icon: makeIcon("M4 7h10M18 7h2M4 17h2M10 17h10M16 4v6M8 14v6"),
+      onClick: openSettings,
+    }),
   );
-  const shell = bridge();
-  if (typeof shell?.lockScreenEnabled === "function" && typeof shell?.setLockScreen === "function") {
-    const lock = makeButton("Show on lock screen", {
-      className: "icon-button toggle",
-      icon: makeIcon("M7 11V8a5 5 0 0 1 10 0v3M6 11h12v9H6z"),
-      onClick: () => {
-        const enabled = lock.getAttribute("aria-pressed") !== "true";
-        try {
-          shell.setLockScreen(enabled);
-          lock.setAttribute("aria-pressed", String(shell.lockScreenEnabled() === true));
-          showToast(
-            enabled
-              ? "When locked, this dashboard stays on in grayscale"
-              : "Lock-screen view off",
-          );
-        } catch {
-          showToast("Lock-screen view is unavailable");
-        }
-      },
-    });
-    let enabled = false;
-    try {
-      enabled = shell.lockScreenEnabled() === true;
-    } catch {
-      enabled = false;
-    }
-    lock.setAttribute("aria-pressed", String(enabled));
-    actions.append(lock);
-  }
   if (state.config.debug) {
     actions.append(
       makeButton("Open diagnostics", {
@@ -419,91 +517,223 @@ function createHeader() {
   return header;
 }
 
+/** A segmented control: one choice of several, applied on tap. */
+function segmented(label, options, current, onSelect) {
+  const group = document.createElement("div");
+  group.className = "segmented";
+  group.setAttribute("role", "radiogroup");
+  group.setAttribute("aria-label", label);
+  const buttons = options.map((option) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "segment";
+    button.setAttribute("role", "radio");
+    button.textContent = option.label;
+    if (option.aria) button.setAttribute("aria-label", option.aria);
+    button.setAttribute("aria-checked", String(option.value === current));
+    button.addEventListener("click", () => {
+      if (onSelect(option.value) === false) return;
+      for (const other of buttons) other.setAttribute("aria-checked", String(other === button));
+    });
+    return button;
+  });
+  group.append(...buttons);
+  return group;
+}
+
+function settingsGroup(title, control) {
+  const section = document.createElement("section");
+  section.className = "sheet-group";
+  const heading = document.createElement("h3");
+  heading.textContent = title;
+  section.append(heading, control);
+  return section;
+}
+
+function lockSupport() {
+  const shell = bridge();
+  return typeof shell?.lockScreenEnabled === "function" && typeof shell?.setLockScreen === "function"
+    ? shell
+    : null;
+}
+
+function lockChoice() {
+  const shell = lockSupport();
+  try {
+    return shell?.lockScreenEnabled() === true ? state.config.lockStyle : "off";
+  } catch {
+    return "off";
+  }
+}
+
 /**
- * Time range as a segmented control and the refresh interval as a native
- * select (the platform picker on Android). Choices apply immediately and are
- * persisted by the shell when present (C-006, C-007 `setView`).
+ * View settings sheet (C-006, C-005): time range, refresh, layout, and the
+ * lock-screen view. Every choice applies at once and is persisted by the
+ * shell when present; the page itself carries no controls.
  */
-function createToolbar() {
-  const toolbar = document.createElement("nav");
-  toolbar.className = "toolbar";
-  toolbar.setAttribute("aria-label", "View");
+function openSettings() {
+  closeSettings();
+  const overlay = document.createElement("div");
+  overlay.className = "sheet-overlay";
+  overlay.addEventListener("click", (event) => {
+    if (event.target === overlay) closeSettings();
+  });
+  const sheet = document.createElement("div");
+  sheet.className = "sheet";
+  sheet.setAttribute("role", "dialog");
+  sheet.setAttribute("aria-modal", "true");
+  sheet.setAttribute("aria-label", "View settings");
+
+  const header = document.createElement("header");
+  header.className = "sheet-header";
+  const title = document.createElement("h2");
+  title.textContent = "View";
+  const done = document.createElement("button");
+  done.type = "button";
+  done.className = "sheet-done";
+  done.textContent = "Done";
+  done.addEventListener("click", closeSettings);
+  header.append(title, done);
 
   const ranges = [...RANGE_PRESETS];
   if (state.rangeText && !ranges.some((item) => parseDuration(item) === state.rangeMs)) {
     ranges.push(state.rangeText);
     ranges.sort((a, b) => parseDuration(a) - parseDuration(b));
   }
-  const segmented = document.createElement("div");
-  segmented.className = "segmented";
-  segmented.setAttribute("role", "radiogroup");
-  segmented.setAttribute("aria-label", "Time range");
-  for (const range of ranges) {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "segment";
-    button.setAttribute("role", "radio");
-    button.dataset.range = range;
-    button.textContent = range;
-    button.setAttribute("aria-label", `Last ${range}`);
-    button.addEventListener("click", () => setView({ range }));
-    segmented.append(button);
-  }
+  const currentRange = ranges.find((item) => parseDuration(item) === state.rangeMs);
+  const refreshes = [...new Set([...REFRESH_PRESETS, state.intervalSeconds])].sort((a, b) => a - b);
 
-  const refreshes = [...REFRESH_PRESETS];
-  if (!refreshes.includes(state.intervalSeconds)) {
-    refreshes.push(state.intervalSeconds);
-    refreshes.sort((a, b) => a - b);
+  sheet.append(
+    header,
+    settingsGroup(
+      "Time range",
+      segmented(
+        "Time range",
+        ranges.map((range) => ({ value: range, label: range, aria: `Last ${range}` })),
+        currentRange,
+        (range) => setView({ range }),
+      ),
+    ),
+    settingsGroup(
+      "Refresh",
+      segmented(
+        "Refresh interval",
+        refreshes.map((seconds) => ({ value: seconds, label: refreshLabel(seconds) })),
+        state.intervalSeconds,
+        (seconds) => setView({ refreshSeconds: seconds }),
+      ),
+    ),
+    settingsGroup(
+      "Layout",
+      segmented(
+        "Layout",
+        [
+          { value: "scroll", label: "Scroll" },
+          { value: "fit", label: "Fit to screen" },
+        ],
+        state.config.layoutMode === "fit" ? "fit" : "scroll",
+        (layout) => setLayout(layout),
+      ),
+    ),
+  );
+  if (lockSupport()) {
+    sheet.append(
+      settingsGroup(
+        "On the lock screen",
+        segmented(
+          "On the lock screen",
+          [
+            { value: "off", label: "Off" },
+            { value: "monochrome", label: "Grayscale" },
+            { value: "color", label: "Color" },
+          ],
+          lockChoice(),
+          (choice) => setLockView(choice),
+        ),
+      ),
+    );
   }
-  const select = document.createElement("select");
-  select.className = "refresh-select";
-  select.setAttribute("aria-label", "Refresh interval");
-  for (const seconds of refreshes) {
-    const option = document.createElement("option");
-    option.value = String(seconds);
-    option.textContent = refreshLabel(seconds);
-    select.append(option);
-  }
-  select.addEventListener("change", () => setView({ refreshSeconds: Number(select.value) }));
-
-  toolbar.append(segmented, select);
-  state.toolbar = { segmented, select };
-  syncToolbar();
-  return toolbar;
+  overlay.append(sheet);
+  document.body.append(overlay);
+  state.sheet = overlay;
+  document.addEventListener("keydown", settingsKeydown);
+  done.focus();
 }
 
-function syncToolbar() {
-  if (!state.toolbar) return;
-  for (const button of state.toolbar.segmented.children) {
-    const active = parseDuration(button.dataset.range) === state.rangeMs;
-    button.setAttribute("aria-checked", String(active));
+function settingsKeydown(event) {
+  if (event.key === "Escape") closeSettings();
+}
+
+function closeSettings() {
+  if (!state.sheet) return;
+  state.sheet.remove();
+  state.sheet = null;
+  document.removeEventListener("keydown", settingsKeydown);
+}
+
+/** Ask the shell to persist one launch option (C-007 `setOption`). */
+function persistOption(name, value) {
+  try {
+    bridge()?.setOption?.(name, String(value));
+  } catch {
+    // The browser has no shell; the choice still applies for this session.
   }
-  state.toolbar.select.value = String(state.intervalSeconds);
 }
 
 /** Apply an in-app range/refresh choice now and ask the shell to persist it. */
 function setView({ range = null, refreshSeconds = null }) {
   if (range !== null) {
     const ms = parseDuration(range);
-    if (!ms || ms === state.rangeMs) return;
+    if (!ms) return false;
+    if (ms === state.rangeMs) return true;
     state.rangeMs = ms;
     state.rangeText = range;
     state.config = { ...state.config, timeRange: range };
+    persistOption("time_range", range);
+    state.scheduler?.refresh("range");
   }
   if (refreshSeconds !== null) {
-    if (!Number.isInteger(refreshSeconds) || refreshSeconds === state.intervalSeconds) return;
+    if (!Number.isInteger(refreshSeconds)) return false;
+    if (refreshSeconds === state.intervalSeconds) return true;
     state.intervalSeconds = refreshSeconds;
     state.config = { ...state.config, refreshSeconds };
     state.scheduler?.setIntervalSeconds(refreshSeconds);
+    persistOption("refresh_seconds", refreshSeconds);
   }
-  syncToolbar();
-  try {
-    bridge()?.setView?.(state.rangeText, String(state.intervalSeconds));
-  } catch {
-    // The browser has no shell; the choice still applies for this session.
-  }
-  if (range !== null) state.scheduler?.refresh("range");
   updateStatus();
+  return true;
+}
+
+/** Switch between scroll and fit layout; the scroll variant keeps auto/grid/stack. */
+function setLayout(layout) {
+  const current = state.config.layoutMode === "fit" ? "fit" : "scroll";
+  if (layout === current) return true;
+  const next = layout === "fit" ? "fit" : state.scrollLayout || "auto";
+  if (state.config.layoutMode !== "fit") state.scrollLayout = state.config.layoutMode;
+  state.config = { ...state.config, layoutMode: next };
+  persistOption("layout_mode", next);
+  renderDashboard();
+  return true;
+}
+
+/** Lock-screen view: off, grayscale, or colour (C-007 + `lock_style`). */
+function setLockView(choice) {
+  const shell = lockSupport();
+  if (!shell) return false;
+  try {
+    if (choice === "off") {
+      shell.setLockScreen(false);
+    } else {
+      state.config = { ...state.config, lockStyle: choice };
+      persistOption("lock_style", choice);
+      shell.setLockScreen(true);
+      applyDisplayMode();
+    }
+    return shell.lockScreenEnabled() === (choice !== "off");
+  } catch {
+    showToast("Lock-screen view is unavailable");
+    return false;
+  }
 }
 
 function createPanel(item) {
@@ -660,6 +890,7 @@ function applyDataPanel(panelId, series, staleError = null) {
         warn: (code, message, _panelId, detail) => warn(code, message, panelId, detail),
         size: panelBodySize(body),
         timeWindow: state.panelWindows.get(panelId) || null,
+        fit: state.mode === "fit",
       });
       if (!content) throw new Error(`No renderer for ${panel.panelKind}`);
       const empty = content.dataset.empty === "true";
@@ -742,6 +973,10 @@ function applyPanelError(panelId, error) {
     applyDataPanel(panelId, previous, { code, message, detail });
     return;
   }
+  paintPanelError(panelId, { code, message, detail });
+}
+
+function paintPanelError(panelId, { code, message, detail }) {
   for (const section of panelElements(panelId)) {
     const body = section.querySelector(".panel-body");
     section.dataset.panelState = "error";
@@ -871,6 +1106,10 @@ async function runCycle({ reason }) {
   state.diagnostics.setPanels({ ...state.filtered.counts, errors: state.panelErrors.size });
   state.phase = "idle";
   state.currentAbort = null;
+  if (state.mode === "fit") {
+    const counts = fitItems().map((item) => `${item.item.panel.id}:${item.count}`).join(",");
+    if (counts !== state.fitCounts) scheduleRelayout();
+  }
   updateStatus();
   bridgeLog(
     failed === 0 ? "info" : "warn",
@@ -1231,8 +1470,16 @@ function installApi() {
     },
     setLocked(locked) {
       try {
-        state.locked = locked === true;
+        const next = locked === true;
+        if (next === state.locked) return;
+        const wasFit = fitActive();
+        state.locked = next;
         applyDisplayMode();
+        // The locked view has no controls: an open sheet must not survive it.
+        if (next) closeSettings();
+        if (fitActive() !== wasFit && state.dashboard && state.filtered && !state.fatal) {
+          renderDashboard();
+        }
       } catch {
         // API calls never throw to callers (C-009).
       }
@@ -1253,14 +1500,19 @@ function installApi() {
  * grayscale view (C-005/C-007) restyles everything without a re-render.
  */
 function applyDisplayMode() {
-  const mode = state.locked ? "monochrome" : state.config?.displayMode || "standard";
+  const lockMode = state.config?.lockStyle === "color" ? "amoled" : "monochrome";
+  const mode = state.locked ? lockMode : state.config?.displayMode || "standard";
   document.documentElement.dataset.displayMode = mode;
   document.documentElement.dataset.locked = String(state.locked);
 }
 
 function updateMode() {
-  if (!state.config) return;
-  const mode = resolveLayoutMode(state.config.layoutMode, window.innerWidth);
+  if (!state.config || !state.dashboard || !state.filtered) return;
+  if (state.mode === "fit") {
+    scheduleRelayout();
+    return;
+  }
+  const mode = scrollMode();
   if (mode === state.mode) return;
   state.mode = mode;
   app.dataset.layoutMode = mode;

@@ -2,7 +2,9 @@
 
 - **Version:** 1
 - **Status:** Accepted, 2026-10-26; amended 2026-10-27 (header status without a
-  countdown, `setLocked`; decision 0015)
+  countdown, `setLocked`; decision 0015); amended 2026-10-28
+  (`W_FIT_OVERFLOW`, settings action replaces the lock-screen toggle; decision
+  0017)
 - **Consumers:** Web renderer (W2), Android shell (W1)
 - **Machine-readable:** [`contracts/diagnostics.schema.json`](../../contracts/diagnostics.schema.json)
 - **Fixture:** [`diagnostics.example.json`](../../contracts/fixtures/diagnostics.example.json)
@@ -66,6 +68,7 @@ Warnings are non-fatal and recorded in diagnostics:
 | `W_GAUGES_TRUNCATED` | Gauge kept only the first N gauges |
 | `W_CALCULATION_UNKNOWN` | Unknown stat/gauge calculation; last-number used |
 | `W_UNIT_UNKNOWN` | Unknown formatting unit; raw value used |
+| `W_FIT_OVERFLOW` | Fit layout (C-005) cannot place every panel on one screen even at the minimum type scale; the grid scrolls. Detail: `<N> panels` |
 
 Do not invent ad-hoc codes. Add a contract update for a new code.
 
@@ -200,7 +203,8 @@ Warnings object same shape with W_* code.
 ## On-screen status
 
 One dashboard-wide status, always visible (release and debug), sits in the
-sticky header under the dashboard title (`.app-status`, `role="status"`,
+header with the dashboard title — under it in the sticky scroll-layout header,
+beside it on one line in the fit layout (C-005) (`.app-status`, `role="status"`,
 `aria-live="polite"`, `data-status` = state):
 
 - a dot: green `live`, amber `degraded`/`stale`, red `error`, gray `loading`;
@@ -219,10 +223,10 @@ sticky header under the dashboard title (`.app-status`, `role="status"`,
   status bar. The status is recomputed only when a cycle settles or the
   scheduler state changes. The next refresh time and hidden/error counts are in
   the debug overlay and the snapshot (`nextRefreshAt`, `panels`).
-- Header actions beside the status: refresh now (icon button), a lock-screen
-  toggle (only when the shell bridge exposes `lockScreenEnabled` and
-  `setLockScreen`, C-007), and diagnostics (only with `debug=true`). The locked
-  view hides the actions but keeps the status (C-005).
+- Header actions beside the status: refresh now (icon button), view settings
+  (icon button opening the settings sheet: time range, refresh, layout, and the
+  lock-screen view; C-005, C-006), and diagnostics (only with `debug=true`).
+  The locked view hides the actions but keeps the status (C-005).
 
 Rules:
 

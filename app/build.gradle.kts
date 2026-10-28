@@ -58,4 +58,6 @@ kotlin {
 
 dependencies {
     testImplementation("junit:junit:4.13.2")
+    // android.jar's org.json is a stub on the JVM; AppConfig persistence tests need the real one.
+    testImplementation("org.json:json:20260814")
 }
