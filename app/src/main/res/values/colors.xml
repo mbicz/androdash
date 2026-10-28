@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="androdash_background">#080B12</color>
+    <color name="androdash_panel">#111820</color>
+    <color name="androdash_text">#E7EEF6</color>
+    <color name="androdash_muted">#8B9BAD</color>
+    <color name="androdash_accent">#4CC9F0</color>
+    <color name="androdash_critical">#FF9A9A</color>
+</resources>

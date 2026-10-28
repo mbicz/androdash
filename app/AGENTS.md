@@ -23,12 +23,14 @@ read-only assets source.
 
 ## Current state
 
-M2 is planned. There is no Gradle project yet; `app/` contains only this file.
-Do not claim `assembleDebug` works until you create it and run it.
+M2 is implemented and verified on `emulator-5554`. The debug APK builds,
+installs, renders the demo and Spark dashboards, and applies kiosk, AMOLED,
+monochrome, and `show_when_locked` behavior. M3 remains: physical-phone testing,
+soak, and accessibility.
 
 ## Requirements
 
-- Application ID / package: `dev.androdash`.
+- Application ID / package: `com.mbicz.androdash`.
 - Manifest: `INTERNET` permission; `usesCleartextTraffic=true` (decision 0006);
   exported launcher activity for the kiosk intent. No other permissions in v1.
 - Kotlin, no AndroidX unless a decision entry accepts it.
@@ -54,7 +56,7 @@ Do not claim `assembleDebug` works until you create it and run it.
 ./gradlew :app:assembleDebug
 ./gradlew :app:testDebugUnitTest
 ./gradlew :app:installDebug
-adb shell am start -n dev.androdash/.MainActivity \
+adb shell am start -n com.mbicz.androdash/.MainActivity \
   --es dashboard_url "http://10.0.2.2:8099/contracts/fixtures/demo-dashboard.json" \
   --es prometheus_url "http://10.0.2.2:9091" \
   --ez debug true

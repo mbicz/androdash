@@ -1,0 +1,543 @@
+package com.mbicz.androdash
+
+import android.app.Activity
+import android.content.Intent
+import android.graphics.Color
+import android.graphics.Typeface
+import android.net.Uri
+import android.os.Build
+import android.os.Bundle
+import android.util.Log
+import android.view.Gravity
+import android.view.View
+import android.view.ViewGroup
+import android.view.WindowInsets
+import android.view.WindowInsetsController
+import android.view.WindowManager
+import android.webkit.CookieManager
+import android.webkit.JavascriptInterface
+import android.webkit.PermissionRequest
+import android.webkit.RenderProcessGoneDetail
+import android.webkit.WebChromeClient
+import android.webkit.WebResourceError
+import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
+import android.webkit.WebSettings
+import android.webkit.WebView
+import android.webkit.WebViewClient
+import android.widget.Button
+import android.widget.FrameLayout
+import android.widget.LinearLayout
+import android.widget.ScrollView
+import android.widget.TextView
+
+class MainActivity : Activity() {
+    private lateinit var configStore: ConfigStore
+    private lateinit var assetServer: AssetServer
+    private var config: AppConfig? = null
+    private var rendererUrl: String? = null
+    private var webView: WebView? = null
+    private var fatal = false
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        WebView.setWebContentsDebuggingEnabled(BuildConfig.DEBUG)
+        configStore = ConfigStore(this)
+        assetServer = AssetServer(assets)
+        applyIntent(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        applyIntent(intent)
+    }
+
+    private fun applyIntent(intent: Intent?) {
+        fatal = false
+        val extras = readExtras(intent)
+        val persisted = configStore.load()
+        try {
+            val parsed = ConfigParser.parse(extras, persisted)
+            config = parsed.config
+            rendererUrl = ConfigParser.launchUrl(parsed.config)
+            configStore.save(parsed.config)
+            logConfig(parsed.config, parsed.warnings)
+            setupWebView()
+            applyKiosk(parsed.config)
+            applyShowWhenLocked(parsed.showWhenLocked)
+            if (parsed.lockTask) attemptLockTask()
+        } catch (error: ConfigException) {
+            Log.w(TAG, "Configuration rejected: ${error.code}")
+            showFatal(error.code, error.message.orEmpty())
+        }
+    }
+
+    private fun readExtras(intent: Intent?): Map<String, String?> {
+        val bundle = intent?.extras ?: return emptyMap()
+        val values = LinkedHashMap<String, String?>()
+        for (key in bundle.keySet()) {
+            values[key] = bundle.get(key)?.toString()
+        }
+        return values
+    }
+
+    private fun setupWebView() {
+        val url = rendererUrl ?: return
+        webView?.let { old ->
+            (old.parent as? ViewGroup)?.removeView(old)
+            old.removeJavascriptInterface(BRIDGE_NAME)
+            old.destroy()
+        }
+
+        val web = WebView(this)
+        web.setBackgroundColor(displayBackground())
+        web.isVerticalScrollBarEnabled = false
+        web.isHorizontalScrollBarEnabled = false
+        web.overScrollMode = View.OVER_SCROLL_NEVER
+
+        web.settings.apply {
+            javaScriptEnabled = true
+            domStorageEnabled = false
+            databaseEnabled = false
+            setGeolocationEnabled(false)
+            mediaPlaybackRequiresUserGesture = true
+            allowFileAccess = false
+            allowContentAccess = false
+            @Suppress("DEPRECATION")
+            allowFileAccessFromFileURLs = false
+            @Suppress("DEPRECATION")
+            allowUniversalAccessFromFileURLs = false
+            mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
+            javaScriptCanOpenWindowsAutomatically = false
+            setSupportMultipleWindows(false)
+            setSupportZoom(false)
+            builtInZoomControls = false
+            displayZoomControls = false
+            cacheMode = WebSettings.LOAD_DEFAULT
+            textZoom = 100
+            setSafeBrowsingEnabled(true)
+        }
+
+        CookieManager.getInstance().apply {
+            setAcceptCookie(false)
+            setAcceptThirdPartyCookies(web, false)
+        }
+
+        web.addJavascriptInterface(Bridge(), BRIDGE_NAME)
+        web.webViewClient = createWebViewClient()
+        web.webChromeClient = object : WebChromeClient() {
+            override fun onCreateWindow(
+                view: WebView?,
+                isDialog: Boolean,
+                isUserGesture: Boolean,
+                resultMsg: android.os.Message?,
+            ): Boolean = false
+
+            override fun onPermissionRequest(request: PermissionRequest?) {
+                request?.deny()
+            }
+
+            override fun onShowFileChooser(
+                webView: WebView?,
+                filePathCallback: android.webkit.ValueCallback<Array<Uri>>?,
+                fileChooserParams: FileChooserParams?,
+            ): Boolean = false
+
+            override fun onConsoleMessage(message: android.webkit.ConsoleMessage?): Boolean {
+                message?.let {
+                    Log.d(TAG, "web: ${sanitize(it.message(), 240)}")
+                }
+                return true
+            }
+        }
+        web.setDownloadListener { _, _, _, _, _ ->
+            Log.w(TAG, "Blocked download")
+        }
+
+        webView = web
+        val root = FrameLayout(this).apply {
+            setBackgroundColor(displayBackground())
+            addView(
+                web,
+                FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                ),
+            )
+        }
+        setContentView(root)
+        web.loadUrl(url)
+        Log.i(TAG, "renderer loaded")
+    }
+
+    private fun createWebViewClient(): WebViewClient = object : WebViewClient() {
+        override fun shouldInterceptRequest(
+            view: WebView?,
+            request: WebResourceRequest?,
+        ): WebResourceResponse? {
+            if (request == null) return null
+            return assetServer.intercept(request)
+        }
+
+        override fun shouldOverrideUrlLoading(
+            view: WebView?,
+            request: WebResourceRequest?,
+        ): Boolean {
+            val uri = request?.url ?: return true
+            if (AssetServer.isLocal(uri)) return false
+            Log.w(TAG, "Blocked navigation to ${redactUrl(uri.toString())}")
+            return true
+        }
+
+        override fun onPageFinished(view: WebView?, url: String?) {
+            if (url != null && AssetServer.isLocal(Uri.parse(url))) {
+                Log.i(TAG, "renderer ready")
+            }
+        }
+
+        override fun onReceivedError(
+            view: WebView?,
+            request: WebResourceRequest?,
+            error: WebResourceError?,
+        ) {
+            val uri = request?.url ?: return
+            if (request.isForMainFrame && AssetServer.isLocal(uri)) {
+                Log.e(TAG, "local asset load failed: ${error?.errorCode}")
+                showFatal("E_ASSET_LOAD", "The bundled renderer could not be loaded")
+            }
+        }
+
+        override fun onReceivedHttpError(
+            view: WebView?,
+            request: WebResourceRequest?,
+            errorResponse: WebResourceResponse?,
+        ) {
+            val uri = request?.url ?: return
+            if (request.isForMainFrame && AssetServer.isLocal(uri)) {
+                Log.e(TAG, "local asset HTTP error: ${errorResponse?.statusCode}")
+                showFatal("E_ASSET_LOAD", "The bundled renderer returned HTTP ${errorResponse?.statusCode}")
+            }
+        }
+
+        override fun onRenderProcessGone(
+            view: WebView?,
+            detail: RenderProcessGoneDetail?,
+        ): Boolean {
+            Log.e(TAG, "renderer process gone (crashed=${detail?.didCrash()})")
+            val gone = view ?: return true
+            if (gone !== webView) return true
+            (gone.parent as? ViewGroup)?.removeView(gone)
+            gone.removeJavascriptInterface(BRIDGE_NAME)
+            gone.destroy()
+            webView = null
+            if (!fatal) {
+                runOnUiThread { setupWebView() }
+            }
+            return true
+        }
+    }
+
+    private fun applyKiosk(config: AppConfig) {
+        enterImmersive()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            window.attributes = window.attributes.apply {
+                layoutInDisplayCutoutMode =
+                    WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+            }
+        }
+        if (config.kiosk) {
+            Log.i(TAG, "kiosk enabled")
+        }
+    }
+
+    /**
+     * C-007 lock-screen display. This does not dismiss or bypass the keyguard;
+     * it only keeps the activity visible above it while the device is locked.
+     */
+    private fun applyShowWhenLocked(enabled: Boolean) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+            setShowWhenLocked(enabled)
+            setTurnScreenOn(enabled)
+        } else {
+            @Suppress("DEPRECATION")
+            if (enabled) {
+                window.addFlags(
+                    WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+                        WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON,
+                )
+            } else {
+                window.clearFlags(
+                    WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+                        WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON,
+                )
+            }
+        }
+        if (enabled) Log.i(TAG, "show over lock screen enabled")
+    }
+
+    private fun displayBackground(): Int =
+        if (config?.displayMode == "amoled" || config?.displayMode == "monochrome") {
+            Color.BLACK
+        } else {
+            BACKGROUND
+        }
+
+    private fun enterImmersive() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            window.setDecorFitsSystemWindows(false)
+            window.insetsController?.apply {
+                hide(WindowInsets.Type.systemBars())
+                systemBarsBehavior =
+                    WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            }
+        } else {
+            @Suppress("DEPRECATION")
+            window.decorView.systemUiVisibility = (
+                View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or
+                    View.SYSTEM_UI_FLAG_FULLSCREEN or
+                    View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
+                    View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or
+                    View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION or
+                    View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                )
+        }
+    }
+
+    private fun attemptLockTask() {
+        if (config?.kiosk != true) return
+        try {
+            startLockTask()
+            Log.i(TAG, "lock task requested")
+        } catch (error: Exception) {
+            Log.w(TAG, "lock task unavailable: ${error.javaClass.simpleName}")
+        }
+    }
+
+    @Deprecated("Deprecated in API 33; kept for pre-33 devices.")
+    override fun onBackPressed() {
+        if (config?.kiosk == true) {
+            Log.i(TAG, "back ignored in kiosk")
+            return
+        }
+        super.onBackPressed()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        webView?.onResume()
+        enterImmersive()
+    }
+
+    override fun onPause() {
+        webView?.onPause()
+        super.onPause()
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) enterImmersive()
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        rendererUrl?.let { outState.putString(STATE_URL, it) }
+    }
+
+    override fun onDestroy() {
+        if (isFinishing) {
+            webView?.let { web ->
+                web.removeJavascriptInterface(BRIDGE_NAME)
+                (web.parent as? ViewGroup)?.removeView(web)
+                web.loadUrl("about:blank")
+                web.destroy()
+            }
+            webView = null
+        }
+        super.onDestroy()
+    }
+
+    private fun showFatal(code: String, reason: String) {
+        fatal = true
+        webView?.let { web ->
+            web.removeJavascriptInterface(BRIDGE_NAME)
+            (web.parent as? ViewGroup)?.removeView(web)
+            web.destroy()
+        }
+        webView = null
+
+        val scroll = ScrollView(this).apply {
+            setBackgroundColor(displayBackground())
+            isFillViewport = true
+        }
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            setPadding(dp(28), dp(48), dp(28), dp(48))
+        }
+        val title = TextView(this).apply {
+            text = "AndroDash"
+            setTextColor(ACCENT)
+            textSize = 14f
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            letterSpacing = 0.08f
+        }
+        val heading = TextView(this).apply {
+            text = "Cannot start"
+            setTextColor(TEXT)
+            textSize = 28f
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            setPadding(0, dp(10), 0, dp(4))
+        }
+        val codeView = TextView(this).apply {
+            text = code
+            setTextColor(CRITICAL)
+            textSize = 12f
+            typeface = Typeface.MONOSPACE
+            setPadding(0, dp(6), 0, dp(8))
+        }
+        val reasonView = TextView(this).apply {
+            text = sanitize(reason, 500)
+            setTextColor(MUTED)
+            textSize = 14f
+            setLineSpacing(dp(2).toFloat(), 1f)
+        }
+        val commandView = TextView(this).apply {
+            text = COMMAND_SHAPE
+            setTextColor(ACCENT)
+            textSize = 11f
+            typeface = Typeface.MONOSPACE
+            setPadding(dp(12), dp(12), dp(12), dp(12))
+            setBackgroundColor(PANEL)
+            setTextIsSelectable(true)
+        }
+        val retry = Button(this).apply {
+            text = "Retry"
+            isAllCaps = false
+            setTextColor(TEXT)
+            setBackgroundColor(PANEL)
+            setOnClickListener { recreate() }
+        }
+        content.addView(
+            title,
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ),
+        )
+        content.addView(heading)
+        content.addView(codeView)
+        content.addView(
+            reasonView,
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ),
+        )
+        content.addView(
+            commandView,
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ).apply { topMargin = dp(20) },
+        )
+        content.addView(
+            retry,
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ).apply { topMargin = dp(16) },
+        )
+        scroll.addView(
+            content,
+            FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ),
+        )
+        setContentView(scroll)
+        enterImmersive()
+    }
+
+    private fun logConfig(config: AppConfig, warnings: List<String>) {
+        Log.i(
+            TAG,
+            "config dashboard=${redactUrl(config.dashboardUrl)} " +
+                "prometheus=${config.prometheusUrl?.let(::redactUrl) ?: "none"} " +
+                "kiosk=${config.kiosk} debug=${config.debug} display=${config.displayMode}",
+        )
+        warnings.forEach { Log.w(TAG, it) }
+    }
+
+    private fun redactUrl(raw: String): String = try {
+        val uri = Uri.parse(raw)
+        val path = uri.path.orEmpty()
+        val port = if (uri.port == -1) "" else ":${uri.port}"
+        "${uri.scheme}://${uri.host}$port$path"
+    } catch (_: Exception) {
+        "[invalid-url]"
+    }
+
+    private fun sanitize(value: String, limit: Int): String {
+        val cleaned = value.replace(Regex("[\\u0000-\\u001f]"), " ")
+        return if (cleaned.length > limit) "${cleaned.take(limit - 1)}…" else cleaned
+    }
+
+    private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
+
+    inner class Bridge {
+        @JavascriptInterface
+        fun platform(): String = "android"
+
+        @JavascriptInterface
+        fun appVersion(): String = BuildConfig.VERSION_NAME
+
+        @JavascriptInterface
+        fun reload() {
+            runOnUiThread {
+                rendererUrl?.let { webView?.loadUrl(it) }
+            }
+        }
+
+        @JavascriptInterface
+        fun exitKiosk() {
+            runOnUiThread {
+                try {
+                    stopLockTask()
+                } catch (_: Exception) {
+                    // Not pinned; immersive kiosk still exits.
+                }
+                finishAndRemoveTask()
+            }
+        }
+
+        @JavascriptInterface
+        fun log(level: String?, message: String?) {
+            val safeLevel = level?.lowercase()?.take(16) ?: "info"
+            val safeMessage = sanitize(message.orEmpty(), 300)
+            when (safeLevel) {
+                "error" -> Log.e(TAG, "renderer: $safeMessage")
+                "warn" -> Log.w(TAG, "renderer: $safeMessage")
+                "debug" -> Log.d(TAG, "renderer: $safeMessage")
+                else -> Log.i(TAG, "renderer: $safeMessage")
+            }
+        }
+    }
+
+    companion object {
+        private const val TAG = "AndroDash"
+        private const val BRIDGE_NAME = "AndroDash"
+        private const val STATE_URL = "renderer_url"
+        private val BACKGROUND = Color.rgb(8, 11, 18)
+        private val PANEL = Color.rgb(17, 24, 32)
+        private val TEXT = Color.rgb(231, 238, 246)
+        private val MUTED = Color.rgb(139, 155, 173)
+        private val ACCENT = Color.rgb(76, 201, 240)
+        private val CRITICAL = Color.rgb(255, 154, 154)
+        private const val COMMAND_SHAPE =
+            "adb shell am start -n com.mbicz.androdash/.MainActivity \\\n" +
+                "  --es dashboard_url \"https://example.com/dashboard.json\" \\\n" +
+                "  --es prometheus_url \"https://prometheus.example.com\""
+    }
+}

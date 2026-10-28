@@ -1,0 +1,33 @@
+[tools]
+node = "26"
+python = "3.14"
+java = "temurin-21"
+gradle = "8.14.3"
+
+[tasks.test]
+description = "Run renderer unit and contract tests"
+run = "node --test web/tests/"
+
+[tasks.test-tools]
+description = "Run mock/tooling integration tests"
+run = "python3 -m unittest discover -s tools -p 'test_*.py' -v"
+
+[tasks.test-android]
+description = "Run Android unit tests"
+run = "./gradlew :app:testDebugUnitTest"
+
+[tasks.build]
+description = "Build the debug APK"
+run = "./gradlew :app:assembleDebug"
+
+[tasks.docs]
+description = "Validate local documentation links"
+run = "python3 tools/check_docs.py"
+
+[tasks.mock]
+description = "Run the deterministic Prometheus mock"
+run = "python3 tools/mock_prometheus.py --port 9091"
+
+[tasks.serve]
+description = "Serve the repository for browser development"
+run = "python3 tools/serve_demo.py --port 8099"

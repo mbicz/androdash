@@ -8,6 +8,9 @@ app/build/
 *.dex
 *.class
 
+# The Gradle wrapper jar is source, not build output (global ignore has *.jar)
+!gradle/wrapper/gradle-wrapper.jar
+
 # Local Android configuration
 local.properties
 captures/
@@ -37,3 +40,6 @@ venv/
 *.keystore
 secrets.properties
 .env
+
+# Local mise overrides (Android SDK path)
+.mise.local.toml
