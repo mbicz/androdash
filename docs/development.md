@@ -118,6 +118,15 @@ gradle wrapper --gradle-version 8.14.3
 Use the version compatible with the chosen AGP; record upgrades in
 `changelog.d/`.
 
+The build bundles upstream Prometheus for the on-phone collector (decision
+0019). The first build downloads the pinned
+`prometheus-3.15.1.linux-arm64.tar.gz` (about 100 MB) into
+`~/.gradle/androdash-cache/` and verifies both SHA-256 pins; later and clean
+builds reuse the cache offline. The debug APK is about 58 MiB and arm64-only,
+and `app/build` grows to about 600 MB (three copies of the 136 MB binary in
+intermediates), so check free disk first. `adb install` on an x86_64 emulator
+relies on its ARM translation.
+
 ### Launch the demo on the emulator
 
 ```sh
@@ -189,6 +198,42 @@ adb shell am start -n com.mbicz.androdash/.MainActivity \
 ```
 
 Every `contracts/fixtures/*-dashboard.json` is bundled at build time.
+
+### Prometheus on the phone (collector)
+
+With `collector=true` the phone runs its own Prometheus (bundled in the APK)
+as a foreground service, scraping the LAN exporters directly, and the
+dashboard queries it on `127.0.0.1:19090`; no Prometheus on the Mac is needed
+(C-001 "On-phone collector", C-007 "Collector service", decision 0019). The
+exporter must listen on the LAN, e.g.
+`--web.listen-address=192.168.192.16:9100` in `node_exporter.args`:
+
+```sh
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+adb shell am start -n com.mbicz.androdash/.MainActivity \
+  --es dashboard_url "http://androdash.local/dashboards/macos-node-dashboard.json" \
+  --ez collector true \
+  --es collector_targets "node:mac=192.168.192.16:9100" \
+  --es layout_mode fit
+```
+
+- `collector_targets`: comma-separated `[job:]instance=host:port` or
+  `host:port` (job defaults to `node`, instance to `host:port`), up to 32.
+- `--ei collector_scrape_seconds 10` (5–300, default 15) and
+  `--es collector_retention 6h` (1h–30d, default `24h`).
+- History starts empty; charts fill as the phone scrapes.
+- The configured `prometheus_url` is kept and used again after
+  `--ez collector false`, which also stops the service.
+- The service holds a partial wake lock: keep the phone on a charger.
+
+Inspect it:
+
+```sh
+adb logcat -s AndroDash          # "collector starting: 1 targets ..."
+adb shell run-as com.mbicz.androdash cat files/collector/prometheus.yml
+adb shell run-as com.mbicz.androdash cat files/collector/prometheus.log
+adb forward tcp:19090 tcp:19090 && curl -s 'http://127.0.0.1:19090/api/v1/query?query=up'
+```
 
 Kiosk off for development:
 

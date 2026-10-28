@@ -143,6 +143,12 @@ from rows; empty rows are removed.
   but remain eligible; do not re-run capability filtering mid-cycle.
 - If a URL is unhealthy at boot, its panels are hidden with `probe_failed`.
   Markdown remains.
+- A URL that failed at boot is re-probed at the start of refresh cycles, at
+  most every 15 s; when it answers, the dashboard reloads (re-probe, re-filter,
+  rebuild) so the hidden panels appear without a manual reload. This covers a
+  phone that boots before Wi-Fi and an on-phone collector that is still
+  starting. Manual refresh mode (`refresh_seconds=0`) has no cycles and so no
+  retry.
 
 ## Hidden reasons
 

@@ -98,6 +98,7 @@ The native bridge exposes only:
 | `exitKiosk()` | Finish the activity / leave kiosk | no input; debug gating recommended |
 | `reload()` | Reload the local renderer | no input |
 | `log(level, message)` | Log to logcat | length-limited, redacted |
+| `collectorStatus()` | Read the on-phone collector state (decision 0019) | no input; in-memory, ≤ 4 KiB JSON |
 
 No file access, no arbitrary URL loading, no Intent launching, no clipboard, no
 network calls. Bridge methods must not throw on malformed input.
@@ -156,6 +157,10 @@ Do not add a global "ignore TLS errors" path to compensate for HTTPS misconfig.
   `changelog.d`.
 - Node is used only for tests, not shipped.
 - Do not add a web build step without a decision.
+- The one bundled native binary, upstream Prometheus (decision 0019), is
+  downloaded at build time and must match the tarball and binary SHA-256 pins
+  in `app/build.gradle.kts`; an upgrade changes the version and both pins in
+  one reviewed change.
 
 ## 4. Residual risks (accepted for v1)
 
@@ -170,6 +175,7 @@ Do not add a global "ignore TLS errors" path to compensate for HTTPS misconfig.
 | Dashboard source can change content | It is an external input | Escape/sanitize; size limits |
 | Dashboard source CORS `*` | Required for the virtual app origin (decision 0008) | Restrict at the host/proxy layer if possible |
 | Prometheus CORS `*` | Required for the virtual app origin | Restrict at the Prometheus/proxy layer if possible |
+| On-phone collector readable by other apps | Android does not isolate loopback ports per app (decision 0019) | Scrape only metrics that LAN exporters already serve openly; `collector=false` removes the listener |
 
 ## 5. Security checklist for every change
 

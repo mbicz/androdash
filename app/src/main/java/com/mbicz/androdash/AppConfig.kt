@@ -22,6 +22,12 @@ data class AppConfig(
     val dashboardName: String? = null,
     val capabilities: List<String>? = null,
     val showUnsupported: Boolean = false,
+    /** C-001 collector fields: native-only, never renderer query parameters (decision 0019). */
+    val collector: Boolean = false,
+    /** Canonical `collector_targets` (trimmed entries joined by `,`), or null when unset. */
+    val collectorTargets: String? = null,
+    val collectorScrapeSeconds: Int = DEFAULT_COLLECTOR_SCRAPE_SECONDS,
+    val collectorRetention: String = DEFAULT_COLLECTOR_RETENTION,
 ) {
     fun toJson(): String {
         val json = JSONObject()
@@ -45,10 +51,17 @@ data class AppConfig(
             } ?: JSONObject.NULL,
         )
         json.put("showUnsupported", showUnsupported)
+        json.put("collector", collector)
+        json.put("collectorTargets", collectorTargets ?: JSONObject.NULL)
+        json.put("collectorScrapeSeconds", collectorScrapeSeconds)
+        json.put("collectorRetention", collectorRetention)
         return json.toString()
     }
 
     companion object {
+        const val DEFAULT_COLLECTOR_SCRAPE_SECONDS = 15
+        const val DEFAULT_COLLECTOR_RETENTION = "24h"
+
         fun fromJson(raw: String?): AppConfig? {
             if (raw.isNullOrBlank()) return null
             return try {
@@ -78,6 +91,16 @@ data class AppConfig(
                     dashboardName = json.optNullableString("dashboardName"),
                     capabilities = capabilities,
                     showUnsupported = json.optBoolean("showUnsupported", false),
+                    collector = json.optBoolean("collector", false),
+                    collectorTargets = json.optNullableString("collectorTargets"),
+                    collectorScrapeSeconds = json.optInt(
+                        "collectorScrapeSeconds",
+                        DEFAULT_COLLECTOR_SCRAPE_SECONDS,
+                    ),
+                    collectorRetention = json.optString(
+                        "collectorRetention",
+                        DEFAULT_COLLECTOR_RETENTION,
+                    ),
                 )
             } catch (_: Exception) {
                 null

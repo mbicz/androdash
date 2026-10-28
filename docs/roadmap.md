@@ -108,6 +108,9 @@ passes; `:app:lintDebug` is part of the verification pass.
 - [ ] Accessibility pass (contrast, text size, chart summaries).
 - [x] On-device dashboards: bundled in the APK and a stored copy of a remote
   dashboard; live fetch is an option (decision 0018).
+- [ ] On-phone Prometheus collector (decision 0019): shell, packaging, and
+  contracts implemented with unit tests; on-device acceptance (C-007 item 12)
+  and soak pending.
 
 ### M4 — Capability-driven generation + auth
 

@@ -290,6 +290,11 @@ Variables are resolved **once at boot** (and on reload). There is no variable
 picker in v1. Values are used for query/datasource interpolation and for
 display titles (see [Display and metadata](#display-and-metadata)).
 
+A `PrometheusLabelValuesVariable` that resolves to `""` at boot (for example a
+just-started on-phone collector with no samples yet) is retried after refresh
+cycles, at most once a minute; when it gains a value the dashboard reloads so
+queries and titles use it (C-004 retries failed Prometheus probes the same way).
+
 | Kind | v1 resolution |
 |---|---|
 | `TextVariable` | `spec.value` if present, else `spec.defaultValue`, else `""`. |

@@ -224,6 +224,8 @@ session.
 | Time range | `5m` `15m` `1h` `6h` `24h` `7d` (+ the effective range) | `time_range`; refresh now (C-006) |
 | Refresh | `Off` `5s` `10s` `30s` `1m` `5m` (+ the effective interval) | `refresh_seconds`; reschedule (C-006) |
 | Layout | Scroll \| Fit to screen | `layout_mode`: `fit`, or back to the scroll mode used before (`auto` if none); the page is rebuilt at once |
+| Dashboard | Saved on phone \| Live from URL; "Update from URL" | Only when the bridge exposes `storeDashboard` (C-002 "Dashboard sources"). `dashboard_source` `stored`/`url`, then reload; the update re-fetches `dashboard_url` and replaces the stored copy only if it normalizes. A bundled dashboard shows "Built into the app". |
+| Collector | read-only | Only when C-007 `collectorStatus()` reports `enabled`. Shows whether the on-phone Prometheus runs (and restart count or last exit), and one row per scrape target coloured by its `up` value from an instant query to the collector (`unknown` until it answers). |
 | On the lock screen | Off \| Grayscale \| Color | Only when the bridge exposes `lockScreenEnabled` and `setLockScreen` (C-007). Off → `setLockScreen(false)`; Grayscale/Color → `lock_style` `monochrome`/`color`, then `setLockScreen(true)`. Shows Off while `lockScreenEnabled()` is false, else the current `lock_style`. |
 
 ## Common data semantics

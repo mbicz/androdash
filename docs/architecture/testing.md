@@ -168,6 +168,18 @@ before asserting where order is not contractual.
   stays off, manual wake returns to locked-lit, a late screen-on counts as a
   wake, unlock resets, and no re-light when another app is in the foreground
   or the keyguard is not engaged.
+- `CollectorConfigTest` — the on-phone collector (decision 0019):
+  `collector_targets` grammar and limits (DNS/IPv4/bracketed IPv6 hosts,
+  ports, names, 32 entries, duplicates), canonical form, deterministic
+  `prometheus.yml`, loopback-only Prometheus arguments, retention durations.
+  `ConfigParserTest` covers the `collector*` extras, persistence, and the
+  `prometheus_url` substitution.
+- `RestartPolicyTest` — collector backoff 1, 2, 4, … 60 s and the 10 min
+  healthy reset.
+- `CollectorStatusTest` — `collectorStatus()` JSON shape and the 4 KiB bound.
+
+`DashboardStoreTest` and `AssetServerRouteTest` cover the stored dashboard and
+the virtual-origin routes.
 
 Use plain JUnit 4 (no AndroidX test runner) for pure Kotlin classes. Activity,
 WebView, and kiosk behavior are verified manually on the emulator for v1.

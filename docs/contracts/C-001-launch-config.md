@@ -1,8 +1,8 @@
 # C-001 — Launch configuration
 
-- **Version:** 4
+- **Version:** 5
 - **Status:** Accepted, 2026-10-28 (v4: `dashboard_source`, bundled and stored
-  dashboards, decision 0018)
+  dashboards, decision 0018; v5: on-phone collector fields, decision 0019)
 - **Consumers:** Android shell (W1), web renderer config (W2)
 - **Machine-readable:** [`contracts/app-config.schema.json`](../../contracts/app-config.schema.json)
 - **Fixtures:** [`app-config.example.json`](../../contracts/fixtures/app-config.example.json)
@@ -54,6 +54,10 @@ This is deliberate: one name per concept, easy to debug with `adb`.
 | `dashboard_name` | string | `null` | Selects a dashboard when the URL returns an array (C-002). Must be non-empty when set. |
 | `capabilities` | string | `null` | Comma-separated capability IDs; when present, authoritative for filtering (C-004). 1–16 entries after deduplication. |
 | `show_unsupported` | boolean | `false` | Render explicit placeholders for hidden panels instead of removing them. |
+| `collector` | boolean | `false` | Run the bundled Prometheus on the phone ([On-phone collector](#on-phone-collector), C-007). When `true` the shell passes `prometheus_url=http://127.0.0.1:19090` to the renderer instead of the configured `prometheus_url`. Native-only. Added in v5. |
+| `collector_targets` | string | `null` | Comma-separated scrape targets, `[job:]instance=host:port` or `host:port`; 1–32 entries. **Required** (non-empty) when `collector=true`. Native-only. Added in v5. |
+| `collector_scrape_seconds` | integer | `15` | Collector scrape interval, `5–300`. Native-only. Added in v5. |
+| `collector_retention` | string | `24h` | Collector TSDB retention; duration grammar as `time_range`, range `1h…30d`. Native-only. Added in v5. |
 
 Intent extras use `--es` (string), `--ei` (int), `--ez` (boolean) with `adb`.
 
@@ -64,6 +68,10 @@ its own boolean preference (not inside `launch_config`), can be toggled at
 runtime with `AndroDash.setLockScreen()`, and while true the shell tells the
 renderer the locked state through `window.androdash.setLocked()` (C-007,
 decision 0016).
+
+The four `collector*` fields are native-only too: they are part of `AppConfig`
+(persisted in `launch_config`) but never renderer query parameters. Their only
+effect on the wire is the substituted `prometheus_url` while `collector=true`.
 
 ## Canonical object
 
@@ -83,7 +91,11 @@ decision 0016).
   "dashboardSource": "stored",
   "dashboardName": null,
   "capabilities": null,
-  "showUnsupported": false
+  "showUnsupported": false,
+  "collector": false,
+  "collectorTargets": null,
+  "collectorScrapeSeconds": 15,
+  "collectorRetention": "24h"
 }
 ```
 
@@ -104,6 +116,45 @@ for types and constraints; this table is normative for semantics.
 - `dashboardSource` always resolves to `stored` or `url`; it is omitted only by
   pre-v4 persisted objects, which default to `stored`. Additive; `schemaVersion`
   stays `1`.
+- `collector`, `collectorScrapeSeconds`, and `collectorRetention` always
+  resolve to a value; `collectorTargets` is `null` when unset and must be a
+  string when `collector` is `true`. Pre-v5 persisted objects without them
+  default to `false`, `null`, `15`, and `24h`. Additive; `schemaVersion` stays
+  `1`.
+
+## On-phone collector
+
+Decision 0019. With `collector=true` the shell runs the Prometheus binary
+bundled in the APK as a foreground service (C-007) that scrapes the
+configured targets and listens on `127.0.0.1:19090` only. The renderer is
+launched with `prometheus_url=http://127.0.0.1:19090`; the configured
+`prometheus_url` stays persisted and returns when `collector=false`.
+Dashboards need no change: their queries run against the phone's own
+Prometheus.
+
+`collector_targets` grammar (after trimming each entry; blank entries are
+skipped):
+
+| Form | `job` | `instance` |
+|---|---|---|
+| `host:port` | `node` | `host:port` |
+| `instance=host:port` | `node` | `instance` |
+| `job:instance=host:port` | `job` | `instance` |
+
+- `job` and an explicit `instance` match `[A-Za-z0-9_.-]{1,64}`.
+- `host` is a DNS name (labels `[A-Za-z0-9-]`, ≤ 63 characters, no leading or
+  trailing `-`, ≤ 253 total), a dotted IPv4 address, or a bracketed IPv6
+  address (`[fd00::1]`, no zone ID).
+- `port` is `1–65535` without leading zeros.
+- At most 32 entries; one `job` + `instance` pair may appear once.
+- The persisted canonical form is the entries joined by `,`, each written as
+  `host:port` when it uses both defaults and as `job:instance=host:port`
+  otherwise.
+
+The shell builds `prometheus.yml` only from these validated fields (C-008): a
+global `scrape_interval` of `collector_scrape_seconds` and one scrape job per
+distinct `job`, each target with an `instance` label. The renderer is unaware
+of the collector except through `AndroDash.collectorStatus()` (C-007).
 
 ## Dashboard source
 
@@ -170,6 +221,13 @@ An implementation MUST reject:
 - `display_mode` outside the enum;
 - `lock_style` outside the enum;
 - `dashboard_source` outside the enum;
+- `collector` that is not a boolean;
+- `collector=true` without a non-empty `collector_targets` (explicit or
+  persisted);
+- `collector_targets` violating the [grammar](#on-phone-collector) or holding
+  more than 32 entries;
+- `collector_scrape_seconds` that is not an integer in `5–300`;
+- `collector_retention` that is not a supported duration or outside `1h…30d`;
 - an explicit empty `capabilities` list in the canonical object (an empty wire
   value is unset);
 - more than 16 capability IDs after deduplication, or IDs not matching
@@ -216,6 +274,9 @@ The native shell shows `E_CONFIG` on its fatal screen. The renderer shows an
   the same rules as the launch extra of that name, persists the updated
   `AppConfig`, and rebuilds the local URL.
 - Log the result with redacted URLs only.
+- With `collector=true`, build the local URL with
+  `prometheus_url=http://127.0.0.1:19090`, log that substitution, and start the
+  collector service before loading the renderer (C-007).
 - If the local asset fails to load, show the native fatal screen.
 
 ## Renderer behavior
@@ -257,7 +318,13 @@ The native shell shows `E_CONFIG` on its fatal screen. The renderer shows an
 - a bundled `http://androdash.local/dashboards/<file>.json` `dashboard_url` is
   valid;
 - local URL encoding and parameter names match the renderer parser;
-- `setOption` for every allowed name, invalid values, and unknown names.
+- `setOption` for every allowed name, invalid values, and unknown names;
+- collector defaults, extras, persistence, the `prometheus_url` substitution
+  (and its reversal with `collector=false`), the targets requirement, and
+  limits.
+
+`CollectorConfigTest.kt` covers the `collector_targets` grammar, the
+`prometheus.yml` text, and the Prometheus arguments.
 
 `DashboardStoreTest.kt` and `AssetServerRouteTest.kt` cover the stored copy
 (C-007) and the `/dashboards/` and `/stored/` routes (C-008).

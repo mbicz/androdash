@@ -490,6 +490,127 @@ class ConfigParserTest {
         assertEquals(parsed.config, ConfigParser.decodePersisted(parsed.config.toJson()))
     }
 
+    @Test
+    fun `collector defaults are off, 15 s, 24h`() {
+        val config = ConfigParser.parse(extras("dashboard_url" to dashboard)).config
+        assertFalse(config.collector)
+        assertNull(config.collectorTargets)
+        assertEquals(15, config.collectorScrapeSeconds)
+        assertEquals("24h", config.collectorRetention)
+    }
+
+    @Test
+    fun `collector extras parse, persist, and stay out of the query except prometheus_url`() {
+        val parsed = ConfigParser.parse(
+            extras(
+                "dashboard_url" to dashboard,
+                "prometheus_url" to "http://192.168.192.16:9090",
+                "collector" to "true",
+                "collector_targets" to " node:mac=192.168.192.16:9100 , 10.0.0.5:9100 ",
+                "collector_scrape_seconds" to "10",
+                "collector_retention" to "6h",
+            ),
+        )
+        val config = parsed.config
+        assertTrue(config.collector)
+        assertEquals("node:mac=192.168.192.16:9100,10.0.0.5:9100", config.collectorTargets)
+        assertEquals(10, config.collectorScrapeSeconds)
+        assertEquals("6h", config.collectorRetention)
+        assertEquals("http://192.168.192.16:9090", config.prometheusUrl)
+
+        val query = ConfigParser.launchUrl(config).substringAfter("?")
+        val parameters = query.split("&").associate { part ->
+            val (name, value) = part.split("=", limit = 2)
+            name to URLDecoder.decode(value, "UTF-8")
+        }
+        assertEquals("http://127.0.0.1:19090", parameters["prometheus_url"])
+        assertFalse(parameters.keys.any { it.startsWith("collector") })
+
+        val json = JSONObject(config.toJson())
+        assertTrue(json.getBoolean("collector"))
+        assertEquals("node:mac=192.168.192.16:9100,10.0.0.5:9100", json.getString("collectorTargets"))
+        assertEquals(10, json.getInt("collectorScrapeSeconds"))
+        assertEquals("6h", json.getString("collectorRetention"))
+        assertEquals(config, ConfigParser.decodePersisted(config.toJson()))
+    }
+
+    @Test
+    fun `collector off restores the configured prometheus_url and keeps the targets`() {
+        val on = ConfigParser.parse(
+            extras(
+                "dashboard_url" to dashboard,
+                "prometheus_url" to "http://192.168.192.16:9090",
+                "collector" to "true",
+                "collector_targets" to "a.lan:9100",
+            ),
+        ).config
+        val off = ConfigParser.parse(extras("collector" to "false"), on).config
+        assertFalse(off.collector)
+        assertEquals("a.lan:9100", off.collectorTargets)
+        assertTrue(ConfigParser.launchUrl(off).contains("prometheus_url=http%3A%2F%2F192.168.192.16%3A9090"))
+
+        val again = ConfigParser.parse(extras("collector" to "true", "collector_targets" to ""), off).config
+        assertTrue(again.collector)
+        assertEquals("a.lan:9100", again.collectorTargets)
+    }
+
+    @Test
+    fun `collector without targets is E_CONFIG`() {
+        assertFails { ConfigParser.parse(extras("dashboard_url" to dashboard, "collector" to "true")) }
+        assertFails {
+            ConfigParser.parse(extras("dashboard_url" to dashboard, "collector" to "true", "collector_targets" to " "))
+        }
+        assertFails {
+            ConfigParser.parse(extras("dashboard_url" to dashboard, "collector" to "true", "collector_targets" to ",,"))
+        }
+    }
+
+    @Test
+    fun `collector field limits are E_CONFIG`() {
+        fun launch(vararg values: Pair<String, String?>) =
+            ConfigParser.parse(extras("dashboard_url" to dashboard, *values))
+        assertEquals(5, launch("collector_scrape_seconds" to "5").config.collectorScrapeSeconds)
+        assertEquals(300, launch("collector_scrape_seconds" to "300").config.collectorScrapeSeconds)
+        assertEquals("1h", launch("collector_retention" to "1h").config.collectorRetention)
+        assertEquals("30d", launch("collector_retention" to "30d").config.collectorRetention)
+        assertEquals("1h30m", launch("collector_retention" to "1h30m").config.collectorRetention)
+        assertFails { launch("collector_scrape_seconds" to "4") }
+        assertFails { launch("collector_scrape_seconds" to "301") }
+        assertFails { launch("collector_scrape_seconds" to "15s") }
+        assertFails { launch("collector_retention" to "59m") }
+        assertFails { launch("collector_retention" to "31d") }
+        assertFails { launch("collector_retention" to "24") }
+        assertFails { launch("collector" to "yes") }
+        assertFails { launch("collector_targets" to "host") }
+        assertFails { launch("collector_targets" to (1..33).joinToString(",") { "h$it:9100" }) }
+    }
+
+    @Test
+    fun `persisted collector fields are validated and default when absent`() {
+        val config = AppConfig(
+            dashboardUrl = dashboard,
+            collector = true,
+            collectorTargets = "a.lan:9100",
+        )
+        val legacy = JSONObject(AppConfig(dashboardUrl = dashboard).toJson()).apply {
+            remove("collector")
+            remove("collectorTargets")
+            remove("collectorScrapeSeconds")
+            remove("collectorRetention")
+        }.toString()
+        assertEquals(AppConfig(dashboardUrl = dashboard), ConfigParser.decodePersisted(legacy))
+        listOf(
+            "collectorTargets" to "bad",
+            "collectorScrapeSeconds" to 1,
+            "collectorRetention" to "10m",
+        ).forEach { (key, value) ->
+            assertNull(ConfigParser.decodePersisted(JSONObject(config.toJson()).put(key, value).toString()))
+        }
+        assertNull(
+            ConfigParser.decodePersisted(JSONObject(config.toJson()).put("collectorTargets", JSONObject.NULL).toString()),
+        )
+    }
+
     private fun assertFails(block: () -> Unit) {
         try {
             block()
