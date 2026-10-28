@@ -283,6 +283,66 @@ class ConfigParserTest {
         assertNull(parsed.config.capabilities)
     }
 
+    @Test
+    fun `show when locked falls back to the persisted preference`() {
+        val restored = ConfigParser.parse(extras(), AppConfig(dashboardUrl = dashboard), persistedShowWhenLocked = true)
+        assertTrue(restored.showWhenLocked)
+        assertTrue(restored.showWhenLockedPreference)
+
+        val overridden = ConfigParser.parse(
+            extras("show_when_locked" to "false"),
+            AppConfig(dashboardUrl = dashboard),
+            persistedShowWhenLocked = true,
+        )
+        assertFalse(overridden.showWhenLocked)
+        assertFalse(overridden.showWhenLockedPreference)
+
+        val dev = ConfigParser.parse(
+            extras("kiosk" to "false"),
+            AppConfig(dashboardUrl = dashboard),
+            persistedShowWhenLocked = true,
+        )
+        assertFalse(dev.showWhenLocked)
+        assertTrue(dev.showWhenLockedPreference)
+
+        assertFalse(ConfigParser.parse(extras("dashboard_url" to dashboard)).showWhenLockedPreference)
+    }
+
+    @Test
+    fun `setView applies validated time range and refresh`() {
+        val base = AppConfig(dashboardUrl = dashboard, refreshSeconds = 30, timeRange = "1h")
+
+        val range = ConfigParser.applyView(base, "15m", null)
+        assertEquals("15m", range.config.timeRange)
+        assertEquals(30, range.config.refreshSeconds)
+
+        val both = ConfigParser.applyView(base, " 7d ", "0")
+        assertEquals("7d", both.config.timeRange)
+        assertEquals(0, both.config.refreshSeconds)
+
+        val refresh = ConfigParser.applyView(base, "", "3600")
+        assertEquals("1h", refresh.config.timeRange)
+        assertEquals(3600, refresh.config.refreshSeconds)
+        assertTrue(ConfigParser.launchUrl(refresh.config).contains("refresh_seconds=3600"))
+
+        val clamped = ConfigParser.applyView(base, null, "3")
+        assertEquals(5, clamped.config.refreshSeconds)
+        assertTrue(clamped.warnings.single().startsWith("W_REFRESH_CLAMPED"))
+    }
+
+    @Test
+    fun `setView rejects invalid input`() {
+        val base = AppConfig(dashboardUrl = dashboard)
+        assertFails { ConfigParser.applyView(base, null, null) }
+        assertFails { ConfigParser.applyView(base, " ", "") }
+        assertFails { ConfigParser.applyView(base, "31d", null) }
+        assertFails { ConfigParser.applyView(base, "15 minutes", null) }
+        assertFails { ConfigParser.applyView(base, "1h".repeat(20), null) }
+        assertFails { ConfigParser.applyView(base, null, "3601") }
+        assertFails { ConfigParser.applyView(base, null, "-1") }
+        assertFails { ConfigParser.applyView(base, null, "fast") }
+    }
+
     private fun assertFails(block: () -> Unit) {
         try {
             block()

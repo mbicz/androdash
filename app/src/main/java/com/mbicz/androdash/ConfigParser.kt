@@ -9,10 +9,22 @@ class ConfigException(
     message: String,
 ) : IllegalArgumentException(message)
 
+/**
+ * [showWhenLockedPreference] is the operator's persisted choice (the extra,
+ * else the stored value); [showWhenLocked] is the effective value, gated by
+ * `kiosk` (C-007).
+ */
 data class ParsedLaunch(
     val config: AppConfig,
     val lockTask: Boolean,
     val showWhenLocked: Boolean,
+    val showWhenLockedPreference: Boolean,
+    val warnings: List<String>,
+)
+
+/** Result of a renderer `AndroDash.setView` request (C-007). */
+data class ViewUpdate(
+    val config: AppConfig,
     val warnings: List<String>,
 )
 
@@ -34,10 +46,15 @@ object ConfigParser {
     private val CAPABILITY = Regex("^[a-z0-9][a-z0-9_-]*$")
     private val LAYOUTS = setOf("auto", "grid", "stack")
     private val DISPLAY_MODES = setOf("standard", "amoled", "monochrome")
+    private const val MAX_VIEW_INPUT = 32
     private val INTEGER = Regex("^-?\\d+$")
     private val DURATION_PART = Regex("(\\d+)(ms|s|m|h|d|w)")
 
-    fun parse(extras: Map<String, String?>, persisted: AppConfig? = null): ParsedLaunch {
+    fun parse(
+        extras: Map<String, String?>,
+        persisted: AppConfig? = null,
+        persistedShowWhenLocked: Boolean = false,
+    ): ParsedLaunch {
         val warnings = ArrayList<String>()
         val base = persisted
 
@@ -62,18 +79,7 @@ object ConfigParser {
         val refreshSeconds = when {
             !extras.containsKey("refresh_seconds") -> base?.refreshSeconds
             extras["refresh_seconds"].isNullOrBlank() -> base?.refreshSeconds
-            else -> {
-                val value = parseInteger(extras.getValue("refresh_seconds")!!, "refresh_seconds")
-                if (value < 0 || value > MAX_REFRESH) {
-                    throw ConfigException("E_CONFIG", "refresh_seconds must be between 0 and $MAX_REFRESH")
-                }
-                if (value in 1..4) {
-                    warnings.add("W_REFRESH_CLAMPED: refresh_seconds raised to 5")
-                    5
-                } else {
-                    value
-                }
-            }
+            else -> parseRefresh(extras.getValue("refresh_seconds")!!, warnings)
         }
 
         val timeRange = when {
@@ -166,19 +172,43 @@ object ConfigParser {
             showUnsupported = showUnsupported,
         )
         validateConfig(config)
-        val query = buildQuery(config)
-        if (query.length > MAX_QUERY) {
-            throw ConfigException("E_CONFIG", "Launch query string exceeds $MAX_QUERY characters")
-        }
+        validateQueryLength(config)
 
         val requestedLockTask = parseBoolean(extras, "lock_task", false)
-        val requestedShowWhenLocked = parseBoolean(extras, "show_when_locked", false)
+        val showWhenLockedPreference =
+            parseBoolean(extras, "show_when_locked", persistedShowWhenLocked)
         return ParsedLaunch(
             config = config,
             lockTask = kiosk && requestedLockTask,
-            showWhenLocked = kiosk && requestedShowWhenLocked,
+            showWhenLocked = kiosk && showWhenLockedPreference,
+            showWhenLockedPreference = showWhenLockedPreference,
             warnings = warnings,
         )
+    }
+
+    /**
+     * Apply a renderer view choice (C-007 `AndroDash.setView`) to the current
+     * config with the same rules as the launch extras. A null or blank value
+     * leaves that field unchanged; at least one value is required.
+     */
+    fun applyView(config: AppConfig, timeRange: String?, refreshSeconds: String?): ViewUpdate {
+        val range = timeRange?.trim()?.takeIf { it.isNotEmpty() }
+        val refresh = refreshSeconds?.trim()?.takeIf { it.isNotEmpty() }
+        if (range == null && refresh == null) {
+            throw ConfigException("E_CONFIG", "setView needs time_range or refresh_seconds")
+        }
+        if ((range?.length ?: 0) > MAX_VIEW_INPUT || (refresh?.length ?: 0) > MAX_VIEW_INPUT) {
+            throw ConfigException("E_CONFIG", "setView values must be at most $MAX_VIEW_INPUT characters")
+        }
+        val warnings = ArrayList<String>()
+        range?.let { validateDuration(it) }
+        val updated = config.copy(
+            timeRange = range ?: config.timeRange,
+            refreshSeconds = refresh?.let { parseRefresh(it, warnings) } ?: config.refreshSeconds,
+        )
+        validateConfig(updated)
+        validateQueryLength(updated)
+        return ViewUpdate(updated, warnings)
     }
 
     fun decodePersisted(raw: String?): AppConfig? {
@@ -288,6 +318,25 @@ object ConfigParser {
             "true" -> true
             "false" -> false
             else -> throw ConfigException("E_CONFIG", "$name must be true or false")
+        }
+    }
+
+    /** `0` = manual, `1–4` clamps to `5` with `W_REFRESH_CLAMPED`, max [MAX_REFRESH] (C-001). */
+    private fun parseRefresh(value: String, warnings: MutableList<String>): Int {
+        val parsed = parseInteger(value, "refresh_seconds")
+        if (parsed < 0 || parsed > MAX_REFRESH) {
+            throw ConfigException("E_CONFIG", "refresh_seconds must be between 0 and $MAX_REFRESH")
+        }
+        if (parsed in 1..4) {
+            warnings.add("W_REFRESH_CLAMPED: refresh_seconds raised to 5")
+            return 5
+        }
+        return parsed
+    }
+
+    private fun validateQueryLength(config: AppConfig) {
+        if (buildQuery(config).length > MAX_QUERY) {
+            throw ConfigException("E_CONFIG", "Launch query string exceeds $MAX_QUERY characters")
         }
     }
 

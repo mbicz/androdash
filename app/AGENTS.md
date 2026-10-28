@@ -32,7 +32,8 @@ soak, and accessibility.
 
 - Application ID / package: `com.mbicz.androdash`.
 - Manifest: `INTERNET` permission; `usesCleartextTraffic=true` (decision 0006);
-  exported launcher activity for the kiosk intent. No other permissions in v1.
+  `WAKE_LOCK` for the lock-screen re-light (decision 0016); exported launcher
+  activity for the kiosk intent. No other permissions in v1.
 - Kotlin, no AndroidX unless a decision entry accepts it.
 - `minSdk 26`, `compileSdk 35`, `targetSdk 35`, JDK 17 target.
 - Gradle wrapper checked in; use a Gradle/AGP/Kotlin combination that actually

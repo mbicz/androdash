@@ -1,12 +1,20 @@
 package com.mbicz.androdash
 
 import android.app.Activity
+import android.app.KeyguardManager
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.graphics.Color
 import android.graphics.Typeface
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.os.PowerManager
+import android.os.SystemClock
 import android.util.Log
 import android.view.Gravity
 import android.view.View
@@ -39,6 +47,19 @@ class MainActivity : Activity() {
     private var webView: WebView? = null
     private var fatal = false
 
+    /** Effective `show_when_locked` (C-007); read by the bridge thread. */
+    @Volatile
+    private var showWhenLocked = false
+    private var lockReceiver: BroadcastReceiver? = null
+    private val relightPolicy = LockRelightPolicy()
+    private var relightWakeLock: PowerManager.WakeLock? = null
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private val relightCheck = Runnable { decideRelight() }
+
+    /** False once the user leaves the dashboard for another app while the display is on. */
+    private var dashboardForeground = false
+    private var lockedDim = false
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -59,10 +80,11 @@ class MainActivity : Activity() {
         val extras = readExtras(intent)
         val persisted = configStore.load()
         try {
-            val parsed = ConfigParser.parse(extras, persisted)
+            val parsed = ConfigParser.parse(extras, persisted, configStore.loadShowWhenLocked())
             config = parsed.config
             rendererUrl = ConfigParser.launchUrl(parsed.config)
             configStore.save(parsed.config)
+            configStore.saveShowWhenLocked(parsed.showWhenLockedPreference)
             logConfig(parsed.config, parsed.warnings)
             setupWebView()
             applyKiosk(parsed.config)
@@ -194,6 +216,8 @@ class MainActivity : Activity() {
         override fun onPageFinished(view: WebView?, url: String?) {
             if (url != null && AssetServer.isLocal(Uri.parse(url))) {
                 Log.i(TAG, "renderer ready")
+                // A cold start (or reload) on the lock screen must start grayscale.
+                if (view === webView && showWhenLocked) showLocked(isKeyguardLocked())
             }
         }
 
@@ -254,27 +278,172 @@ class MainActivity : Activity() {
 
     /**
      * C-007 lock-screen display. This does not dismiss or bypass the keyguard;
-     * it only keeps the activity visible above it while the device is locked.
+     * it only keeps the activity visible above it while the device is locked,
+     * dims and grays it there (decision 0016), and re-lights the display once
+     * after the first power press.
      */
     private fun applyShowWhenLocked(enabled: Boolean) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
-            setShowWhenLocked(enabled)
-            setTurnScreenOn(enabled)
-        } else {
-            @Suppress("DEPRECATION")
-            if (enabled) {
-                window.addFlags(
-                    WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
-                        WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON,
-                )
+        val wasEnabled = showWhenLocked
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+                setShowWhenLocked(enabled)
+                setTurnScreenOn(enabled)
             } else {
-                window.clearFlags(
-                    WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
-                        WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON,
-                )
+                @Suppress("DEPRECATION")
+                if (enabled) {
+                    window.addFlags(
+                        WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+                            WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON,
+                    )
+                } else {
+                    window.clearFlags(
+                        WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+                            WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON,
+                    )
+                }
+            }
+        } catch (error: Exception) {
+            Log.w(TAG, "lock-screen display unavailable: ${error.javaClass.simpleName}")
+            if (enabled) return
+        }
+        showWhenLocked = enabled
+        if (enabled) {
+            registerLockReceiver()
+            showLocked(isKeyguardLocked())
+            Log.i(TAG, "show over lock screen enabled")
+        } else {
+            mainHandler.removeCallbacks(relightCheck)
+            unregisterLockReceiver()
+            releaseRelight()
+            relightPolicy.onUnlocked()
+            if (wasEnabled) {
+                showLocked(false)
+                Log.i(TAG, "show over lock screen disabled")
             }
         }
-        if (enabled) Log.i(TAG, "show over lock screen enabled")
+    }
+
+    private fun isKeyguardLocked(): Boolean =
+        getSystemService(KeyguardManager::class.java)?.isKeyguardLocked == true
+
+    /**
+     * Dim the window and tell the renderer it is on the lock screen (grayscale),
+     * or restore system brightness and colour. The scripts are fixed constants
+     * (C-008); no input reaches evaluateJavascript.
+     */
+    private fun showLocked(locked: Boolean) {
+        if (lockedDim != locked) {
+            lockedDim = locked
+            window.attributes = window.attributes.apply {
+                screenBrightness = if (locked) {
+                    LOCKED_BRIGHTNESS
+                } else {
+                    WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
+                }
+            }
+        }
+        webView?.evaluateJavascript(if (locked) JS_SET_LOCKED_TRUE else JS_SET_LOCKED_FALSE, null)
+    }
+
+    private fun registerLockReceiver() {
+        if (lockReceiver != null) return
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context?, intent: Intent?) {
+                when (intent?.action) {
+                    Intent.ACTION_SCREEN_OFF -> onScreenOff()
+                    Intent.ACTION_SCREEN_ON -> onScreenOn()
+                    Intent.ACTION_USER_PRESENT -> onUserPresent()
+                }
+            }
+        }
+        val filter = IntentFilter().apply {
+            addAction(Intent.ACTION_SCREEN_OFF)
+            addAction(Intent.ACTION_SCREEN_ON)
+            addAction(Intent.ACTION_USER_PRESENT)
+        }
+        // Protected system broadcasts only, so no exported/not-exported flag applies.
+        registerReceiver(receiver, filter)
+        lockReceiver = receiver
+    }
+
+    private fun unregisterLockReceiver() {
+        val receiver = lockReceiver ?: return
+        lockReceiver = null
+        try {
+            unregisterReceiver(receiver)
+        } catch (_: IllegalArgumentException) {
+            // Already unregistered.
+        }
+    }
+
+    /**
+     * Defer the decision briefly so the keyguard has engaged after the press
+     * (it can lock as the display finishes turning off).
+     */
+    private fun onScreenOff() {
+        mainHandler.removeCallbacks(relightCheck)
+        mainHandler.postDelayed(relightCheck, RELIGHT_SETTLE_MILLIS)
+    }
+
+    private fun decideRelight() {
+        if (!showWhenLocked) return
+        val power = getSystemService(PowerManager::class.java) ?: return
+        if (power.isInteractive) return
+        val locked = isKeyguardLocked()
+        val action = relightPolicy.onScreenOff(
+            nowMillis = SystemClock.elapsedRealtime(),
+            dashboardForeground = dashboardForeground,
+            keyguardLocked = locked,
+        )
+        when (action) {
+            LockRelightPolicy.OffAction.RELIGHT -> relight(power)
+            LockRelightPolicy.OffAction.STAY_OFF -> Log.i(TAG, "display left off (${relightPolicy.state})")
+        }
+    }
+
+    private fun relight(power: PowerManager) {
+        // Present the dimmed grayscale view before the display comes back.
+        showLocked(true)
+        try {
+            @Suppress("DEPRECATION")
+            val lock = relightWakeLock ?: power.newWakeLock(
+                PowerManager.SCREEN_DIM_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP,
+                RELIGHT_WAKE_LOCK_TAG,
+            ).also {
+                it.setReferenceCounted(false)
+                relightWakeLock = it
+            }
+            lock.acquire(LockRelightPolicy.RELIGHT_WINDOW_MILLIS)
+            Log.i(TAG, "display re-lit over lock screen")
+        } catch (error: Exception) {
+            Log.w(TAG, "display re-light failed: ${error.javaClass.simpleName}")
+        }
+    }
+
+    private fun releaseRelight() {
+        val lock = relightWakeLock ?: return
+        try {
+            if (lock.isHeld) lock.release()
+        } catch (_: RuntimeException) {
+            // Timed out between isHeld and release.
+        }
+    }
+
+    private fun onScreenOn() {
+        mainHandler.removeCallbacks(relightCheck)
+        if (!showWhenLocked) return
+        val locked = isKeyguardLocked()
+        val cause = relightPolicy.onScreenOn(SystemClock.elapsedRealtime(), locked)
+        if (locked) showLocked(true)
+        Log.i(TAG, "display on ($cause, ${relightPolicy.state})")
+    }
+
+    private fun onUserPresent() {
+        mainHandler.removeCallbacks(relightCheck)
+        if (!showWhenLocked) return
+        relightPolicy.onUnlocked()
+        releaseRelight()
+        showLocked(false)
     }
 
     private fun displayBackground(): Int =
@@ -324,10 +493,20 @@ class MainActivity : Activity() {
         super.onBackPressed()
     }
 
+    override fun onStart() {
+        super.onStart()
+        dashboardForeground = true
+    }
+
     override fun onResume() {
         super.onResume()
         webView?.onResume()
         enterImmersive()
+        if (showWhenLocked) {
+            val locked = isKeyguardLocked()
+            if (!locked) relightPolicy.onUnlocked()
+            showLocked(locked)
+        }
     }
 
     override fun onPause() {
@@ -335,9 +514,20 @@ class MainActivity : Activity() {
         super.onPause()
     }
 
+    override fun onStop() {
+        // Stopped by the display turning off: still the dashboard. Stopped with
+        // the display on: the user left for another app; do not re-light for it.
+        if (getSystemService(PowerManager::class.java)?.isInteractive != false) {
+            dashboardForeground = false
+        }
+        super.onStop()
+    }
+
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
-        if (hasFocus) enterImmersive()
+        if (!hasFocus) return
+        enterImmersive()
+        if (showWhenLocked && isKeyguardLocked()) showLocked(true)
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -346,6 +536,9 @@ class MainActivity : Activity() {
     }
 
     override fun onDestroy() {
+        mainHandler.removeCallbacks(relightCheck)
+        unregisterLockReceiver()
+        releaseRelight()
         if (isFinishing) {
             webView?.let { web ->
                 web.removeJavascriptInterface(BRIDGE_NAME)
@@ -360,6 +553,8 @@ class MainActivity : Activity() {
 
     private fun showFatal(code: String, reason: String) {
         fatal = true
+        // No dashboard, nothing to show over the keyguard.
+        applyShowWhenLocked(false)
         webView?.let { web ->
             web.removeJavascriptInterface(BRIDGE_NAME)
             (web.parent as? ViewGroup)?.removeView(web)
@@ -523,10 +718,69 @@ class MainActivity : Activity() {
                 else -> Log.i(TAG, "renderer: $safeMessage")
             }
         }
+
+        /**
+         * Renderer view choice (C-007): validated with the C-001 launch rules,
+         * persisted, and folded into the renderer URL so `reload()` keeps it.
+         */
+        @JavascriptInterface
+        fun setView(timeRange: String?, refreshSeconds: String?) {
+            if ((timeRange?.length ?: 0) > MAX_BRIDGE_INPUT || (refreshSeconds?.length ?: 0) > MAX_BRIDGE_INPUT) {
+                Log.w(TAG, "setView rejected: input too long")
+                return
+            }
+            runOnUiThread { updateView(timeRange, refreshSeconds) }
+        }
+
+        @JavascriptInterface
+        fun lockScreenEnabled(): Boolean = showWhenLocked
+
+        @JavascriptInterface
+        fun setLockScreen(enabled: Boolean) {
+            runOnUiThread { updateLockScreen(enabled) }
+        }
+    }
+
+    private fun updateView(timeRange: String?, refreshSeconds: String?) {
+        val current = config ?: return
+        if (fatal) return
+        try {
+            val update = ConfigParser.applyView(current, timeRange, refreshSeconds)
+            config = update.config
+            rendererUrl = ConfigParser.launchUrl(update.config)
+            configStore.save(update.config)
+            update.warnings.forEach { Log.w(TAG, it) }
+            Log.i(
+                TAG,
+                "view set time_range=${update.config.timeRange ?: "default"} " +
+                    "refresh_seconds=${update.config.refreshSeconds ?: "default"}",
+            )
+        } catch (error: ConfigException) {
+            Log.w(TAG, "setView rejected: ${sanitize(error.message.orEmpty(), 120)}")
+        }
+    }
+
+    private fun updateLockScreen(enabled: Boolean) {
+        val current = config ?: return
+        if (fatal) return
+        if (enabled && !current.kiosk) {
+            Log.w(TAG, "setLockScreen ignored: kiosk=false")
+            return
+        }
+        configStore.saveShowWhenLocked(enabled)
+        if (enabled != showWhenLocked) applyShowWhenLocked(enabled)
     }
 
     companion object {
         private const val TAG = "AndroDash"
+        private const val MAX_BRIDGE_INPUT = 64
+        private const val LOCKED_BRIGHTNESS = 0.12f
+        private const val RELIGHT_SETTLE_MILLIS = 300L
+        private const val RELIGHT_WAKE_LOCK_TAG = "androdash:relight"
+        private const val JS_SET_LOCKED_TRUE =
+            "window.androdash && window.androdash.setLocked && window.androdash.setLocked(true)"
+        private const val JS_SET_LOCKED_FALSE =
+            "window.androdash && window.androdash.setLocked && window.androdash.setLocked(false)"
         private const val BRIDGE_NAME = "AndroDash"
         private const val STATE_URL = "renderer_url"
         private val BACKGROUND = Color.rgb(8, 11, 18)

@@ -38,8 +38,9 @@ app/
     │   │   ├── MainActivity.kt   # activity, WebView setup, kiosk/lock-screen, bridge
     │   │   ├── AppConfig.kt      # C-001 data model + JSON persistence shape
     │   │   ├── ConfigParser.kt   # Intent/persisted parsing, validation, launch URL
-    │   │   ├── ConfigStore.kt    # SharedPreferences persistence
-    │   │   └── AssetServer.kt    # virtual-origin asset interception
+    │   │   ├── ConfigStore.kt    # SharedPreferences persistence (+ show_when_locked)
+    │   │   ├── AssetServer.kt    # virtual-origin asset interception
+    │   │   └── LockRelightPolicy.kt # pure power-button re-light state machine
     │   └── res/
     │       ├── drawable/ic_launcher.xml
     │       └── values/
@@ -47,7 +48,8 @@ app/
     │           ├── strings.xml
     │           └── styles.xml
     └── test/java/com/mbicz/androdash/
-        └── ConfigParserTest.kt
+        ├── ConfigParserTest.kt
+        └── LockRelightPolicyTest.kt
 ```
 
 Root Gradle files live at the repository root (`settings.gradle.kts`,
@@ -62,8 +64,8 @@ project is a single `:app` module.
 - AGP and Kotlin versions must be compatible with the Gradle wrapper checked in.
   Record upgrades in `changelog.d`.
 - Manifest: `INTERNET` permission; `usesCleartextTraffic=true` (decision 0006);
-  exported launcher activity with the kiosk intent filter. No other permissions
-  in v1.
+  `WAKE_LOCK` (normal; the lock-screen re-light, decision 0016); exported
+  launcher activity with the kiosk intent filter. No other permissions in v1.
 - Dependencies: Android framework + Kotlin standard library. No chart, network,
   JSON, or UI libraries.
 - Assets: the Gradle module maps `web/app/` as the assets root. A `shouldInterceptRequest`
@@ -94,7 +96,7 @@ one-to-one:
 | `capabilities` | `capabilities` | comma string |
 | `show_unsupported` | `show_unsupported` | boolean |
 | `lock_task` | — | boolean (native-only; C-007, not in AppConfig) |
-| `show_when_locked` | — | boolean (native-only; C-007, not in AppConfig) |
+| `show_when_locked` | — | boolean (native-only; C-007, not in AppConfig; persisted as its own preference) |
 
 Boolean Intent extras use `--ez`, integers `--ei`, strings `--es` when launching
 with `adb`.
@@ -145,8 +147,10 @@ C-008 is normative. The shell applies at least:
   can identify the client if they wish.
 
 The bridge (`window.AndroDash`) is added only for the virtual app origin and
-exposes only the methods in C-007/C-008. Keep `@JavascriptInterface` methods
-small, synchronous, and incapable of arbitrary file/network/Intent access.
+exposes only the methods in C-007/C-008 (`platform`, `appVersion`, `reload`,
+`exitKiosk`, `log`, `setView`, `lockScreenEnabled`, `setLockScreen`). Keep
+`@JavascriptInterface` methods small, synchronous, and incapable of arbitrary
+file/network/Intent access.
 
 ### Virtual origin handler (`AssetServer.kt`)
 
@@ -180,6 +184,14 @@ small, synchronous, and incapable of arbitrary file/network/Intent access.
   It never dismisses the keyguard or reads credentials. It is ignored when
   `kiosk=false` and is intended to be paired with `display_mode=monochrome`.
   This is not an always-on-display guarantee; OEM behavior varies.
+  While locked the shell dims the window (`screenBrightness=0.12`) and calls
+  the constant `window.androdash.setLocked(true)` script so the renderer
+  shows its simplified grayscale view; unlock restores brightness and pushes
+  `false`. A runtime `SCREEN_OFF`/`SCREEN_ON`/`USER_PRESENT` receiver plus the
+  pure `LockRelightPolicy` re-light the display once after the first power
+  press (≤ 3 s `androdash:relight` wake lock); a second press leaves it off.
+  The preference is persisted and can be toggled from the renderer with
+  `AndroDash.setLockScreen()` (C-007 §Lock-screen display, decision 0016).
 - Orientation: sensor default; no lock in v1. A future `screen_orientation`
   extra needs a contract change.
 - Pause/resume: do not destroy the WebView. Notify the renderer via page
