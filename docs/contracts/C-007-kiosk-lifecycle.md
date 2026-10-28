@@ -1,6 +1,6 @@
 # C-007 — Kiosk and lifecycle
 
-- **Version:** 1
+- **Version:** 2
 - **Status:** Accepted, 2026-10-26
 - **Consumers:** Android shell (W1), renderer debug affordance (W2)
 - **Related:** C-001 (config), C-008 (WebView security), C-009 (diagnostics)
@@ -19,10 +19,17 @@ with physical access can always use recovery/ADB. Do not overclaim.
 |---|---|---|
 | `kiosk` | `true` | Apply immersive fullscreen, keep awake, and back-disabled behavior |
 | `lock_task` | `false` | Attempt Android lock task (`startLockTask()`); requires device-owner/provisioning for unattended use. Native-only; not part of `AppConfig` (C-001 note). If promoted, update C-001 and the schema. |
+| `show_when_locked` | `false` | Keep the Activity visible above the keyguard and turn the screen on when locked. Native-only; ignored when `kiosk=false`. Does not dismiss or bypass the keyguard. Intended for a wall/charger screen with `display_mode=monochrome`. |
 
 `lock_task` is intentionally separate from `kiosk`. Immersive mode works on any
 phone; lock task often requires provisioning and can surprise the user with a
 system confirmation dialog.
+
+`show_when_locked` is a display posture, not a security bypass: the device
+remains locked, the keyguard is not dismissed, and no credential is read. It
+does make dashboard content visible while the device is locked, so use it only
+on a trusted appliance. It is not an always-on-display API and OEM keyguard
+behavior may vary; document the limitation rather than promising AOD.
 
 ## Behavior
 
@@ -46,6 +53,12 @@ system confirmation dialog.
 - If `lock_task=true`, call `startLockTask()`:
   - success → app is pinned/allowlisted as the system permits;
   - failure/exception → log, remain in immersive kiosk, do not crash.
+- If `show_when_locked=true`, request lock-screen visibility:
+  - API 27+ (`O_MR1`): `setShowWhenLocked(true)` and `setTurnScreenOn(true)`;
+  - API 26: `FLAG_SHOW_WHEN_LOCKED` and `FLAG_TURN_SCREEN_ON`;
+  - failure/exception → log, remain in normal kiosk, do not crash;
+  - never dismiss the keyguard, request device credentials, or change the lock
+    screen security settings.
 - A debug affordance (only when `debug=true`) can exit/reload.
 
 ### `kiosk=false`
@@ -53,6 +66,8 @@ system confirmation dialog.
 - Immersive may remain, but Back finishes the Activity.
 - Intended for development; do not use for a deployed wall dashboard.
 - `lock_task` is ignored when `kiosk=false` (do not pin a dev session).
+- `show_when_locked` is ignored when `kiosk=false` (do not keep a dev session
+  visible over the lock screen).
 
 ## Escape hatch
 
@@ -66,7 +81,7 @@ A kiosk must be serviceable:
   - config/capability/error details.
 - `debug=false` → no affordance.
 - The owner can always:
-  - `adb shell am force-stop dev.androdash`;
+  - `adb shell am force-stop com.mbicz.androdash`;
   - reboot the device;
   - use device-owner/provisioning controls if configured.
 - Do not hide a physical long-press secret in v1; the debug flag is explicit and
@@ -144,18 +159,23 @@ Contents:
 2. Launch with `kiosk=false`: Back exits.
 3. `lock_task=true` on a non-provisioned emulator: no crash; logs the failure;
    immersive remains.
-4. Rotate: layout reflows; page does not lose data unexpectedly.
-5. Force-stop + launcher relaunch: persisted demo restores.
-6. Kill the WebView renderer (DevTools/`chrome://inspect` or low-memory): shell
+4. `show_when_locked=true` with `display_mode=monochrome`: wake the locked
+   emulator and confirm the dashboard is visible above the keyguard; the device
+   still requires its normal unlock for other apps. With `kiosk=false` the
+   extra is ignored.
+5. Rotate: layout reflows; page does not lose data unexpectedly.
+6. Force-stop + launcher relaunch: persisted demo restores.
+7. Kill the WebView renderer (DevTools/`chrome://inspect` or low-memory): shell
    reloads and the dashboard recovers.
-7. `debug=true` overlay can reload/exit; `debug=false` has no affordance.
-8. Invalid (non-http) dashboard URL: native fatal screen, `E_CONFIG`, no blank
+8. `debug=true` overlay can reload/exit; `debug=false` has no affordance.
+9. Invalid (non-http) dashboard URL: native fatal screen, `E_CONFIG`, no blank
    WebView. A valid but unreachable dashboard URL is a renderer
    `E_DASHBOARD_FETCH` state instead.
 
 ## Test obligations
 
-- Android unit tests: config persistence, URL building (C-001).
+- Android unit tests: config persistence, URL building (C-001), and native-only
+  `lock_task`/`show_when_locked` gating by `kiosk`.
 - Manual emulator checklist above; record commands/results in the handoff.
 - Logcat: no uncaught exceptions; no secrets.
 - If `lock_task` is promoted to C-001, add a unit/manual matrix for device-owner

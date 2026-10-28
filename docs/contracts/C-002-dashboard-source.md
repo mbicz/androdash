@@ -3,7 +3,8 @@
 - **Version:** 1 (AndroDash Perses subset v1)
 - **Status:** Accepted, 2026-10-26
 - **Consumers:** Web renderer (W2)
-- **Fixtures:** [`demo-dashboard.json`](../../contracts/fixtures/demo-dashboard.json)
+- **Fixtures:** [`demo-dashboard.json`](../../contracts/fixtures/demo-dashboard.json),
+  [`spark-dashboard.json`](../../contracts/fixtures/spark-dashboard.json)
 - **Related:** C-001 (URL), C-003 (datasources), C-004 (filtering), C-005 (panels)
 
 ## Purpose

@@ -9,6 +9,7 @@ contracts/
 └── fixtures/
     ├── app-config.example.json
     ├── demo-dashboard.json      # 9 panels: 6 eligible, 3 hidden
+    ├── spark-dashboard.json     # 14-panel Spark Exporter dashboard
     ├── diagnostics.example.json
     └── prometheus/
         ├── buildinfo.json
@@ -71,6 +72,23 @@ renderer/unit tests must still validate the same invariants programmatically.
 
 `prometheus/*.json` are valid Prometheus API envelopes. The mock server should
 produce equivalent shapes; the renderer normalizes both.
+
+`spark-dashboard.json` is the production-shaped integration fixture for
+[Spark Exporter](../docs/integrations/spark-exporter.md):
+
+| Area | Panels | Expected |
+|---|---|---|
+| Thermals and power | Thermals, Power | 2 visible |
+| Load | Memory pressure, GPU utilization, KV cache | 3 visible |
+| Inference | Engine throughput, Token latency, Engine requests | 3 visible |
+| Clocks and fabric | Clocks, Fabric capacity, RDMA traffic | 3 visible |
+| Host and health | Host load, Collector health, Markdown | 3 visible |
+
+All 14 panels are eligible when Prometheus is advertised and healthy; the
+fixture carries 23 queries. `gpu` and `engine` are Prometheus label-values
+variables. Same-unit metrics share a panel and are named by a synthetic
+`reading` label (see C-005). The mock must answer every query in this fixture;
+`tools/test_mock_prometheus.py` enforces that.
 
 ## Adding a fixture
 

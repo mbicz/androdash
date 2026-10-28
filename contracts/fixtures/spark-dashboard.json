@@ -1,0 +1,904 @@
+{
+  "kind": "Dashboard",
+  "metadata": {
+    "name": "Spark Exporter",
+    "project": "androdash",
+    "createdAt": "2026-10-26T00:00:00Z",
+    "updatedAt": "2026-10-27T00:00:00Z",
+    "version": 2
+  },
+  "spec": {
+    "display": {
+      "name": "Spark Exporter",
+      "description": "GB10 host and inference telemetry from Spark Exporter plus node_exporter."
+    },
+    "duration": "15m",
+    "refreshInterval": "10s",
+    "datasources": {
+      "prom": {
+        "default": true,
+        "plugin": {
+          "kind": "PrometheusDatasource",
+          "spec": {
+            "directUrl": "http://localhost:9091"
+          }
+        }
+      }
+    },
+    "variables": [
+      {
+        "kind": "ListVariable",
+        "spec": {
+          "name": "ds",
+          "defaultValue": "prom",
+          "allowMultiple": false,
+          "allowAllValue": false,
+          "plugin": {
+            "kind": "DatasourceVariable",
+            "spec": {
+              "datasourcePluginKind": "PrometheusDatasource"
+            }
+          }
+        }
+      },
+      {
+        "kind": "ListVariable",
+        "spec": {
+          "name": "gpu",
+          "defaultValue": "0",
+          "allowMultiple": false,
+          "allowAllValue": false,
+          "plugin": {
+            "kind": "PrometheusLabelValuesVariable",
+            "spec": {
+              "labelName": "gpu",
+              "matchers": ["spark_gpu_info"]
+            }
+          }
+        }
+      },
+      {
+        "kind": "ListVariable",
+        "spec": {
+          "name": "engine",
+          "defaultValue": "vllm",
+          "allowMultiple": false,
+          "allowAllValue": false,
+          "plugin": {
+            "kind": "PrometheusLabelValuesVariable",
+            "spec": {
+              "labelName": "engine",
+              "matchers": ["spark_engine_endpoint_up"]
+            }
+          }
+        }
+      }
+    ],
+    "panels": {
+      "thermal": {
+        "kind": "Panel",
+        "spec": {
+          "display": {
+            "name": "Thermals",
+            "description": "Edge, HBM, hottest thermal zone, hottest hwmon sensor; all °C"
+          },
+          "plugin": {
+            "kind": "StatChart",
+            "spec": {
+              "calculation": "last-number",
+              "format": {
+                "unit": "celsius",
+                "decimalPlaces": 1
+              },
+              "thresholds": {
+                "steps": [
+                  {
+                    "value": 80,
+                    "name": "Warm"
+                  },
+                  {
+                    "value": 90,
+                    "name": "Critical"
+                  }
+                ]
+              }
+            }
+          },
+          "queries": [
+            {
+              "kind": "TimeSeriesQuery",
+              "spec": {
+                "plugin": {
+                  "kind": "PrometheusTimeSeriesQuery",
+                  "spec": {
+                    "datasource": "$ds",
+                    "query": "label_replace(spark_gpu_temperature_celsius{gpu=\"$gpu\"}, \"reading\", \"gpu\", \"\", \"\")"
+                  }
+                }
+              }
+            },
+            {
+              "kind": "TimeSeriesQuery",
+              "spec": {
+                "plugin": {
+                  "kind": "PrometheusTimeSeriesQuery",
+                  "spec": {
+                    "datasource": "$ds",
+                    "query": "label_replace(spark_gpu_memory_temperature_celsius{gpu=\"$gpu\"}, \"reading\", \"hbm\", \"\", \"\")"
+                  }
+                }
+              }
+            },
+            {
+              "kind": "TimeSeriesQuery",
+              "spec": {
+                "plugin": {
+                  "kind": "PrometheusTimeSeriesQuery",
+                  "spec": {
+                    "datasource": "$ds",
+                    "query": "label_replace(max(spark_thermal_zone_celsius), \"reading\", \"zone\", \"\", \"\")"
+                  }
+                }
+              }
+            },
+            {
+              "kind": "TimeSeriesQuery",
+              "spec": {
+                "plugin": {
+                  "kind": "PrometheusTimeSeriesQuery",
+                  "spec": {
+                    "datasource": "$ds",
+                    "query": "label_replace(max(spark_hwmon_temperature_celsius), \"reading\", \"hwmon\", \"\", \"\")"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "power": {
+        "kind": "Panel",
+        "spec": {
+          "display": {
+            "name": "Power",
+            "description": "Instantaneous draw and the enforced limit; both W"
+          },
+          "plugin": {
+            "kind": "StatChart",
+            "spec": {
+              "calculation": "last-number",
+              "format": {
+                "unit": "watts",
+                "decimalPlaces": 1
+              }
+            }
+          },
+          "queries": [
+            {
+              "kind": "TimeSeriesQuery",
+              "spec": {
+                "plugin": {
+                  "kind": "PrometheusTimeSeriesQuery",
+                  "spec": {
+                    "datasource": "$ds",
+                    "query": "label_replace(spark_gpu_power_watts{gpu=\"$gpu\"}, \"reading\", \"draw\", \"\", \"\")"
+                  }
+                }
+              }
+            },
+            {
+              "kind": "TimeSeriesQuery",
+              "spec": {
+                "plugin": {
+                  "kind": "PrometheusTimeSeriesQuery",
+                  "spec": {
+                    "datasource": "$ds",
+                    "query": "label_replace(spark_gpu_power_limit_watts{gpu=\"$gpu\"}, \"reading\", \"limit\", \"\", \"\")"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "memory-pressure": {
+        "kind": "Panel",
+        "spec": {
+          "display": {
+            "name": "Memory pressure",
+            "description": "Kernel unavailable memory; not model residency"
+          },
+          "plugin": {
+            "kind": "StatChart",
+            "spec": {
+              "calculation": "last-number",
+              "format": {
+                "unit": "percent",
+                "decimalPlaces": 1
+              },
+              "thresholds": {
+                "steps": [
+                  {
+                    "value": 85,
+                    "name": "Tight"
+                  },
+                  {
+                    "value": 95,
+                    "name": "Critical"
+                  }
+                ]
+              }
+            }
+          },
+          "queries": [
+            {
+              "kind": "TimeSeriesQuery",
+              "spec": {
+                "plugin": {
+                  "kind": "PrometheusTimeSeriesQuery",
+                  "spec": {
+                    "datasource": "$ds",
+                    "query": "100 * (1 - spark_system_memory_available_bytes / spark_system_memory_total_bytes)"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "gpu-utilization": {
+        "kind": "Panel",
+        "spec": {
+          "display": {
+            "name": "GPU utilization",
+            "description": "Compute busy ratio from the driver"
+          },
+          "plugin": {
+            "kind": "GaugeChart",
+            "spec": {
+              "calculation": "last-number",
+              "format": {
+                "unit": "percent",
+                "decimalPlaces": 0
+              },
+              "thresholds": {
+                "steps": [
+                  {
+                    "value": 85,
+                    "name": "Busy"
+                  },
+                  {
+                    "value": 95,
+                    "name": "Saturated"
+                  }
+                ]
+              }
+            }
+          },
+          "queries": [
+            {
+              "kind": "TimeSeriesQuery",
+              "spec": {
+                "plugin": {
+                  "kind": "PrometheusTimeSeriesQuery",
+                  "spec": {
+                    "datasource": "$ds",
+                    "query": "spark_gpu_utilization_ratio{gpu=\"$gpu\"} * 100"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "kv-cache": {
+        "kind": "Panel",
+        "spec": {
+          "display": {
+            "name": "KV cache",
+            "description": "Occupancy of the engine cache"
+          },
+          "plugin": {
+            "kind": "GaugeChart",
+            "spec": {
+              "calculation": "last-number",
+              "format": {
+                "unit": "percent",
+                "decimalPlaces": 0
+              },
+              "thresholds": {
+                "steps": [
+                  {
+                    "value": 85,
+                    "name": "Tight"
+                  },
+                  {
+                    "value": 95,
+                    "name": "Full"
+                  }
+                ]
+              }
+            }
+          },
+          "queries": [
+            {
+              "kind": "TimeSeriesQuery",
+              "spec": {
+                "plugin": {
+                  "kind": "PrometheusTimeSeriesQuery",
+                  "spec": {
+                    "datasource": "$ds",
+                    "query": "spark_engine_kv_cache_usage_ratio{engine=\"$engine\"} * 100"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "engine-throughput": {
+        "kind": "Panel",
+        "spec": {
+          "display": {
+            "name": "Engine throughput",
+            "description": "Native token counters per second, not GPU utilization"
+          },
+          "plugin": {
+            "kind": "TimeSeriesChart",
+            "spec": {
+              "legend": {
+                "position": "bottom"
+              },
+              "yAxis": {
+                "format": {
+                  "unit": "tokens",
+                  "decimalPlaces": 0
+                }
+              },
+              "visual": {
+                "lineWidth": 2,
+                "areaOpacity": 0.1,
+                "showPoints": false
+              }
+            }
+          },
+          "queries": [
+            {
+              "kind": "TimeSeriesQuery",
+              "spec": {
+                "plugin": {
+                  "kind": "PrometheusTimeSeriesQuery",
+                  "spec": {
+                    "datasource": "$ds",
+                    "query": "spark_engine_tokens_per_second{engine=\"$engine\", direction=~\"input|output\"}"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "token-latency": {
+        "kind": "Panel",
+        "spec": {
+          "display": {
+            "name": "Token latency",
+            "description": "Mean TTFT and inter-token time, both in milliseconds"
+          },
+          "plugin": {
+            "kind": "TimeSeriesChart",
+            "spec": {
+              "legend": {
+                "position": "bottom"
+              },
+              "yAxis": {
+                "format": {
+                  "unit": "milliseconds",
+                  "decimalPlaces": 0
+                }
+              }
+            }
+          },
+          "queries": [
+            {
+              "kind": "TimeSeriesQuery",
+              "spec": {
+                "plugin": {
+                  "kind": "PrometheusTimeSeriesQuery",
+                  "spec": {
+                    "datasource": "$ds",
+                    "query": "sum by (stage) (label_replace(spark_engine_time_to_first_token_seconds_mean{engine=\"$engine\"} * 1000, \"stage\", \"ttft\", \"\", \"\"))"
+                  }
+                }
+              }
+            },
+            {
+              "kind": "TimeSeriesQuery",
+              "spec": {
+                "plugin": {
+                  "kind": "PrometheusTimeSeriesQuery",
+                  "spec": {
+                    "datasource": "$ds",
+                    "query": "sum by (stage) (label_replace(spark_engine_inter_token_seconds_mean{engine=\"$engine\"} * 1000, \"stage\", \"inter_token\", \"\", \"\"))"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "requests": {
+        "kind": "Panel",
+        "spec": {
+          "display": {
+            "name": "Engine requests",
+            "description": "Running and waiting at the engine"
+          },
+          "plugin": {
+            "kind": "StatChart",
+            "spec": {
+              "calculation": "last-number",
+              "format": {
+                "unit": "short",
+                "decimalPlaces": 0
+              }
+            }
+          },
+          "queries": [
+            {
+              "kind": "TimeSeriesQuery",
+              "spec": {
+                "plugin": {
+                  "kind": "PrometheusTimeSeriesQuery",
+                  "spec": {
+                    "datasource": "$ds",
+                    "query": "sum by (state) (label_replace(spark_engine_requests_running{engine=\"$engine\"}, \"state\", \"running\", \"\", \"\"))"
+                  }
+                }
+              }
+            },
+            {
+              "kind": "TimeSeriesQuery",
+              "spec": {
+                "plugin": {
+                  "kind": "PrometheusTimeSeriesQuery",
+                  "spec": {
+                    "datasource": "$ds",
+                    "query": "sum by (state) (label_replace(spark_engine_requests_waiting{engine=\"$engine\"}, \"state\", \"waiting\", \"\", \"\"))"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "clocks": {
+        "kind": "Panel",
+        "spec": {
+          "display": {
+            "name": "Clocks",
+            "description": "GPU SM and memory clocks plus the CPU policy frequency; all Hz"
+          },
+          "plugin": {
+            "kind": "StatChart",
+            "spec": {
+              "calculation": "last-number",
+              "format": {
+                "unit": "hertz",
+                "decimalPlaces": 1
+              }
+            }
+          },
+          "queries": [
+            {
+              "kind": "TimeSeriesQuery",
+              "spec": {
+                "plugin": {
+                  "kind": "PrometheusTimeSeriesQuery",
+                  "spec": {
+                    "datasource": "$ds",
+                    "query": "label_replace(spark_gpu_clock_sm_hertz{gpu=\"$gpu\"}, \"reading\", \"sm\", \"\", \"\")"
+                  }
+                }
+              }
+            },
+            {
+              "kind": "TimeSeriesQuery",
+              "spec": {
+                "plugin": {
+                  "kind": "PrometheusTimeSeriesQuery",
+                  "spec": {
+                    "datasource": "$ds",
+                    "query": "label_replace(spark_gpu_clock_memory_hertz{gpu=\"$gpu\"}, \"reading\", \"mem\", \"\", \"\")"
+                  }
+                }
+              }
+            },
+            {
+              "kind": "TimeSeriesQuery",
+              "spec": {
+                "plugin": {
+                  "kind": "PrometheusTimeSeriesQuery",
+                  "spec": {
+                    "datasource": "$ds",
+                    "query": "label_replace(spark_cpu_frequency_current_hertz, \"reading\", \"cpu\", \"\", \"\")"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "fabric-speed": {
+        "kind": "Panel",
+        "spec": {
+          "display": {
+            "name": "Fabric capacity",
+            "description": "Advertised RDMA capacity, not traffic"
+          },
+          "plugin": {
+            "kind": "StatChart",
+            "spec": {
+              "calculation": "last-number",
+              "format": {
+                "unit": "bits",
+                "decimalPlaces": 1
+              }
+            }
+          },
+          "queries": [
+            {
+              "kind": "TimeSeriesQuery",
+              "spec": {
+                "plugin": {
+                  "kind": "PrometheusTimeSeriesQuery",
+                  "spec": {
+                    "datasource": "$ds",
+                    "query": "spark_rdma_rate_bits_per_second"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "rdma-traffic": {
+        "kind": "Panel",
+        "spec": {
+          "display": {
+            "name": "RDMA traffic",
+            "description": "port_xmit_data and port_rcv_data, 4-byte words converted to bits/s"
+          },
+          "plugin": {
+            "kind": "TimeSeriesChart",
+            "spec": {
+              "legend": {
+                "position": "bottom"
+              },
+              "yAxis": {
+                "format": {
+                  "unit": "bits",
+                  "decimalPlaces": 1
+                }
+              }
+            }
+          },
+          "queries": [
+            {
+              "kind": "TimeSeriesQuery",
+              "spec": {
+                "plugin": {
+                  "kind": "PrometheusTimeSeriesQuery",
+                  "spec": {
+                    "datasource": "$ds",
+                    "query": "rate(spark_rdma_counter_total{source=\"counters\", counter=\"port_xmit_data\", unit=\"4_bytes\"}[5m]) * 32"
+                  }
+                }
+              }
+            },
+            {
+              "kind": "TimeSeriesQuery",
+              "spec": {
+                "plugin": {
+                  "kind": "PrometheusTimeSeriesQuery",
+                  "spec": {
+                    "datasource": "$ds",
+                    "query": "rate(spark_rdma_counter_total{source=\"counters\", counter=\"port_rcv_data\", unit=\"4_bytes\"}[5m]) * 32"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "host-load": {
+        "kind": "Panel",
+        "spec": {
+          "display": {
+            "name": "Host load",
+            "description": "node_load1 and node_load5 from the bundled node_exporter"
+          },
+          "plugin": {
+            "kind": "TimeSeriesChart",
+            "spec": {
+              "legend": {
+                "position": "bottom"
+              },
+              "format": {
+                "unit": "none",
+                "decimalPlaces": 2
+              }
+            }
+          },
+          "queries": [
+            {
+              "kind": "TimeSeriesQuery",
+              "spec": {
+                "plugin": {
+                  "kind": "PrometheusTimeSeriesQuery",
+                  "spec": {
+                    "datasource": "$ds",
+                    "query": "node_load1"
+                  }
+                }
+              }
+            },
+            {
+              "kind": "TimeSeriesQuery",
+              "spec": {
+                "plugin": {
+                  "kind": "PrometheusTimeSeriesQuery",
+                  "spec": {
+                    "datasource": "$ds",
+                    "query": "node_load5"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "collector-health": {
+        "kind": "Panel",
+        "spec": {
+          "display": {
+            "name": "Collector health",
+            "description": "1 = last collection succeeded; a missing sample stays missing"
+          },
+          "plugin": {
+            "kind": "Table",
+            "spec": {
+              "format": {
+                "unit": "none",
+                "decimalPlaces": 0
+              }
+            }
+          },
+          "queries": [
+            {
+              "kind": "TimeSeriesQuery",
+              "spec": {
+                "plugin": {
+                  "kind": "PrometheusTimeSeriesQuery",
+                  "spec": {
+                    "datasource": "$ds",
+                    "query": "spark_collector_success"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "about": {
+        "kind": "Panel",
+        "spec": {
+          "display": {
+            "name": "About this dashboard",
+            "description": "Metric semantics and limits"
+          },
+          "plugin": {
+            "kind": "Markdown",
+            "spec": {
+              "text": "## Spark Exporter\n\nThis dashboard targets the metric families published by Spark Exporter and the bundled node_exporter.\n\n- GB10 system RAM and GPU memory are one pool. Unavailable memory is a pressure signal, not model residency.\n- Unsupported driver fields stay absent; they are never turned into zeroes.\n- Output tok/s is a generated-token counter rate, not GPU utilization.\n- Fabric speed is advertised capacity. RDMA traffic is converted from 4-byte words.\n- Same-unit readings share one panel: thermals (°C), power (W), clocks (Hz).\n\n`node_load1` and `node_load5` come from node_exporter. The mock server supplies deterministic demo values for local development."
+            }
+          },
+          "queries": []
+        }
+      }
+    },
+    "layouts": [
+      {
+        "kind": "Grid",
+        "spec": {
+          "display": {
+            "title": "Thermals and power",
+            "collapse": {
+              "open": true
+            }
+          },
+          "items": [
+            {
+              "x": 0,
+              "y": 0,
+              "width": 12,
+              "height": 3,
+              "content": {
+                "$ref": "#/spec/panels/thermal"
+              }
+            },
+            {
+              "x": 12,
+              "y": 0,
+              "width": 12,
+              "height": 3,
+              "content": {
+                "$ref": "#/spec/panels/power"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "kind": "Grid",
+        "spec": {
+          "display": {
+            "title": "Load",
+            "collapse": {
+              "open": true
+            }
+          },
+          "items": [
+            {
+              "x": 0,
+              "y": 0,
+              "width": 8,
+              "height": 3,
+              "content": {
+                "$ref": "#/spec/panels/memory-pressure"
+              }
+            },
+            {
+              "x": 8,
+              "y": 0,
+              "width": 8,
+              "height": 3,
+              "content": {
+                "$ref": "#/spec/panels/gpu-utilization"
+              }
+            },
+            {
+              "x": 16,
+              "y": 0,
+              "width": 8,
+              "height": 3,
+              "content": {
+                "$ref": "#/spec/panels/kv-cache"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "kind": "Grid",
+        "spec": {
+          "display": {
+            "title": "Inference",
+            "collapse": {
+              "open": true
+            }
+          },
+          "items": [
+            {
+              "x": 0,
+              "y": 0,
+              "width": 24,
+              "height": 8,
+              "content": {
+                "$ref": "#/spec/panels/engine-throughput"
+              }
+            },
+            {
+              "x": 0,
+              "y": 8,
+              "width": 16,
+              "height": 8,
+              "content": {
+                "$ref": "#/spec/panels/token-latency"
+              }
+            },
+            {
+              "x": 16,
+              "y": 8,
+              "width": 8,
+              "height": 8,
+              "content": {
+                "$ref": "#/spec/panels/requests"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "kind": "Grid",
+        "spec": {
+          "display": {
+            "title": "Clocks and fabric",
+            "collapse": {
+              "open": true
+            }
+          },
+          "items": [
+            {
+              "x": 0,
+              "y": 0,
+              "width": 12,
+              "height": 4,
+              "content": {
+                "$ref": "#/spec/panels/clocks"
+              }
+            },
+            {
+              "x": 12,
+              "y": 0,
+              "width": 12,
+              "height": 4,
+              "content": {
+                "$ref": "#/spec/panels/fabric-speed"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "kind": "Grid",
+        "spec": {
+          "display": {
+            "title": "Host and health",
+            "collapse": {
+              "open": true
+            }
+          },
+          "items": [
+            {
+              "x": 0,
+              "y": 0,
+              "width": 12,
+              "height": 8,
+              "content": {
+                "$ref": "#/spec/panels/rdma-traffic"
+              }
+            },
+            {
+              "x": 12,
+              "y": 0,
+              "width": 12,
+              "height": 8,
+              "content": {
+                "$ref": "#/spec/panels/host-load"
+              }
+            },
+            {
+              "x": 0,
+              "y": 8,
+              "width": 12,
+              "height": 8,
+              "content": {
+                "$ref": "#/spec/panels/collector-health"
+              }
+            },
+            {
+              "x": 12,
+              "y": 8,
+              "width": 12,
+              "height": 6,
+              "content": {
+                "$ref": "#/spec/panels/about"
+              }
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

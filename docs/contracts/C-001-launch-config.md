@@ -1,6 +1,6 @@
 # C-001 — Launch configuration
 
-- **Version:** 1
+- **Version:** 2
 - **Status:** Accepted, 2026-10-26
 - **Consumers:** Android shell (W1), web renderer config (W2)
 - **Machine-readable:** [`contracts/app-config.schema.json`](../../contracts/app-config.schema.json)
@@ -47,6 +47,7 @@ This is deliberate: one name per concept, easy to debug with `adb`.
 | `kiosk` | boolean | `true` | Native-only behavior (C-007). The renderer records it but does not enforce it. |
 | `debug` | boolean | `false` | Enables the diagnostics overlay and debug affordances (C-009). |
 | `layout_mode` | enum | `auto` | `auto` \| `grid` \| `stack` (C-005). |
+| `display_mode` | enum | `standard` | `standard` \| `amoled` \| `monochrome` (C-005). Additive in v2; older persisted configs without it default to `standard`. |
 | `dashboard_name` | string | `null` | Selects a dashboard when the URL returns an array (C-002). Must be non-empty when set. |
 | `capabilities` | string | `null` | Comma-separated capability IDs; when present, authoritative for filtering (C-004). 1–16 entries after deduplication. |
 | `show_unsupported` | boolean | `false` | Render explicit placeholders for hidden panels instead of removing them. |
@@ -69,6 +70,7 @@ Intent extras use `--es` (string), `--ei` (int), `--ez` (boolean) with `adb`.
   "kiosk": true,
   "debug": true,
   "layoutMode": "auto",
+  "displayMode": "standard",
   "dashboardName": null,
   "capabilities": null,
   "showUnsupported": false
@@ -84,6 +86,8 @@ for types and constraints; this table is normative for semantics.
 - `prometheusUrl`, `refreshSeconds`, `timeRange`, `stepSeconds`, `dashboardName`,
   and `capabilities` may be `null` when unset.
 - `kiosk`, `debug`, and `showUnsupported` are always booleans after defaults.
+- `displayMode` always resolves to one of the three enum values; it is omitted
+  only by pre-v2 persisted objects, which default to `standard`.
 
 ## Precedence
 
@@ -115,6 +119,7 @@ An implementation MUST reject:
 - non-integer `refresh_seconds`/`step_seconds` or values outside their ranges;
 - `time_range` that is not a supported duration or outside `1s…30d`;
 - `layout_mode` outside the enum;
+- `display_mode` outside the enum;
 - an explicit empty `capabilities` list in the canonical object (an empty wire
   value is unset);
 - more than 16 capability IDs after deduplication, or IDs not matching
@@ -175,7 +180,8 @@ The native shell shows `E_CONFIG` on its fatal screen. The renderer shows an
 - valid example → canonical object;
 - defaults applied;
 - missing dashboard URL rejected;
-- scheme/userinfo/length/type/enum rejections;
+- scheme/userinfo/length/type/enum rejections, including `display_mode`;
+- display mode defaults and `standard`/`amoled`/`monochrome` round-trip;
 - refresh clamping and bounds;
 - duration parsing delegated to C-002 (validated here for range);
 - capability list parsing, deduplication, sorting, 16-entry limit, and empty-list
@@ -183,7 +189,7 @@ The native shell shows `E_CONFIG` on its fatal screen. The renderer shows an
 - empty optional values become `null`, except invalid `dashboard_url`;
 - canonical query → object → canonical query round-trip.
 
-`app/src/test/java/dev/androdash/ConfigParserTest.kt` (M2):
+`app/src/test/java/com/mbicz/androdash/ConfigParserTest.kt` (M2):
 
 - Intent extras → `AppConfig`;
 - persisted config precedence;

@@ -1,0 +1,6 @@
+{
+  "name": "androdash-renderer",
+  "private": true,
+  "type": "module",
+  "description": "Vanilla ES-module Perses subset renderer for AndroDash"
+}

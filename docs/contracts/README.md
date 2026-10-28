@@ -1,7 +1,7 @@
 # Contracts
 
 **Version:** 1.x (2026-10-26)
-**Status:** accepted baseline for M0.
+**Status:** accepted and implemented through M2; M3 hardening is ongoing.
 **Normative companions:** [`contracts/`](../../contracts/) (schemas + fixtures).
 
 Contracts define the interfaces between workstreams and the guarantees the
@@ -13,13 +13,13 @@ here, add a contract change and a `changelog.d` entry first.
 
 | ID | Contract | Version | Consumers | Machine-readable / fixtures |
 |---|---|---|---|---|
-| C-001 | [Launch configuration](C-001-launch-config.md) | 1 | W1, W2 | `contracts/app-config.schema.json`, `fixtures/app-config.example.json` |
-| C-002 | [Dashboard source and normalization](C-002-dashboard-source.md) | 1 | W2 | `fixtures/demo-dashboard.json` |
+| C-001 | [Launch configuration](C-001-launch-config.md) | 2 | W1, W2 | `contracts/app-config.schema.json`, `fixtures/app-config.example.json` |
+| C-002 | [Dashboard source and normalization](C-002-dashboard-source.md) | 1 | W2 | `fixtures/demo-dashboard.json`, `fixtures/spark-dashboard.json` |
 | C-003 | [Prometheus access](C-003-prometheus-access.md) | 1 | W2, W3 | `fixtures/prometheus/*.json` |
-| C-004 | [Capability negotiation and filtering](C-004-capability-negotiation.md) | 1 | W2 | `fixtures/demo-dashboard.json` |
-| C-005 | [Panel rendering](C-005-panel-rendering.md) | 1 | W2 | `fixtures/demo-dashboard.json` |
+| C-004 | [Capability negotiation and filtering](C-004-capability-negotiation.md) | 1 | W2 | `fixtures/demo-dashboard.json`, `fixtures/spark-dashboard.json` |
+| C-005 | [Panel rendering](C-005-panel-rendering.md) | 4 | W2 | `fixtures/demo-dashboard.json`, `fixtures/spark-dashboard.json` |
 | C-006 | [Refresh and time semantics](C-006-refresh-and-time.md) | 1 | W2 | — |
-| C-007 | [Kiosk and lifecycle](C-007-kiosk-lifecycle.md) | 1 | W1 | — |
+| C-007 | [Kiosk and lifecycle](C-007-kiosk-lifecycle.md) | 2 | W1 | — |
 | C-008 | [WebView security](C-008-webview-security.md) | 1 | W1, W2 | — |
 | C-009 | [Diagnostics and errors](C-009-diagnostics.md) | 1 | W1, W2 | `contracts/diagnostics.schema.json`, `fixtures/diagnostics.example.json` |
 
@@ -68,8 +68,9 @@ Accepted entries are history; do not rewrite them. Supersede with a new entry.
 - All HTTP inputs are untrusted; strings are escaped before display.
 - Limits are enforced before allocating unbounded DOM/arrays.
 - Diagnostics never include credentials or full query strings.
-- The demo fixture `contracts/fixtures/demo-dashboard.json` must keep working
-  across contract changes, or the change must update it and the expected counts.
+- The demo fixtures (`demo-dashboard.json` and `spark-dashboard.json`) must keep
+  working across contract changes, or the change must update them and the
+  expected counts.
 
 ## Contract test naming
 

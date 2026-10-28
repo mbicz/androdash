@@ -138,7 +138,7 @@ Do not add a global "ignore TLS errors" path to compensate for HTTPS misconfig.
 - True lock task requires device-owner provisioning; `lock_task=true` attempts it
   and fails gracefully.
 - The debug overlay is only reachable with `debug=true`; release hides it.
-- The owner can always `adb shell am force-stop dev.androdash`; document this.
+- The owner can always `adb shell am force-stop com.mbicz.androdash`; document this.
 - Do not store secrets on the device in v1.
 
 ### 3.8 Logging and diagnostics

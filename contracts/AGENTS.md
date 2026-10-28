@@ -28,6 +28,7 @@ change is needed, the contract doc and every consumer change too.
 - `fixtures/diagnostics.example.json` — valid snapshot for tests.
 - `fixtures/demo-dashboard.json` — shared Perses subset demo (9 panels, 6
   eligible, 3 hidden).
+- `fixtures/spark-dashboard.json` — 14-panel Spark Exporter integration fixture.
 - `fixtures/prometheus/*.json` — deterministic Prometheus API envelopes.
 
 ## Validation
@@ -68,6 +69,19 @@ Do not add a runtime dependency for validation.
   for escaping tests.
 - Datasource URL is `http://localhost:9091`; the app overrides it with
   `prometheus_url=http://10.0.2.2:9091` in the emulator.
+
+## Spark fixture invariants
+
+- 14 panels, 5 rows, 23 PromQL queries; all eligible with Prometheus.
+- Same-unit metrics share a panel and are named by a synthetic `reading`
+  label; do not group across units.
+- `gpu` and `engine` are Prometheus label-values variables.
+- Every query is recognized by `tools/mock_prometheus.py`; the tooling test
+  fails on drift.
+- Do not add a GPU framebuffer-memory panel while GB10 omits the field. The
+  fixture intentionally demonstrates absence rather than a synthetic zero.
+- Units are display-only (`W`, `°C`, `Hz`, `Gb/s`, `tok/s`). The mock returns
+  values already in the query's output unit.
 
 ## Don't
 

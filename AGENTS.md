@@ -8,8 +8,9 @@ This file is the entry point for every human and agent. It tells you what to
 read, where you may work, how to verify, and how to leave the repository in a
 state that the next stranger can use.
 
-**Current milestone: M0 — foundation complete. M1 — renderer is next.**
-See `docs/roadmap.md` for the exact next tasks. No APK exists yet.
+**Current milestone: M3 — hardening, real phone, and production-shaped data.**
+M0, M1, and M2 are complete; the debug APK exists and the emulator demo is
+verified. See `docs/roadmap.md` for the exact next tasks.
 
 ---
 
@@ -36,12 +37,12 @@ designed to be enough for a know-nothing agent to make a correct change.
 | `docs/` | present | Architecture, contracts, development, roadmap |
 | `contracts/` | present | Machine-readable schemas and fixtures |
 | `changelog.d/` | present | Decision log and change fragments |
-| `app/` | planned (M2) | Android Kotlin shell; only `AGENTS.md` now |
-| `web/` | planned (M1) | Vanilla ES-module renderer; only `AGENTS.md` now |
-| `tools/` | check_docs now; demo tools M1 | Docs checker; mock Prometheus and static demo server |
+| `app/` | implemented (M2) | Android Kotlin shell, config parser, WebView security, kiosk/lock-screen |
+| `web/` | implemented (M1) | Vanilla ES-module renderer plus contract tests |
+| `tools/` | implemented | Docs checker, mock Prometheus, static demo server, mock tests |
 
-Commands in `docs/development.md` marked **planned** do not work until their
-milestone lands. Do not claim a command works without running it.
+Commands in `docs/development.md` are real unless explicitly marked **planned**.
+Do not claim a command works without running it.
 
 ---
 
@@ -118,31 +119,30 @@ kind, or diagnostic field. Those are contracts.
 
 ## 6. Commands
 
-### Available now (M0)
+### Available now
 
 ```sh
 # Validate every JSON contract/fixture
 find contracts -name '*.json' -print0 | xargs -0 -n1 jq empty
 
-# Show the current foundation
-find docs contracts changelog.d -type f | sort
-
 # Check local Markdown links (no dependencies)
 python3 tools/check_docs.py
-```
 
-### Planned (do not claim they pass yet)
+# Renderer unit/contract tests
+mise exec -- node --test web/tests/
 
-```sh
-# Renderer browser harness (M1)
+# Mock/tooling tests
+python3 -m unittest discover -s tools -p 'test_*.py' -v
+
+# Browser demo
 python3 tools/mock_prometheus.py --port 9091
 python3 tools/serve_demo.py --port 8099
-node --test web/tests/
 
-# Android (M2)
-./gradlew :app:assembleDebug
-./gradlew :app:installDebug
-adb shell am start -n dev.androdash/.MainActivity \
+# Android
+mise exec -- ./gradlew :app:testDebugUnitTest
+mise exec -- ./gradlew :app:assembleDebug
+mise exec -- ./gradlew :app:installDebug
+adb shell am start -n com.mbicz.androdash/.MainActivity \
   --es dashboard_url "http://10.0.2.2:8099/contracts/fixtures/demo-dashboard.json" \
   --es prometheus_url "http://10.0.2.2:9091" \
   --ez debug true
@@ -161,8 +161,8 @@ A change is done only when all applicable items are true:
 - [ ] Pure logic has automated tests; UI behavior has a documented manual check.
 - [ ] Error paths and limits are covered.
 - [ ] `find contracts -name '*.json' -print0 | xargs -0 -n1 jq empty` passes.
-- [ ] The demo (`contracts/fixtures/demo-dashboard.json` + mock Prometheus) still
-      renders, or the reason it cannot is stated.
+- [ ] The demo (`contracts/fixtures/demo-dashboard.json` or the Spark fixture)
+      plus mock Prometheus still renders, or the reason it cannot is stated.
 - [ ] `docs/` and `docs/contracts/` are not contradicted.
 - [ ] A `changelog.d` entry exists for every decision or contract change.
 - [ ] No secrets, real credentials, or private URLs are committed.
@@ -232,11 +232,13 @@ If any step is impossible using only this repository, fix the repository
 
 - **M0 (complete):** constitution, contracts, architecture, decision log,
   fixtures, scoped guides.
-- **M1 (next):** web renderer + mock Prometheus + browser demo. Start with
-  `web/AGENTS.md`, then C-001 through C-006.
-- **M2:** Android shell + emulator demo. Start with `app/AGENTS.md`, then C-007
-  and C-008.
+- **M1 (complete):** web renderer, mock Prometheus, static demo server, browser
+  demo, 55 renderer tests.
+- **M2 (complete):** Android shell, emulator demo, kiosk/lock-screen modes,
+   config tests, lint/build/install.
+- **M3 (current):** soak test, physical AMOLED phone, accessibility, reconnect
+  behavior, optional static dashboard packaging. The Spark Exporter dashboard
+  and real metric units are complete.
 
-Do not start M2 before the renderer contract tests exist; the Android shell has
-nothing stable to wrap otherwise. M1 and M2 can overlap only on the shell
-skeleton, against the frozen contracts.
+Start M3 work from `docs/roadmap.md`; keep the Spark integration honest when
+adding metrics. Do not add unsupported capabilities or fake missing samples.

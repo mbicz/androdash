@@ -3,7 +3,8 @@
 - **Version:** 1
 - **Status:** Accepted, 2026-10-26
 - **Consumers:** Web renderer (W2); dashboard generators (external)
-- **Fixtures:** [`demo-dashboard.json`](../../contracts/fixtures/demo-dashboard.json)
+- **Fixtures:** [`demo-dashboard.json`](../../contracts/fixtures/demo-dashboard.json),
+  [`spark-dashboard.json`](../../contracts/fixtures/spark-dashboard.json)
 - **Related:** C-002 (normalization), C-003 (datasources), C-005 (rendering), C-009 (diagnostics)
 
 ## Purpose
