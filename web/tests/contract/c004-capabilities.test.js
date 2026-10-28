@@ -11,6 +11,9 @@ const fixture = JSON.parse(
 const sparkFixture = JSON.parse(
   await fs.readFile(new URL("../../../contracts/fixtures/spark-dashboard.json", import.meta.url)),
 );
+const macosFixture = JSON.parse(
+  await fs.readFile(new URL("../../../contracts/fixtures/macos-node-dashboard.json", import.meta.url)),
+);
 const url = "http://localhost:8099/contracts/fixtures/demo-dashboard.json";
 const baseConfig = parseConfig(
   `?dashboard_url=${encodeURIComponent(url)}&prometheus_url=http%3A%2F%2Flocalhost%3A9091`,
@@ -63,6 +66,29 @@ test("C-004 Spark dashboard is fully eligible with Prometheus", async () => {
   assert.equal(filtered.counts.hidden, 0);
   assert.equal(filtered.dataPanelIds.length, 13);
   assert.equal(filtered.rows.length, 5);
+  assert.equal(filtered.visible.get("about").panel.panelKind, "Markdown");
+});
+
+test("C-004 macOS node_exporter dashboard is fully eligible without warnings", async () => {
+  const warnings = [];
+  const dashboard = normalizeDashboard(structuredClone(macosFixture), url, null, (code) =>
+    warnings.push(code),
+  );
+  const variables = await resolveVariables(dashboard, {
+    config: baseConfig,
+    advertisedCapabilities: ["prometheus"],
+    labelValues: async () => [],
+    warn: (code) => warnings.push(code),
+  });
+  const filtered = filterDashboard(dashboard, {
+    config: baseConfig,
+    advertised: ["prometheus"],
+    variables,
+    probes: [{ baseUrl: "http://localhost:9091", ok: true }],
+  });
+  assert.deepEqual(warnings, []);
+  assert.equal(filtered.counts.hidden, 0);
+  assert.equal(filtered.counts.rendered, filtered.counts.total);
   assert.equal(filtered.visible.get("about").panel.panelKind, "Markdown");
 });
 

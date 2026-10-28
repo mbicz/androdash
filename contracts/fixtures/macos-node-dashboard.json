@@ -1,0 +1,644 @@
+{
+  "kind": "Dashboard",
+  "metadata": {
+    "name": "macOS host",
+    "project": "androdash",
+    "createdAt": "2026-10-27T00:00:00Z",
+    "updatedAt": "2026-10-27T00:00:00Z",
+    "version": 1
+  },
+  "spec": {
+    "display": {
+      "name": "macOS host",
+      "description": "node_exporter on Darwin via Prometheus"
+    },
+    "duration": "15m",
+    "refreshInterval": "10s",
+    "datasources": {
+      "prom": {
+        "default": true,
+        "plugin": {
+          "kind": "PrometheusDatasource",
+          "spec": {
+            "directUrl": "http://localhost:9090"
+          }
+        }
+      }
+    },
+    "variables": [
+      {
+        "kind": "ListVariable",
+        "spec": {
+          "name": "ds",
+          "defaultValue": "prom",
+          "allowMultiple": false,
+          "allowAllValue": false,
+          "plugin": {
+            "kind": "DatasourceVariable",
+            "spec": {
+              "datasourcePluginKind": "PrometheusDatasource"
+            }
+          }
+        }
+      }
+    ],
+    "panels": {
+      "utilization": {
+        "kind": "Panel",
+        "spec": {
+          "display": {
+            "name": "Utilization",
+            "description": "CPU busy, memory used, Data volume used, swap used"
+          },
+          "plugin": {
+            "kind": "GaugeChart",
+            "spec": {
+              "calculation": "last-number",
+              "format": {
+                "unit": "percent",
+                "decimalPlaces": 0
+              },
+              "thresholds": {
+                "steps": [
+                  {
+                    "value": 80,
+                    "name": "High"
+                  },
+                  {
+                    "value": 95,
+                    "name": "Critical"
+                  }
+                ]
+              }
+            }
+          },
+          "queries": [
+            {
+              "kind": "TimeSeriesQuery",
+              "spec": {
+                "plugin": {
+                  "kind": "PrometheusTimeSeriesQuery",
+                  "spec": {
+                    "datasource": "$ds",
+                    "query": "label_replace(100 * (1 - avg(rate(node_cpu_seconds_total{mode=\"idle\"}[1m]))), \"reading\", \"cpu\", \"\", \"\")"
+                  }
+                }
+              }
+            },
+            {
+              "kind": "TimeSeriesQuery",
+              "spec": {
+                "plugin": {
+                  "kind": "PrometheusTimeSeriesQuery",
+                  "spec": {
+                    "datasource": "$ds",
+                    "query": "label_replace(100 * (node_memory_internal_bytes - node_memory_purgeable_bytes + node_memory_wired_bytes + node_memory_compressed_bytes) / node_memory_total_bytes, \"reading\", \"mem\", \"\", \"\")"
+                  }
+                }
+              }
+            },
+            {
+              "kind": "TimeSeriesQuery",
+              "spec": {
+                "plugin": {
+                  "kind": "PrometheusTimeSeriesQuery",
+                  "spec": {
+                    "datasource": "$ds",
+                    "query": "label_replace(100 * (1 - node_filesystem_avail_bytes{mountpoint=\"/System/Volumes/Data\"} / node_filesystem_size_bytes{mountpoint=\"/System/Volumes/Data\"}), \"reading\", \"disk\", \"\", \"\")"
+                  }
+                }
+              }
+            },
+            {
+              "kind": "TimeSeriesQuery",
+              "spec": {
+                "plugin": {
+                  "kind": "PrometheusTimeSeriesQuery",
+                  "spec": {
+                    "datasource": "$ds",
+                    "query": "label_replace(100 * node_memory_swap_used_bytes / node_memory_swap_total_bytes, \"reading\", \"swap\", \"\", \"\")"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "memory": {
+        "kind": "Panel",
+        "spec": {
+          "display": {
+            "name": "Memory",
+            "description": "Activity Monitor accounting: used = app + wired + compressed"
+          },
+          "plugin": {
+            "kind": "StatChart",
+            "spec": {
+              "calculation": "last-number",
+              "format": {
+                "unit": "bytes",
+                "decimalPlaces": 1
+              }
+            }
+          },
+          "queries": [
+            {
+              "kind": "TimeSeriesQuery",
+              "spec": {
+                "plugin": {
+                  "kind": "PrometheusTimeSeriesQuery",
+                  "spec": {
+                    "datasource": "$ds",
+                    "query": "label_replace((node_memory_internal_bytes - node_memory_purgeable_bytes + node_memory_wired_bytes + node_memory_compressed_bytes), \"reading\", \"used\", \"\", \"\")"
+                  }
+                }
+              }
+            },
+            {
+              "kind": "TimeSeriesQuery",
+              "spec": {
+                "plugin": {
+                  "kind": "PrometheusTimeSeriesQuery",
+                  "spec": {
+                    "datasource": "$ds",
+                    "query": "label_replace(node_memory_compressed_bytes, \"reading\", \"compressed\", \"\", \"\")"
+                  }
+                }
+              }
+            },
+            {
+              "kind": "TimeSeriesQuery",
+              "spec": {
+                "plugin": {
+                  "kind": "PrometheusTimeSeriesQuery",
+                  "spec": {
+                    "datasource": "$ds",
+                    "query": "label_replace(node_memory_wired_bytes, \"reading\", \"wired\", \"\", \"\")"
+                  }
+                }
+              }
+            },
+            {
+              "kind": "TimeSeriesQuery",
+              "spec": {
+                "plugin": {
+                  "kind": "PrometheusTimeSeriesQuery",
+                  "spec": {
+                    "datasource": "$ds",
+                    "query": "label_replace(node_memory_swap_used_bytes, \"reading\", \"swap\", \"\", \"\")"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "cpu-modes": {
+        "kind": "Panel",
+        "spec": {
+          "display": {
+            "name": "CPU by mode",
+            "description": "Share of all cores, 1m rate"
+          },
+          "plugin": {
+            "kind": "TimeSeriesChart",
+            "spec": {
+              "legend": {
+                "position": "bottom"
+              },
+              "format": {
+                "unit": "percent",
+                "decimalPlaces": 0
+              }
+            }
+          },
+          "queries": [
+            {
+              "kind": "TimeSeriesQuery",
+              "spec": {
+                "plugin": {
+                  "kind": "PrometheusTimeSeriesQuery",
+                  "spec": {
+                    "datasource": "$ds",
+                    "query": "label_replace(100 * avg by (mode) (rate(node_cpu_seconds_total{mode=~\"user|system\"}[1m])), \"reading\", \"$1\", \"mode\", \"(.*)\")"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "load": {
+        "kind": "Panel",
+        "spec": {
+          "display": {
+            "name": "Load average",
+            "description": "Runnable threads; compare with the core count"
+          },
+          "plugin": {
+            "kind": "TimeSeriesChart",
+            "spec": {
+              "legend": {
+                "position": "bottom"
+              },
+              "format": {
+                "unit": "none",
+                "decimalPlaces": 2
+              }
+            }
+          },
+          "queries": [
+            {
+              "kind": "TimeSeriesQuery",
+              "spec": {
+                "plugin": {
+                  "kind": "PrometheusTimeSeriesQuery",
+                  "spec": {
+                    "datasource": "$ds",
+                    "query": "label_replace(node_load1, \"reading\", \"1m\", \"\", \"\")"
+                  }
+                }
+              }
+            },
+            {
+              "kind": "TimeSeriesQuery",
+              "spec": {
+                "plugin": {
+                  "kind": "PrometheusTimeSeriesQuery",
+                  "spec": {
+                    "datasource": "$ds",
+                    "query": "label_replace(node_load5, \"reading\", \"5m\", \"\", \"\")"
+                  }
+                }
+              }
+            },
+            {
+              "kind": "TimeSeriesQuery",
+              "spec": {
+                "plugin": {
+                  "kind": "PrometheusTimeSeriesQuery",
+                  "spec": {
+                    "datasource": "$ds",
+                    "query": "label_replace(node_load15, \"reading\", \"15m\", \"\", \"\")"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "network": {
+        "kind": "Panel",
+        "spec": {
+          "display": {
+            "name": "Network",
+            "description": "Ethernet and Wi-Fi (en*), 1m rate, bits per second"
+          },
+          "plugin": {
+            "kind": "TimeSeriesChart",
+            "spec": {
+              "legend": {
+                "position": "bottom"
+              },
+              "format": {
+                "unit": "bits",
+                "decimalPlaces": 1
+              }
+            }
+          },
+          "queries": [
+            {
+              "kind": "TimeSeriesQuery",
+              "spec": {
+                "plugin": {
+                  "kind": "PrometheusTimeSeriesQuery",
+                  "spec": {
+                    "datasource": "$ds",
+                    "query": "label_replace(sum(rate(node_network_receive_bytes_total{device=~\"en[0-9]+\"}[1m])) * 8, \"reading\", \"rx\", \"\", \"\")"
+                  }
+                }
+              }
+            },
+            {
+              "kind": "TimeSeriesQuery",
+              "spec": {
+                "plugin": {
+                  "kind": "PrometheusTimeSeriesQuery",
+                  "spec": {
+                    "datasource": "$ds",
+                    "query": "label_replace(sum(rate(node_network_transmit_bytes_total{device=~\"en[0-9]+\"}[1m])) * 8, \"reading\", \"tx\", \"\", \"\")"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "disk-io": {
+        "kind": "Panel",
+        "spec": {
+          "display": {
+            "name": "Disk I/O per second",
+            "description": "All physical disks, 1m rate, bytes per second"
+          },
+          "plugin": {
+            "kind": "TimeSeriesChart",
+            "spec": {
+              "legend": {
+                "position": "bottom"
+              },
+              "format": {
+                "unit": "bytes",
+                "decimalPlaces": 1
+              }
+            }
+          },
+          "queries": [
+            {
+              "kind": "TimeSeriesQuery",
+              "spec": {
+                "plugin": {
+                  "kind": "PrometheusTimeSeriesQuery",
+                  "spec": {
+                    "datasource": "$ds",
+                    "query": "label_replace(sum(rate(node_disk_read_bytes_total[1m])), \"reading\", \"read\", \"\", \"\")"
+                  }
+                }
+              }
+            },
+            {
+              "kind": "TimeSeriesQuery",
+              "spec": {
+                "plugin": {
+                  "kind": "PrometheusTimeSeriesQuery",
+                  "spec": {
+                    "datasource": "$ds",
+                    "query": "label_replace(sum(rate(node_disk_written_bytes_total[1m])), \"reading\", \"write\", \"\", \"\")"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "free-space": {
+        "kind": "Panel",
+        "spec": {
+          "display": {
+            "name": "Free space",
+            "description": "Available bytes on the Data volume and mounted external volumes"
+          },
+          "plugin": {
+            "kind": "StatChart",
+            "spec": {
+              "calculation": "last-number",
+              "format": {
+                "unit": "bytes",
+                "decimalPlaces": 1
+              }
+            }
+          },
+          "queries": [
+            {
+              "kind": "TimeSeriesQuery",
+              "spec": {
+                "plugin": {
+                  "kind": "PrometheusTimeSeriesQuery",
+                  "spec": {
+                    "datasource": "$ds",
+                    "query": "label_replace(node_filesystem_avail_bytes{fstype=\"apfs\", mountpoint=~\"/System/Volumes/Data|/Volumes/.+\"}, \"reading\", \"$1\", \"mountpoint\", \"(?:/System/Volumes/|/Volumes/)(.+)\")"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "uptime": {
+        "kind": "Panel",
+        "spec": {
+          "display": {
+            "name": "Uptime (days)",
+            "description": "Since node_boot_time_seconds"
+          },
+          "plugin": {
+            "kind": "StatChart",
+            "spec": {
+              "calculation": "last-number",
+              "format": {
+                "unit": "none",
+                "decimalPlaces": 1
+              }
+            }
+          },
+          "queries": [
+            {
+              "kind": "TimeSeriesQuery",
+              "spec": {
+                "plugin": {
+                  "kind": "PrometheusTimeSeriesQuery",
+                  "spec": {
+                    "datasource": "$ds",
+                    "query": "(time() - node_boot_time_seconds) / 86400"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "collectors": {
+        "kind": "Panel",
+        "spec": {
+          "display": {
+            "name": "Collector health",
+            "description": "1 = node_exporter collector succeeded on the last scrape"
+          },
+          "plugin": {
+            "kind": "Table",
+            "spec": {
+              "format": {
+                "unit": "none",
+                "decimalPlaces": 0
+              }
+            }
+          },
+          "queries": [
+            {
+              "kind": "TimeSeriesQuery",
+              "spec": {
+                "plugin": {
+                  "kind": "PrometheusTimeSeriesQuery",
+                  "spec": {
+                    "datasource": "$ds",
+                    "query": "node_scrape_collector_success"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "about": {
+        "kind": "Panel",
+        "spec": {
+          "display": {
+            "name": "About this dashboard",
+            "description": "Metric semantics and limits"
+          },
+          "plugin": {
+            "kind": "Markdown",
+            "spec": {
+              "text": "## macOS host\n\nnode_exporter on Darwin, scraped by a local Prometheus.\n\n- Memory used matches Activity Monitor: app (internal − purgeable) + wired + compressed.\n- Disk % is the Data volume; APFS volumes share one container, so free space is container-wide.\n- Darwin node_exporter publishes no temperatures, fans, or GPU metrics; this dashboard does not invent them.\n- Same-unit readings share a panel and are named by a `reading` label."
+            }
+          },
+          "queries": []
+        }
+      }
+    },
+    "layouts": [
+      {
+        "kind": "Grid",
+        "spec": {
+          "display": {
+            "title": "Now",
+            "collapse": {
+              "open": true
+            }
+          },
+          "items": [
+            {
+              "x": 0,
+              "y": 0,
+              "width": 12,
+              "height": 11,
+              "content": {
+                "$ref": "#/spec/panels/utilization"
+              }
+            },
+            {
+              "x": 12,
+              "y": 0,
+              "width": 12,
+              "height": 11,
+              "content": {
+                "$ref": "#/spec/panels/memory"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "kind": "Grid",
+        "spec": {
+          "display": {
+            "title": "CPU",
+            "collapse": {
+              "open": true
+            }
+          },
+          "items": [
+            {
+              "x": 0,
+              "y": 0,
+              "width": 12,
+              "height": 7,
+              "content": {
+                "$ref": "#/spec/panels/cpu-modes"
+              }
+            },
+            {
+              "x": 12,
+              "y": 0,
+              "width": 12,
+              "height": 7,
+              "content": {
+                "$ref": "#/spec/panels/load"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "kind": "Grid",
+        "spec": {
+          "display": {
+            "title": "Network and disk",
+            "collapse": {
+              "open": true
+            }
+          },
+          "items": [
+            {
+              "x": 0,
+              "y": 0,
+              "width": 12,
+              "height": 7,
+              "content": {
+                "$ref": "#/spec/panels/network"
+              }
+            },
+            {
+              "x": 12,
+              "y": 0,
+              "width": 12,
+              "height": 7,
+              "content": {
+                "$ref": "#/spec/panels/disk-io"
+              }
+            },
+            {
+              "x": 0,
+              "y": 7,
+              "width": 24,
+              "height": 3,
+              "content": {
+                "$ref": "#/spec/panels/free-space"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "kind": "Grid",
+        "spec": {
+          "display": {
+            "title": "System",
+            "collapse": {
+              "open": true
+            }
+          },
+          "items": [
+            {
+              "x": 0,
+              "y": 0,
+              "width": 6,
+              "height": 4,
+              "content": {
+                "$ref": "#/spec/panels/uptime"
+              }
+            },
+            {
+              "x": 6,
+              "y": 0,
+              "width": 10,
+              "height": 7,
+              "content": {
+                "$ref": "#/spec/panels/collectors"
+              }
+            },
+            {
+              "x": 16,
+              "y": 0,
+              "width": 8,
+              "height": 7,
+              "content": {
+                "$ref": "#/spec/panels/about"
+              }
+            }
+          ]
+        }
+      }
+    ]
+  }
+}
