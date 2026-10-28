@@ -54,8 +54,13 @@ This is deliberate: one name per concept, easy to debug with `adb`.
 
 Intent extras use `--es` (string), `--ei` (int), `--ez` (boolean) with `adb`.
 
-`lock_task` is a native-only extra defined in C-007. It is not part of
-`AppConfig` and is not passed to the renderer.
+`lock_task` and `show_when_locked` are native-only extras defined in C-007.
+They are not part of `AppConfig` and are not passed to the renderer as query
+parameters. `lock_task` is never persisted; `show_when_locked` is persisted as
+its own boolean preference (not inside `launch_config`), can be toggled at
+runtime with `AndroDash.setLockScreen()`, and while true the shell tells the
+renderer the locked state through `window.androdash.setLocked()` (C-007,
+decision 0016).
 
 ## Canonical object
 
@@ -160,6 +165,9 @@ The native shell shows `E_CONFIG` on its fatal screen. The renderer shows an
 - Explicit extras override persisted fields; missing optional metadata does not
   erase persisted values unless the operator explicitly clears it (a future
   settings UI may add `--ez reset_config true`, not in v1).
+- The renderer may change `timeRange`/`refreshSeconds` at runtime through
+  `AndroDash.setView()` (C-007). The shell validates them with the rules below,
+  persists the updated `AppConfig`, and rebuilds the local URL (decision 0016).
 - Log the result with redacted URLs only.
 - If the local asset fails to load, show the native fatal screen.
 
@@ -201,6 +209,7 @@ The native shell shows `E_CONFIG` on its fatal screen. The renderer shows an
 - Authentication/secrets.
 - Remote config files.
 - Multiple dashboards in one launch (array selection is dashboard-level).
-- Changing kiosk settings at runtime.
+- Changing kiosk settings at runtime (other than the C-007 `setView` and
+  `setLockScreen` bridge methods, decision 0016).
 
 Adding any of these requires a contract change and a decision entry.
