@@ -1,8 +1,9 @@
 # C-002 — Dashboard source and normalization
 
-- **Version:** 1 (AndroDash Perses subset v1)
+- **Version:** 2 (AndroDash Perses subset v1)
 - **Status:** Accepted, 2026-10-26; amended 2026-10-27 (variables in titles;
-  decision 0015)
+  decision 0015); v2 2026-10-28 (dashboard sources: stored, live, bundled;
+  decision 0018)
 - **Consumers:** Web renderer (W2)
 - **Fixtures:** [`demo-dashboard.json`](../../contracts/fixtures/demo-dashboard.json),
   [`spark-dashboard.json`](../../contracts/fixtures/spark-dashboard.json),
@@ -39,6 +40,31 @@ Fetch failures map to `E_DASHBOARD_FETCH` (C-009), with a short status/network
 reason. A CORS failure must include a hint naming the renderer origin and the
 need for `Access-Control-Allow-Origin`. Do not display the full URL with query
 string.
+
+## Dashboard sources
+
+Where the definition comes from is chosen by C-001 `dashboard_source` and the
+shape of `dashboard_url`. The fetch rules above apply whenever the renderer
+fetches; the definition is normalized as untrusted input whatever its source.
+
+| Source | When | Behaviour |
+|---|---|---|
+| `bundled` | `dashboard_url` is `http://androdash.local/dashboards/<file>.json` | A dashboard built into the APK (C-007). Always local; never stored. |
+| `stored` | `dashboard_source=stored` (default) and the Android shell's store is present | Read `http://androdash.local/stored/meta.json`. If its `sourceUrl` equals `dashboard_url`, load `/stored/dashboard.json` and **do not contact the dashboard server**. Otherwise fetch `dashboard_url`, normalize it, and store it with `AndroDash.storeDashboard(dashboard_url, json)`; a new `dashboard_url` therefore replaces the stored copy on its first successful load. |
+| `url` | `dashboard_source=url`, or no shell store (browser) | Fetch `dashboard_url` on every load; store nothing. |
+
+- A stored copy that cannot be read or does not normalize records
+  `W_STORED_DASHBOARD_INVALID` and falls back to fetching.
+- A fetched definition the shell refuses to store records
+  `W_DASHBOARD_NOT_STORED`; the dashboard still renders (source `url`).
+- "Update from URL" in the settings sheet re-fetches `dashboard_url` and
+  replaces the stored copy only if the new definition normalizes; a failed
+  update keeps the current copy.
+- Relative datasource URLs resolve against `dashboard_url` (the final URL
+  after redirects when fetched), never against the virtual origin, so a stored
+  copy reaches the same Prometheus as the fetched one.
+- Diagnostics record the source (`stored`, `url`, `bundled`) and, for stored
+  copies, when it was stored (C-009).
 
 ## Accepted document shapes
 
@@ -343,6 +369,15 @@ Warnings are collected in diagnostics and do not block rendering.
 - panel/query normalization;
 - size/limit errors;
 - demo fixture → 9 panels, 4 rows, expected IDs.
+
+`web/tests/contract/c002-stored.test.js`:
+
+- stored source fetches once, stores, then loads with the server unreachable;
+- a stored copy from another URL is replaced, not used;
+- `url` source always fetches and never stores;
+- an unusable stored copy warns `W_STORED_DASHBOARD_INVALID` and refetches;
+- bundled URLs are local and never stored;
+- a failed update keeps the stored copy.
 
 ## Out of scope
 

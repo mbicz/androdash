@@ -37,7 +37,9 @@
     "duration": "15m",
     "refreshInterval": "10s",
     "panelsTotal": 9,
-    "rowsTotal": 4
+    "rowsTotal": 4,
+    "source": "url",
+    "storedAt": null
   },
   "panels": {
     "total": 9,

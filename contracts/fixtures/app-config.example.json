@@ -10,6 +10,7 @@
   "layoutMode": "auto",
   "displayMode": "standard",
   "lockStyle": "monochrome",
+  "dashboardSource": "stored",
   "dashboardName": null,
   "capabilities": null,
   "showUnsupported": false

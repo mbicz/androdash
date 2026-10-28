@@ -5,6 +5,20 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
+// Bundled dashboards: every contracts fixture named *-dashboard.json is served
+// at http://androdash.local/dashboards/<file> (C-001, AssetServer). The
+// generated directory is an extra assets root; preBuild runs the copy, so every
+// variant task (merge assets, lint, assemble) sees it.
+val dashboardAssetsDir = layout.buildDirectory.dir("generated/dashboard-assets")
+val copyDashboardAssets = tasks.register<Copy>("copyDashboardAssets") {
+    from("$rootDir/contracts/fixtures") {
+        include("*-dashboard.json")
+        into("dashboards")
+    }
+    into(dashboardAssetsDir)
+}
+tasks.named("preBuild") { dependsOn(copyDashboardAssets) }
+
 android {
     namespace = "com.mbicz.androdash"
     compileSdk = 35
@@ -37,7 +51,10 @@ android {
     }
 
     sourceSets {
-        getByName("main").assets.srcDirs("$rootDir/web/app")
+        getByName("main").assets.srcDirs(
+            "$rootDir/web/app",
+            dashboardAssetsDir.get().asFile,
+        )
     }
 
     testOptions {

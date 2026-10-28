@@ -47,6 +47,7 @@ object ConfigParser {
     private val LAYOUTS = setOf("auto", "grid", "stack", "fit")
     private val DISPLAY_MODES = setOf("standard", "amoled", "monochrome")
     private val LOCK_STYLES = setOf("monochrome", "color")
+    private val DASHBOARD_SOURCES = setOf("stored", "url")
 
     /** Maximum length of a `setOption` name or value (C-007). */
     const val MAX_OPTION_INPUT = 64
@@ -133,6 +134,12 @@ object ConfigParser {
             else -> parseEnum(extras.getValue("lock_style")!!, "lock_style", LOCK_STYLES)
         }
 
+        val dashboardSource = when {
+            !extras.containsKey("dashboard_source") -> base?.dashboardSource ?: "stored"
+            extras["dashboard_source"].isNullOrBlank() -> base?.dashboardSource ?: "stored"
+            else -> parseEnum(extras.getValue("dashboard_source")!!, "dashboard_source", DASHBOARD_SOURCES)
+        }
+
         val dashboardName = when {
             !extras.containsKey("dashboard_name") -> base?.dashboardName
             extras["dashboard_name"].isNullOrBlank() -> base?.dashboardName
@@ -162,6 +169,7 @@ object ConfigParser {
             layoutMode = layoutMode,
             displayMode = displayMode,
             lockStyle = lockStyle,
+            dashboardSource = dashboardSource,
             dashboardName = dashboardName,
             capabilities = capabilities,
             showUnsupported = showUnsupported,
@@ -204,6 +212,9 @@ object ConfigParser {
             "refresh_seconds" -> config.copy(refreshSeconds = parseRefresh(raw, warnings))
             "layout_mode" -> config.copy(layoutMode = parseEnum(raw, "layout_mode", LAYOUTS))
             "lock_style" -> config.copy(lockStyle = parseEnum(raw, "lock_style", LOCK_STYLES))
+            "dashboard_source" -> config.copy(
+                dashboardSource = parseEnum(raw, "dashboard_source", DASHBOARD_SOURCES),
+            )
             else -> throw ConfigException("E_CONFIG", "setOption does not accept this option name")
         }
         validateConfig(updated)
@@ -237,6 +248,7 @@ object ConfigParser {
         add("layout_mode", config.layoutMode)
         add("display_mode", config.displayMode)
         add("lock_style", config.lockStyle)
+        add("dashboard_source", config.dashboardSource)
         add("dashboard_name", config.dashboardName)
         add("capabilities", config.capabilities?.joinToString(","))
         add("show_unsupported", config.showUnsupported.toString())
@@ -267,6 +279,9 @@ object ConfigParser {
         }
         if (config.lockStyle !in LOCK_STYLES) {
             throw ConfigException("E_CONFIG", enumMessage("lock_style", LOCK_STYLES))
+        }
+        if (config.dashboardSource !in DASHBOARD_SOURCES) {
+            throw ConfigException("E_CONFIG", enumMessage("dashboard_source", DASHBOARD_SOURCES))
         }
         config.dashboardName?.let {
             if (it.isEmpty() || it.length > MAX_NAME) {

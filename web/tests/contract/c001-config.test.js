@@ -86,11 +86,23 @@ test("C-001 rejects oversized query strings and invalid booleans/layouts", () =>
   assert.throws(() => parseConfig(`${base}&x=${"a".repeat(2100)}`), ConfigError);
   assert.throws(() => parseConfig(`${base}&debug=yes`), ConfigError);
   assert.throws(() => parseConfig(`${base}&layout_mode=wide`), ConfigError);
+  assert.throws(() => parseConfig(`${base}&lock_style=sepia`), ConfigError);
+  assert.throws(() => parseConfig(`${base}&dashboard_source=cache`), ConfigError);
+});
+
+test("C-001 fit layout, lock style, and dashboard source defaults and values", () => {
+  const defaults = parseConfig(base).config;
+  assert.equal(defaults.lockStyle, "monochrome");
+  assert.equal(defaults.dashboardSource, "stored");
+  const { config } = parseConfig(`${base}&layout_mode=fit&lock_style=color&dashboard_source=url`);
+  assert.equal(config.layoutMode, "fit");
+  assert.equal(config.lockStyle, "color");
+  assert.equal(config.dashboardSource, "url");
 });
 
 test("C-001 canonical query round-trips", () => {
   const { config } = parseConfig(
-    `${base}&prometheus_url=http%3A%2F%2Flocalhost%3A9091&refresh_seconds=10&time_range=15m&step_seconds=15&kiosk=false&debug=true&layout_mode=grid&display_mode=monochrome&dashboard_name=Main&capabilities=prometheus&show_unsupported=true`,
+    `${base}&prometheus_url=http%3A%2F%2Flocalhost%3A9091&refresh_seconds=10&time_range=15m&step_seconds=15&kiosk=false&debug=true&layout_mode=grid&display_mode=monochrome&dashboard_name=Main&capabilities=prometheus&show_unsupported=true&lock_style=color&dashboard_source=url`,
   );
   const round = parseConfig(buildQuery(config)).config;
   assert.deepEqual(round, config);

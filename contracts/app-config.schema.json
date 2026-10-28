@@ -78,6 +78,12 @@
       "default": "monochrome",
       "description": "Renderer colours while the phone is locked with show_when_locked (C-007). monochrome is the grayscale locked view; color keeps the configured display_mode colours. Additive; persisted objects without it default to monochrome."
     },
+    "dashboardSource": {
+      "type": "string",
+      "enum": ["stored", "url"],
+      "default": "stored",
+      "description": "Where the renderer gets the dashboard JSON (C-001, C-007). stored loads the on-device copy at /stored/dashboard.json when its meta sourceUrl equals dashboardUrl, otherwise fetches dashboardUrl and stores the result with AndroDash.storeDashboard; url fetches dashboardUrl on every load and stores nothing. Bundled http://androdash.local/dashboards/ URLs are always local and never stored. Additive; persisted objects without it default to stored."
+    },
     "dashboardName": {
       "type": ["string", "null"],
       "minLength": 1,

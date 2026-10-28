@@ -233,12 +233,12 @@ If any step is impossible using only this repository, fix the repository
 - **M0 (complete):** constitution, contracts, architecture, decision log,
   fixtures, scoped guides.
 - **M1 (complete):** web renderer, mock Prometheus, static demo server, browser
-  demo, 73 renderer tests.
+  demo, 80 renderer tests.
 - **M2 (complete):** Android shell, emulator demo, kiosk/lock-screen modes,
    config tests, lint/build/install.
 - **M3 (current):** soak test, physical AMOLED phone, accessibility, reconnect
-  behavior, optional static dashboard packaging. The Spark Exporter dashboard
-  and real metric units are complete.
+  behavior. The Spark Exporter dashboard, real metric units, fit layout, and
+  on-device dashboards (bundled + stored copy) are complete.
 
 Start M3 work from `docs/roadmap.md`; keep the Spark integration honest when
 adding metrics. Do not add unsupported capabilities or fake missing samples.

@@ -27,7 +27,7 @@ web/
 │       ├── config.js         # query → canonical AppConfig
 │       ├── fetch-json.js     # timeout/redirect/error helpers
 │       ├── dashboard/
-│       │   ├── load.js       # fetch and select a dashboard
+│       │   ├── load.js       # dashboard sources: stored copy, live URL, bundled
 │       │   ├── normalize.js  # Perses subset → internal model, variables,
 │       │   │                 # interpolation, title variables
 │       │   └── duration.js   # duration parsing
@@ -54,6 +54,7 @@ web/
     └── contract/
         ├── c001-config.test.js
         ├── c002-dashboard.test.js
+        ├── c002-stored.test.js
         ├── c003-prometheus.test.js
         ├── c004-capabilities.test.js
         ├── c005-fit.test.js

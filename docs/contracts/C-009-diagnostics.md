@@ -4,7 +4,8 @@
 - **Status:** Accepted, 2026-10-26; amended 2026-10-27 (header status without a
   countdown, `setLocked`; decision 0015); amended 2026-10-28
   (`W_FIT_OVERFLOW`, settings action replaces the lock-screen toggle; decision
-  0017)
+  0017); amended 2026-10-28 (dashboard `source`/`storedAt`,
+  `W_STORED_DASHBOARD_INVALID`, `W_DASHBOARD_NOT_STORED`; decision 0018)
 - **Consumers:** Web renderer (W2), Android shell (W1)
 - **Machine-readable:** [`contracts/diagnostics.schema.json`](../../contracts/diagnostics.schema.json)
 - **Fixture:** [`diagnostics.example.json`](../../contracts/fixtures/diagnostics.example.json)
@@ -68,6 +69,8 @@ Warnings are non-fatal and recorded in diagnostics:
 | `W_GAUGES_TRUNCATED` | Gauge kept only the first N gauges |
 | `W_CALCULATION_UNKNOWN` | Unknown stat/gauge calculation; last-number used |
 | `W_UNIT_UNKNOWN` | Unknown formatting unit; raw value used |
+| `W_STORED_DASHBOARD_INVALID` | The stored dashboard copy (C-002) could not be read or does not normalize; the renderer fetches `dashboard_url` instead. Detail: error code |
+| `W_DASHBOARD_NOT_STORED` | The shell refused to store a fetched dashboard (C-002, C-007 `storeDashboard`); it still renders, from the URL |
 | `W_FIT_OVERFLOW` | Fit layout (C-005) cannot place every panel on one screen even at the minimum type scale; the grid scrolls. Detail: `<N> panels` |
 
 Do not invent ad-hoc codes. Add a contract update for a new code.
@@ -116,7 +119,9 @@ Canonical shape (see the schema for exact types):
     "duration": "15m",
     "refreshInterval": "10s",
     "panelsTotal": 9,
-    "rowsTotal": 4
+    "rowsTotal": 4,
+    "source": "url",
+    "storedAt": null
   },
   "panels": {
     "total": 9,
@@ -163,6 +168,9 @@ Rules:
 - `capabilities.unknown` lists advertised IDs not in the registry.
 - `capabilities.probed` has at most 4 entries, one per probed base URL.
 - `dashboard` is `null` if no dashboard loaded; otherwise redacted URL + metadata.
+  `source` is where the definition came from (`stored`, `url`, `bundled`;
+  C-002) and `storedAt` the ISO time a stored copy was written (`null`
+  otherwise).
 - `panels.total/rendered/hidden/errors` are counts for the current model.
   `hiddenReasons` has one entry per hidden panel instance's distinct panel ID
   (max 200), sorted by `panelId`.

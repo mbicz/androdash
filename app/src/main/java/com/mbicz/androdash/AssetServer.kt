@@ -6,12 +6,18 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import java.io.ByteArrayInputStream
 import java.io.IOException
+import java.io.InputStream
 
 /**
- * Serves the trusted renderer from the virtual origin. No file:// access and no
- * directory traversal: only the explicit asset allowlist below is reachable.
+ * Serves the trusted renderer, the bundled dashboards, and the stored
+ * dashboard copy from the virtual origin. No file:// access and no directory
+ * traversal: only the explicit routes in [route] are reachable, and the stored
+ * copy lives under fixed file names in [DashboardStore].
  */
-class AssetServer(private val assets: AssetManager) {
+class AssetServer(
+    private val assets: AssetManager,
+    private val store: DashboardStore,
+) {
     fun intercept(request: WebResourceRequest): WebResourceResponse? {
         val uri = request.url
         if (!isLocal(uri)) return null
@@ -19,31 +25,28 @@ class AssetServer(private val assets: AssetManager) {
             return textResponse(405, "Method not allowed")
         }
 
-        val path = uri.path.orEmpty()
-        if (path.contains("..") || path.contains('\\') || path.contains('%') || path.contains("//")) {
-            return textResponse(400, "Bad path")
-        }
-        val assetPath = when {
-            path.isEmpty() || path == "/" -> "index.html"
-            else -> path.removePrefix("/")
-        }
-        if (!ALLOWED.matches(assetPath)) {
-            return textResponse(404, "Not found")
-        }
-
-        return try {
-            val stream = assets.open(assetPath, AssetManager.ACCESS_STREAMING)
-            val mime = mimeType(assetPath)
-            val headers = mapOf(
-                "Cache-Control" to "no-store",
-                "X-Content-Type-Options" to "nosniff",
-                "X-Frame-Options" to "DENY",
-            )
-            WebResourceResponse(mime, "utf-8", 200, "OK", headers, stream)
-        } catch (_: IOException) {
-            textResponse(404, "Not found")
+        return when (val route = route(uri.path.orEmpty())) {
+            Route.BadPath -> textResponse(400, "Bad path")
+            Route.NotFound -> textResponse(404, "Not found")
+            Route.StoredDashboard -> stored(store.readDashboard())
+            Route.StoredMeta -> stored(store.readMeta())
+            is Route.Asset -> try {
+                ok(mimeType(route.path), assets.open(route.path, AssetManager.ACCESS_STREAMING))
+            } catch (_: IOException) {
+                textResponse(404, "Not found")
+            }
         }
     }
+
+    private fun stored(bytes: ByteArray?): WebResourceResponse =
+        if (bytes == null) {
+            textResponse(404, "Not found")
+        } else {
+            ok("application/json", ByteArrayInputStream(bytes))
+        }
+
+    private fun ok(mime: String, stream: InputStream): WebResourceResponse =
+        WebResourceResponse(mime, "utf-8", 200, "OK", ASSET_HEADERS, stream)
 
     private fun textResponse(status: Int, message: String): WebResourceResponse =
         WebResourceResponse(
@@ -63,11 +66,44 @@ class AssetServer(private val assets: AssetManager) {
         else -> "application/octet-stream"
     }
 
+    sealed interface Route {
+        data object BadPath : Route
+        data object NotFound : Route
+        data object StoredDashboard : Route
+        data object StoredMeta : Route
+
+        /** A bundled asset, relative to the APK assets root. */
+        data class Asset(val path: String) : Route
+    }
+
     companion object {
-        const val HOST = "androdash.local"
+        const val HOST = ConfigParser.HOST
+        const val STORED_DASHBOARD_PATH = "/stored/dashboard.json"
+        const val STORED_META_PATH = "/stored/meta.json"
         private val ALLOWED = Regex(
-            "^(index\\.html|styles\\.css|src/[A-Za-z0-9_./-]+\\.js)$",
+            "^(index\\.html|styles\\.css|src/[A-Za-z0-9_./-]+\\.js|dashboards/[A-Za-z0-9_.-]+\\.json)$",
         )
+        private val ASSET_HEADERS = mapOf(
+            "Cache-Control" to "no-store",
+            "X-Content-Type-Options" to "nosniff",
+            "X-Frame-Options" to "DENY",
+        )
+
+        /** Map a virtual-origin URL path to what serves it. Pure; unit-tested. */
+        fun route(path: String): Route {
+            if (path.contains("..") || path.contains('\\') || path.contains('%') || path.contains("//")) {
+                return Route.BadPath
+            }
+            return when (path) {
+                "", "/" -> Route.Asset("index.html")
+                STORED_DASHBOARD_PATH -> Route.StoredDashboard
+                STORED_META_PATH -> Route.StoredMeta
+                else -> {
+                    val assetPath = path.removePrefix("/")
+                    if (ALLOWED.matches(assetPath)) Route.Asset(assetPath) else Route.NotFound
+                }
+            }
+        }
 
         fun isLocal(uri: Uri): Boolean =
             uri.scheme.equals("http", ignoreCase = true) &&

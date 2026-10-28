@@ -41,7 +41,9 @@ soak, and accessibility.
 - Assets: map `web/app/` as the module's assets root and serve it from the
   virtual `http://androdash.local` origin via `shouldInterceptRequest`
   (decision 0007). Do not copy runtime assets into `app/` by hand and do not
-  use `file://`.
+  use `file://`. Bundled dashboards come from `contracts/fixtures/*-dashboard.json`
+  via the generated `copyDashboardAssets` assets root; the stored remote copy
+  is `DashboardStore` (decision 0018).
 - Config: parse Intent extras into the canonical `AppConfig` (C-001), validate,
   build the local URL with encoded params, persist the last valid config.
 - WebView: apply every C-008 setting; block navigation; no remote code.

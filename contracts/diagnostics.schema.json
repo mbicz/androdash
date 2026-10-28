@@ -120,6 +120,13 @@
         "rowsTotal": {
           "type": "integer",
           "minimum": 0
+        },
+        "source": {
+          "type": "string",
+          "enum": ["stored", "url", "bundled"]
+        },
+        "storedAt": {
+          "type": ["string", "null"]
         }
       }
     },
@@ -310,7 +317,9 @@
             "W_GAUGES_TRUNCATED",
             "W_CALCULATION_UNKNOWN",
             "W_UNIT_UNKNOWN",
-            "W_FIT_OVERFLOW"
+            "W_FIT_OVERFLOW",
+            "W_STORED_DASHBOARD_INVALID",
+            "W_DASHBOARD_NOT_STORED"
           ]
         },
         "message": {
