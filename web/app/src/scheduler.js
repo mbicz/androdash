@@ -107,6 +107,17 @@ export class Scheduler {
     return this.request(reason);
   }
 
+  /**
+   * Change the auto-refresh interval at runtime (C-006). The next cycle is
+   * rescheduled from now; `0` switches to manual. A running cycle reschedules
+   * itself when it settles.
+   */
+  setIntervalSeconds(seconds) {
+    this.intervalMs = Math.max(0, Number(seconds) || 0) * 1000;
+    if (!this.running) this.schedule();
+    else this.notify();
+  }
+
   request(reason) {
     if (this.running) {
       this.rerunAfter = true;

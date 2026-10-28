@@ -1,7 +1,8 @@
 # C-004 — Capability negotiation and filtering
 
 - **Version:** 1
-- **Status:** Accepted, 2026-10-26
+- **Status:** Accepted, 2026-10-26; amended 2026-10-27 (hidden count leaves
+  the header status; decision 0015)
 - **Consumers:** Web renderer (W2); dashboard generators (external)
 - **Fixtures:** [`demo-dashboard.json`](../../contracts/fixtures/demo-dashboard.json),
   [`spark-dashboard.json`](../../contracts/fixtures/spark-dashboard.json)
@@ -174,8 +175,9 @@ listed in `detail`; the reason ID is stable.
 
 ## Display behavior
 
-- Default: hidden panels are removed; the status line shows a compact hidden
-  count; the debug overlay lists every hidden panel and reason.
+- Default: hidden panels are removed; the hidden count is reported in
+  diagnostics (`panels.hidden`) and the debug overlay, which lists every hidden
+  panel and reason. The header status (C-009) does not show it.
 - `show_unsupported=true`: hidden panels are replaced by a placeholder card in
   the same layout position, with title, reason, and a short hint. Placeholders
   are **not** data panels, are not refreshable, and are clearly marked

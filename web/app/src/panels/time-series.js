@@ -1,36 +1,14 @@
-import { seriesColor, seriesDisplayName, seriesKey } from "../prometheus.js";
-import { formatAxis, formatValue, sortedThresholds } from "./format.js";
+import { seriesColor, seriesDisplayName } from "../prometheus.js";
+import { formatAxis, formatValue, sortedThresholds, thresholdState } from "./format.js";
+import { niceTicks, timeTickLabel, timeTicks } from "./scale.js";
 import { linePath, svgEl, svgText } from "./svg.js";
 
 const DEFAULT_SIZE = { width: 720, height: 280 };
-
-function timeLabel(seconds, rangeSeconds) {
-  const date = new Date(seconds * 1000);
-  return date.toLocaleTimeString([], {
-    hour: "2-digit",
-    minute: "2-digit",
-    ...(rangeSeconds < 300 ? { second: "2-digit" } : {}),
-  });
-}
+const LABEL_CHAR_PX = 5.6;
 
 function finitePoints(series) {
   return (series.points || []).filter((point) => Number.isFinite(point.t));
 }
-
-const MONOCHROME_DASHES = [
-  null,
-  "7 4",
-  "2 4",
-  "10 4 2 4",
-  "4 3",
-  "12 5",
-  "3 3",
-  "9 3 2 3",
-  "5 4",
-  "2 3",
-  "8 3",
-  "4 2 8 2",
-];
 
 function measure(element) {
   if (typeof element?.getBoundingClientRect !== "function") return null;
@@ -39,15 +17,14 @@ function measure(element) {
   return { width: Math.round(rect.width), height: Math.round(rect.height) };
 }
 
-export function renderTimeSeries(
-  panel,
-  series,
-  { warn = null, displayMode = "standard", size = null } = {},
-) {
-  const monochrome = displayMode === "monochrome";
+/**
+ * Line chart drawn at exact CSS-pixel geometry (viewBox = rendered box), on the
+ * cycle's time window, with round value and time ticks. Colours are CSS
+ * variables so display modes restyle without a redraw.
+ */
+export function renderTimeSeries(panel, series, { warn = null, size = null, timeWindow = null } = {}) {
   const wrapper = document.createElement("div");
   wrapper.className = "chart-wrap";
-  if (panel.panelSpec?.legend?.position === "right") wrapper.classList.add("legend-right");
 
   const present = series.filter((item) => finitePoints(item).some((point) => point.v !== null));
   if (present.length === 0) {
@@ -60,72 +37,48 @@ export function renderTimeSeries(
   }
 
   const format = panel.panelSpec?.yAxis?.format || panel.panelSpec?.format || {};
+  const unit = format.unit ?? "none";
   const thresholds = sortedThresholds(panel.panelSpec?.thresholds?.steps);
   const allPoints = present.flatMap(finitePoints);
-  const timestamps = allPoints.map((point) => point.t);
   const values = allPoints.map((point) => point.v).filter((value) => value !== null);
-  const minT = Math.min(...timestamps);
-  const maxT = Math.max(...timestamps);
+  const timestamps = allPoints.map((point) => point.t);
+  const windowStart = Number(timeWindow?.startMs) / 1000;
+  const windowEnd = Number(timeWindow?.endMs) / 1000;
+  const minT = Number.isFinite(windowStart) ? windowStart : Math.min(...timestamps);
+  const maxT = Number.isFinite(windowEnd) ? windowEnd : Math.max(...timestamps);
   const rangeT = maxT - minT || 1;
-  let minY = values.length ? Math.min(...values) : 0;
-  let maxY = values.length ? Math.max(...values) : 1;
+
+  let dataMin = Math.min(...values);
+  let dataMax = Math.max(...values);
   for (const threshold of thresholds) {
-    minY = Math.min(minY, threshold.value);
-    maxY = Math.max(maxY, threshold.value);
+    dataMin = Math.min(dataMin, threshold.value);
+    dataMax = Math.max(dataMax, threshold.value);
   }
-  if (minY === maxY) {
-    const pad = Math.abs(minY) > 0 ? Math.abs(minY) * 0.2 : 1;
-    minY -= pad;
-    maxY += pad;
-  } else {
-    const pad = (maxY - minY) * 0.1;
-    minY -= pad;
-    maxY += pad;
-  }
-  if (values.length > 0 && values.every((value) => value >= 0)) {
-    minY = Math.max(0, minY);
-  }
-  const rangeY = maxY - minY || 1;
 
   const lineWidth = Math.min(4, Math.max(1, Number(panel.panelSpec?.visual?.lineWidth) || 2));
   const areaOpacity =
     panel.panelSpec?.visual?.areaOpacity === undefined
-      ? monochrome
-        ? 0.1
-        : 0.14
+      ? null
       : Math.min(1, Math.max(0, Number(panel.panelSpec.visual.areaOpacity)));
   const showPoints = panel.panelSpec?.visual?.showPoints === true;
 
-  /**
-   * Draw one chart at an exact CSS-pixel geometry. The viewBox equals the
-   * rendered box, so SVG text keeps its CSS font size instead of being scaled
-   * down with the drawing (a 9.5px axis label stays 9.5px on a 338px phone).
-   */
   function draw(box) {
     const width = Math.max(96, Math.round(box.width));
     const height = Math.max(64, Math.round(box.height));
-    const ySteps = height >= 150 ? 4 : 3;
-    const tickValues = Array.from(
-      { length: ySteps + 1 },
-      (_, index) => minY + (rangeY * index) / ySteps,
+    const scale = niceTicks(dataMin, dataMax, height >= 150 ? 4 : 3, unit);
+    const minY = scale.min;
+    const rangeY = scale.max - scale.min || 1;
+    const tickLabels = scale.ticks.map((value) => formatAxis(value, format));
+    const gutter = Math.min(
+      64,
+      Math.max(22, Math.max(...tickLabels.map((label) => label.length)) * LABEL_CHAR_PX + 8),
     );
-    const tickLabels = tickValues.map((value) => formatAxis(value, format));
-    const leftPad = Math.min(
-      72,
-      Math.max(26, Math.max(...tickLabels.map((label) => label.length)) * 5.8 + 12),
-    );
-    const padding = {
-      left: leftPad,
-      right: 10,
-      top: 10,
-      bottom: height < 150 ? 22 : 28,
-    };
+    const padding = { left: 0, right: gutter, top: 7, bottom: 18 };
     const plotW = Math.max(40, width - padding.left - padding.right);
     const plotH = Math.max(24, height - padding.top - padding.bottom);
-
     const x = (t) => padding.left + ((t - minT) / rangeT) * plotW;
     const y = (value) => padding.top + plotH - ((value - minY) / rangeY) * plotH;
-    const baseline = y(Math.max(minY, Math.min(0, maxY)));
+    const baseline = y(Math.max(minY, Math.min(0, scale.max)));
 
     const svg = svgEl("svg", {
       class: "chart-svg",
@@ -135,36 +88,27 @@ export function renderTimeSeries(
     });
 
     const grid = svgEl("g", { class: "chart-grid" });
-    tickValues.forEach((value, index) => {
+    scale.ticks.forEach((value, index) => {
       const yy = y(value);
-      grid.append(svgEl("line", { x1: padding.left, x2: width - padding.right, y1: yy, y2: yy }));
+      grid.append(svgEl("line", { x1: padding.left, x2: padding.left + plotW, y1: yy, y2: yy }));
       grid.append(
         svgText(tickLabels[index], {
-          x: padding.left - 8,
+          x: width,
           y: yy + 3.5,
           "text-anchor": "end",
           class: "axis-label",
         }),
       );
     });
-    const xSteps = plotW >= 240 ? 4 : 3;
-    for (let i = 0; i < xSteps; i += 1) {
-      const t = minT + (rangeT * i) / (xSteps - 1);
+    const time = timeTicks(minT, maxT, Math.min(8, Math.floor(plotW / 84)));
+    for (const t of time.ticks) {
       const xx = x(t);
+      const anchor = xx - padding.left < 22 ? "start" : padding.left + plotW - xx < 22 ? "end" : "middle";
       grid.append(
-        svgEl("line", {
-          x1: xx,
-          x2: xx,
-          y1: padding.top,
-          y2: height - padding.bottom,
-          class: "x-grid",
-        }),
-      );
-      grid.append(
-        svgText(timeLabel(t, rangeT), {
+        svgText(timeTickLabel(t, time.step, rangeT), {
           x: xx,
-          y: height - padding.bottom + 12,
-          "text-anchor": i === 0 ? "start" : i === xSteps - 1 ? "end" : "middle",
+          y: height - 4,
+          "text-anchor": anchor,
           class: "axis-label",
         }),
       );
@@ -174,32 +118,22 @@ export function renderTimeSeries(
     const thresholdLayer = svgEl("g", { class: "chart-thresholds" });
     for (const threshold of thresholds) {
       const yy = y(threshold.value);
+      const state = thresholdState(threshold.value, thresholds).state;
       thresholdLayer.append(
         svgEl("line", {
           x1: padding.left,
-          x2: width - padding.right,
+          x2: padding.left + plotW,
           y1: yy,
           y2: yy,
-          class: "threshold-line",
-        }),
-      );
-      thresholdLayer.append(
-        svgText(threshold.name || formatValue(threshold.value, format), {
-          x: width - padding.right - 2,
-          y: Math.max(9, yy - 4),
-          "text-anchor": "end",
-          class: "threshold-label",
+          class: `threshold-line state-${state}`,
         }),
       );
     }
     svg.append(thresholdLayer);
 
     const seriesLayer = svgEl("g", { class: "chart-series" });
-
     present.forEach((item, index) => {
-      const key = seriesKey(item.labels, item.queryIndex || 0);
-      const color = seriesColor(key, { monochrome });
-      const dash = monochrome ? MONOCHROME_DASHES[index % MONOCHROME_DASHES.length] : null;
+      const color = seriesColor(index);
       const points = finitePoints(item).sort((a, b) => a.t - b.t);
       const segments = [];
       let segment = [];
@@ -208,25 +142,24 @@ export function renderTimeSeries(
           if (segment.length) segments.push(segment);
           segment = [];
         } else {
-          segment.push({ x: x(point.t), y: y(point.v), value: point.v, t: point.t });
+          segment.push({ x: x(point.t), y: y(point.v) });
         }
       }
       if (segment.length) segments.push(segment);
 
       for (const part of segments) {
-        if (part.length === 0) continue;
         if (part.length > 1) {
           const area = [
             `M ${part[0].x.toFixed(2)} ${baseline.toFixed(2)}`,
             ...part.map((point) => `L ${point.x.toFixed(2)} ${point.y.toFixed(2)}`),
-            `L ${part[part.length - 1].x.toFixed(2)} ${baseline.toFixed(2)} Z`,
+            `L ${part.at(-1).x.toFixed(2)} ${baseline.toFixed(2)} Z`,
           ].join(" ");
           seriesLayer.append(
             svgEl("path", {
               d: area,
               fill: color,
-              "fill-opacity": areaOpacity,
               class: "series-area",
+              ...(areaOpacity === null ? {} : { "fill-opacity": areaOpacity }),
             }),
           );
         }
@@ -238,34 +171,22 @@ export function renderTimeSeries(
             "stroke-width": lineWidth,
             "stroke-linecap": "round",
             "stroke-linejoin": "round",
-            ...(dash ? { "stroke-dasharray": dash } : {}),
+            "data-series": index,
             class: "series-line",
           }),
         );
-        if (showPoints || part.length <= 12) {
+        if (showPoints || part.length === 1) {
           for (const point of part) {
-            seriesLayer.append(
-              svgEl("circle", { cx: point.x, cy: point.y, r: 2.4, fill: color, class: "series-dot" }),
-            );
+            seriesLayer.append(svgEl("circle", { cx: point.x, cy: point.y, r: 2.2, fill: color, class: "series-dot" }));
           }
         }
       }
       const last = points.filter((point) => point.v !== null).at(-1);
       if (last) {
         seriesLayer.append(
-          svgEl("circle", {
-            cx: x(last.t),
-            cy: y(last.v),
-            r: 4,
-            fill: color,
-            stroke: "var(--panel)",
-            "stroke-width": 2,
-            class: "series-last",
-          }),
+          svgEl("circle", { cx: x(last.t), cy: y(last.v), r: 3.5, fill: color, class: "series-last" }),
         );
       }
-      item._displayColor = color;
-      item._displayIndex = index;
     });
     svg.append(seriesLayer);
     return svg;
@@ -281,12 +202,13 @@ export function renderTimeSeries(
   const legend = document.createElement("div");
   legend.className = "chart-legend";
   const maxLegend = 8;
-  for (const item of present.slice(0, maxLegend)) {
+  present.slice(0, maxLegend).forEach((item, index) => {
     const entry = document.createElement("div");
     entry.className = "legend-entry";
     const dot = document.createElement("span");
     dot.className = "legend-dot";
-    dot.style.background = item._displayColor;
+    dot.dataset.series = String(index);
+    dot.style.background = seriesColor(index);
     const label = document.createElement("span");
     label.className = "legend-label";
     label.textContent = seriesDisplayName(item.labels);
@@ -296,7 +218,7 @@ export function renderTimeSeries(
     value.textContent = last ? formatValue(last.v, format, { warn }) : "—";
     entry.append(dot, label, value);
     legend.append(entry);
-  }
+  });
   if (present.length > maxLegend) {
     const more = document.createElement("div");
     more.className = "legend-more";

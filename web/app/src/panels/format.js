@@ -86,6 +86,16 @@ function formatBytes(value, base, units) {
   return `${stripZero(number.toFixed(decimals))} ${units[index]}`;
 }
 
+/**
+ * Split a formatted value into its number and unit ("13.7 GiB" → 13.7, GiB) so
+ * the unit can be set smaller and quieter than the number.
+ */
+export function splitUnit(text) {
+  const match = /^(-?[\d.,]+[KMBT]?)\s*(.*)$/.exec(String(text));
+  if (!match) return { number: String(text), unit: "" };
+  return { number: match[1], unit: match[2] };
+}
+
 export function formatShort(value) {
   const abs = Math.abs(value);
   const sign = value < 0 ? "-" : "";

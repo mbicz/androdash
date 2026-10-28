@@ -1,7 +1,8 @@
 # C-009 — Diagnostics and errors
 
 - **Version:** 1
-- **Status:** Accepted, 2026-10-26
+- **Status:** Accepted, 2026-10-26; amended 2026-10-27 (header status without a
+  countdown, `setLocked`; decision 0015)
 - **Consumers:** Web renderer (W2), Android shell (W1)
 - **Machine-readable:** [`contracts/diagnostics.schema.json`](../../contracts/diagnostics.schema.json)
 - **Fixture:** [`diagnostics.example.json`](../../contracts/fixtures/diagnostics.example.json)
@@ -198,13 +199,30 @@ Warnings object same shape with W_* code.
 
 ## On-screen status
 
-Always visible (compact in release, fuller in debug):
+One dashboard-wide status, always visible (release and debug), sits in the
+sticky header under the dashboard title (`.app-status`, `role="status"`,
+`aria-live="polite"`, `data-status` = state):
 
-- state: `live` | `degraded` | `stale` | `error` | `loading`;
-- last successful update (local time);
-- next refresh (local time or countdown) or "manual";
-- hidden panel count;
-- error count (if > 0).
+- a dot: green `live`, amber `degraded`/`stale`, red `error`, gray `loading`;
+- one line of text:
+
+| State | Text |
+|---|---|
+| `live` | last successful update, local `h:mm:ss` (`Live` before any data panel has succeeded, e.g. Markdown-only) |
+| `degraded` | `N of M failing · <last success>` |
+| `stale` | `Stale since <last success>` |
+| `error` | `Offline since <last success>`, or `Offline` with no prior success |
+| `loading` | `Loading` |
+
+- The `aria-label` is `<State>. <text>`.
+- There is no next-refresh countdown, no per-second ticker, and no bottom
+  status bar. The status is recomputed only when a cycle settles or the
+  scheduler state changes. The next refresh time and hidden/error counts are in
+  the debug overlay and the snapshot (`nextRefreshAt`, `panels`).
+- Header actions beside the status: refresh now (icon button), a lock-screen
+  toggle (only when the shell bridge exposes `lockScreenEnabled` and
+  `setLockScreen`, C-007), and diagnostics (only with `debug=true`). The locked
+  view hides the actions but keeps the status (C-005).
 
 Rules:
 
@@ -244,6 +262,7 @@ Overlay is rendered with the same escaping rules; no raw JSON `innerHTML`.
 | `getDiagnostics()` | C-009 snapshot |
 | `refresh()` | void; starts/coalesces a cycle |
 | `reloadDashboard()` | Promise; re-fetch/reprobe/rebuild |
+| `setLocked(locked)` | void; locked view on/off (C-005), called by the shell (C-007) |
 
 Rules:
 

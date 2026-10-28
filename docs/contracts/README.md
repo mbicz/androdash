@@ -1,6 +1,6 @@
 # Contracts
 
-**Version:** 1.x (2026-10-26)
+**Version:** 1.x (2026-10-27)
 **Status:** accepted and implemented through M2; M3 hardening is ongoing.
 **Normative companions:** [`contracts/`](../../contracts/) (schemas + fixtures).
 
@@ -14,12 +14,12 @@ here, add a contract change and a `changelog.d` entry first.
 | ID | Contract | Version | Consumers | Machine-readable / fixtures |
 |---|---|---|---|---|
 | C-001 | [Launch configuration](C-001-launch-config.md) | 2 | W1, W2 | `contracts/app-config.schema.json`, `fixtures/app-config.example.json` |
-| C-002 | [Dashboard source and normalization](C-002-dashboard-source.md) | 1 | W2 | `fixtures/demo-dashboard.json`, `fixtures/spark-dashboard.json` |
+| C-002 | [Dashboard source and normalization](C-002-dashboard-source.md) | 1 | W2 | `fixtures/demo-dashboard.json`, `fixtures/spark-dashboard.json`, `fixtures/macos-node-dashboard.json` |
 | C-003 | [Prometheus access](C-003-prometheus-access.md) | 1 | W2, W3 | `fixtures/prometheus/*.json` |
 | C-004 | [Capability negotiation and filtering](C-004-capability-negotiation.md) | 1 | W2 | `fixtures/demo-dashboard.json`, `fixtures/spark-dashboard.json` |
-| C-005 | [Panel rendering](C-005-panel-rendering.md) | 4 | W2 | `fixtures/demo-dashboard.json`, `fixtures/spark-dashboard.json` |
-| C-006 | [Refresh and time semantics](C-006-refresh-and-time.md) | 1 | W2 | — |
-| C-007 | [Kiosk and lifecycle](C-007-kiosk-lifecycle.md) | 2 | W1 | — |
+| C-005 | [Panel rendering](C-005-panel-rendering.md) | 5 | W2 | `fixtures/demo-dashboard.json`, `fixtures/spark-dashboard.json` |
+| C-006 | [Refresh and time semantics](C-006-refresh-and-time.md) | 2 | W2 | — |
+| C-007 | [Kiosk and lifecycle](C-007-kiosk-lifecycle.md) | 3 | W1 | — |
 | C-008 | [WebView security](C-008-webview-security.md) | 1 | W1, W2 | — |
 | C-009 | [Diagnostics and errors](C-009-diagnostics.md) | 1 | W1, W2 | `contracts/diagnostics.schema.json`, `fixtures/diagnostics.example.json` |
 
@@ -80,6 +80,7 @@ web/tests/contract/c002-dashboard.test.js
 web/tests/contract/c003-prometheus.test.js
 web/tests/contract/c004-capabilities.test.js
 web/tests/contract/c005-panels.test.js
+web/tests/contract/c005-layout.test.js
 web/tests/contract/c006-refresh.test.js
 web/tests/contract/c009-diagnostics.test.js
 ```

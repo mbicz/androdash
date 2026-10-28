@@ -86,20 +86,27 @@ test("C-005 TimeSeriesChart renders SVG paths and a textual legend", () => {
   assert.match(element.textContent, /mode=system/);
 });
 
-test("C-005 monochrome charts stay grayscale and distinguish series by dash", () => {
-  const element = renderTimeSeries(panel("TimeSeriesChart"), cpu, {
-    displayMode: "monochrome",
-  });
+test("C-005 series in one chart never share a colour or a dash slot", () => {
+  const element = renderTimeSeries(panel("TimeSeriesChart"), cpu);
   const lines = element.querySelectorAll("path.series-line");
   assert.equal(lines.length, 2);
-  const strokes = lines.map((line) => line.getAttribute("stroke"));
-  assert.notEqual(strokes[0], strokes[1]);
-  assert.ok(strokes.every((stroke) => /^#[0-9a-f]{6}$/.test(stroke)));
-  assert.ok(lines.some((line) => line.getAttribute("stroke-dasharray")));
-  assert.notEqual(
-    lines[0].getAttribute("stroke-dasharray"),
-    lines[1].getAttribute("stroke-dasharray"),
-  );
+  assert.notEqual(lines[0].getAttribute("stroke"), lines[1].getAttribute("stroke"));
+  assert.notEqual(lines[0].getAttribute("data-series"), lines[1].getAttribute("data-series"));
+});
+
+test("C-005 time axis spans the cycle window and ticks on round minutes", () => {
+  const startMs = Date.UTC(2026, 9, 27, 20, 33, 17);
+  const endMs = startMs + 15 * 60_000;
+  const element = renderTimeSeries(panel("TimeSeriesChart"), cpu, {
+    size: { width: 343, height: 120 },
+    timeWindow: { startMs, endMs },
+  });
+  const xLabels = element
+    .querySelectorAll(".axis-label")
+    .filter((node) => node.getAttribute("y") === String(120 - 4))
+    .map((node) => node.textContent);
+  assert.ok(xLabels.length >= 2);
+  assert.ok(xLabels.every((label) => /:(00|05|10|15|20|25|30|35|40|45|50|55)\b/.test(label)), xLabels.join());
 });
 
 test("C-005 positive-only charts do not invent a negative y-axis", () => {
@@ -116,18 +123,25 @@ test("C-005 positive-only charts do not invent a negative y-axis", () => {
   assert.ok(labels.every((text) => !text.startsWith("-")));
 });
 
-test("C-005 StatChart renders tiles with state text", () => {
-  const element = renderStat(
-    panel("StatChart", {
-      calculation: "last-number",
-      format: { unit: "percent", decimalPlaces: 1 },
-      thresholds: { steps: [{ value: 80, name: "Disk" }, { value: 90, name: "Full" }] },
-    }),
-    [{ ...ram[0], labels: { __name__: "demo_memory_used_percent" } }],
-  );
-  assert.equal(element.dataset.empty, "false");
-  assert.equal(element.querySelector(".stat-value").textContent, "62.4%");
-  assert.match(element.textContent, /Nominal/);
+test("C-005 StatChart names a threshold only when a value crosses it", () => {
+  const spec = {
+    calculation: "last-number",
+    format: { unit: "percent", decimalPlaces: 1 },
+    thresholds: { steps: [{ value: 80, name: "Disk" }, { value: 90, name: "Full" }] },
+  };
+  const ok = renderStat(panel("StatChart", spec), [
+    { ...ram[0], labels: { __name__: "demo_memory_used_percent" } },
+  ]);
+  assert.equal(ok.dataset.empty, "false");
+  assert.equal(ok.querySelector(".metric-value").textContent, "62.4%");
+  assert.ok(ok.querySelector(".stat-tile").className.includes("state-ok"));
+  assert.equal(ok.querySelector(".metric-state"), null);
+
+  const high = renderStat(panel("StatChart", spec), [
+    { labels: { __name__: "demo_memory_used_percent" }, points: [{ t: 1, v: 93 }] },
+  ]);
+  assert.ok(high.querySelector(".stat-tile").className.includes("state-crit"));
+  assert.equal(high.querySelector(".metric-state").textContent, "Full");
 });
 
 test("C-005 StatChart omits the meter when no threshold scale exists", () => {
@@ -139,7 +153,8 @@ test("C-005 StatChart omits the meter when no threshold scale exists", () => {
     [{ ...ram[0], labels: { __name__: "spark_gpu_power_watts", reading: "draw" } }],
   );
   assert.equal(element.querySelector(".stat-meter"), null);
-  assert.equal(element.querySelector(".stat-value").textContent, "62.4 W");
+  assert.ok(element.querySelector(".stat-tile").className.includes("state-none"));
+  assert.equal(element.querySelector(".metric-unit").textContent, "W");
 });
 
 test("C-005 StatChart scales the meter against the highest threshold", () => {
@@ -165,7 +180,8 @@ test("C-005 GaugeChart renders an arc and value arc", () => {
     [{ ...ram[0], labels: { __name__: "demo_memory_used_percent" } }],
   );
   assert.equal(element.dataset.empty, "false");
-  assert.ok(element.querySelectorAll("path").length >= 4);
+  assert.equal(element.querySelectorAll(".gauge-value-arc").length, 1);
+  assert.equal(element.querySelectorAll(".gauge-notch").length, 2);
   assert.match(element.textContent, /62.4%/);
 });
 

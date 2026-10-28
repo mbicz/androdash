@@ -4,8 +4,9 @@ import {
   DashboardError,
   collectPrometheusBaseUrls,
   resolveVariables,
+  applyDisplayVariables,
 } from "./dashboard/normalize.js";
-import { parseDuration, formatDuration } from "./dashboard/duration.js";
+import { parseDuration } from "./dashboard/duration.js";
 import {
   capabilityDocument,
   probePrometheus,
@@ -39,7 +40,6 @@ const state = {
   probes: [],
   variables: new Map(),
   scheduler: null,
-  statusTicker: null,
   panelElements: new Map(),
   lastSeries: new Map(),
   panelErrors: new Map(),
@@ -51,11 +51,12 @@ const state = {
   rangeMs: 3600000,
   intervalSeconds: 30,
   mode: "stack",
-  statusBar: null,
-  statusStateEl: null,
-  statusDetailEl: null,
-  liveChip: null,
-  liveChipText: null,
+  statusEl: null,
+  statusTextEl: null,
+  rangeText: null,
+  panelWindows: new Map(),
+  locked: false,
+  toolbar: null,
   debugOverlay: null,
 };
 
@@ -102,32 +103,19 @@ function safeDetail(value) {
 function formatClock(ms) {
   if (!Number.isFinite(ms)) return "—";
   return new Date(ms).toLocaleTimeString([], {
-    hour: "2-digit",
+    hour: "numeric",
     minute: "2-digit",
     second: "2-digit",
   });
 }
 
-function formatClockShort(ms) {
-  if (!Number.isFinite(ms)) return "—";
-  return new Date(ms).toLocaleTimeString([], {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
-
-function formatCountdown(ms) {
-  const seconds = Math.max(0, Math.ceil(ms / 1000));
-  if (seconds >= 60) {
-    const minutes = Math.floor(seconds / 60);
-    const rest = seconds % 60;
-    return `${minutes}m ${rest.toString().padStart(2, "0")}s`;
-  }
-  return `${seconds}s`;
-}
+/** In-app view presets (C-006). The launch config may add one more. */
+const RANGE_PRESETS = ["5m", "15m", "1h", "6h", "24h", "7d"];
+const REFRESH_PRESETS = [0, 5, 10, 30, 60, 300];
 
 function refreshLabel(seconds) {
-  return seconds === 0 ? "Manual" : `Every ${formatDuration(seconds * 1000)}`;
+  if (seconds === 0) return "Manual";
+  return seconds % 60 === 0 ? `${seconds / 60} min` : `${seconds} s`;
 }
 
 function makeIcon(pathData, viewBox = "0 0 24 24") {
@@ -165,10 +153,6 @@ function showToast(message) {
 function bootFatal(error, isConfig = false) {
   state.fatal = true;
   if (state.scheduler) state.scheduler.stop();
-  if (state.statusTicker) {
-    clearInterval(state.statusTicker);
-    state.statusTicker = null;
-  }
   const code = error?.code || (isConfig ? "E_CONFIG" : "E_INTERNAL");
   const message =
     error?.message ||
@@ -227,10 +211,6 @@ async function loadApp() {
     state.scheduler.stop();
     state.scheduler = null;
   }
-  if (state.statusTicker) {
-    clearInterval(state.statusTicker);
-    state.statusTicker = null;
-  }
   state.currentAbort?.abort();
   state.currentAbort = null;
   state.fatal = false;
@@ -239,6 +219,7 @@ async function loadApp() {
   state.lastRefresh = null;
   state.panelErrors = new Map();
   state.lastSeries = new Map();
+  state.panelWindows = new Map();
   state.panelElements = new Map();
   state.filtered = null;
   state.diagnostics?.setLastRefresh(null);
@@ -252,6 +233,7 @@ async function loadApp() {
     warn,
   });
   state.dashboard = dashboard;
+  state.rangeText = state.config.timeRange || dashboard.durationText;
   state.rangeMs = state.config.timeRange
     ? parseDuration(state.config.timeRange)
     : dashboard.durationMs;
@@ -278,6 +260,7 @@ async function loadApp() {
       prometheusLabelValues(baseUrl, labelName, matchers, { onRequest: recordRequest }),
     warn,
   });
+  applyDisplayVariables(dashboard, state.variables, warn);
 
   state.filtered = filterDashboard(dashboard, {
     config: state.config,
@@ -326,8 +309,6 @@ function installScheduler() {
     },
   });
   state.scheduler.start();
-  if (state.statusTicker) clearInterval(state.statusTicker);
-  state.statusTicker = setInterval(updateStatus, 1000);
 }
 
 function renderDashboard() {
@@ -335,18 +316,20 @@ function renderDashboard() {
   const main = document.createElement("main");
   main.className = "rows";
   main.setAttribute("aria-label", state.dashboard.title);
-  const rows = renderRows(state.filtered.rows, {
-    mode: state.mode,
-    createPanel: createPanel,
-  });
+  const rows = renderRows(state.filtered.rows, { createPanel });
   main.append(rows);
   if (state.filtered.rows.length === 0) {
     main.append(createNoPanels());
   }
 
-  const status = createStatusBar();
-  state.statusBar = status;
-  app.replaceChildren(header, main, status);
+  app.replaceChildren(header, createToolbar(), main);
+  // Sections snap under the sticky header; keep the snap offset equal to it.
+  if (typeof ResizeObserver === "function") {
+    new ResizeObserver(([entry]) => {
+      const height = Math.round(entry.target.getBoundingClientRect().height);
+      document.documentElement.style.setProperty("--header-h", `${height}px`);
+    }).observe(header);
+  }
   app.dataset.layoutMode = state.mode;
   app.setAttribute("aria-busy", "false");
   document.title = `${state.dashboard.title} · AndroDash`;
@@ -357,92 +340,170 @@ function renderDashboard() {
   updateStatus();
 }
 
+/**
+ * Sticky title bar: the dashboard title (variables interpolated, e.g. the
+ * host name), one dashboard-wide status, and icon actions. The data is one
+ * source refreshed together, so status lives here once, not on every panel.
+ */
 function createHeader() {
   const header = document.createElement("header");
   header.className = "app-header";
 
-  const brand = document.createElement("div");
-  brand.className = "brand";
-  const mark = document.createElement("div");
-  mark.className = "brand-mark";
-  mark.setAttribute("aria-hidden", "true");
-  const wordmark = document.createElement("span");
-  wordmark.textContent = "AndroDash";
-  brand.append(mark, wordmark);
-
-  const main = document.createElement("div");
-  main.className = "header-main";
   const title = document.createElement("h1");
+  title.className = "app-title";
   title.textContent = state.dashboard.title;
-  main.append(title);
-  const description = document.createElement("p");
-  description.textContent =
-    state.dashboard.description ||
-    `${state.filtered.counts.rendered} panels · ${state.dashboard.name}`;
-  main.append(description);
 
-  const meta = document.createElement("div");
-  meta.className = "header-meta";
-  const duration = document.createElement("span");
-  duration.className = "chip";
-  duration.textContent = `Last ${formatDuration(state.rangeMs)}`;
-  const refresh = document.createElement("span");
-  refresh.className = "chip";
-  refresh.textContent = refreshLabel(state.intervalSeconds);
-  const live = document.createElement("span");
-  live.className = "chip";
+  const status = document.createElement("div");
+  status.className = "app-status";
+  status.setAttribute("role", "status");
+  status.setAttribute("aria-live", "polite");
   const dot = document.createElement("span");
-  dot.className = "live-dot";
-  const liveText = document.createElement("span");
-  liveText.textContent = "Loading";
-  live.append(dot, liveText);
-  meta.append(duration, refresh, live);
-  state.liveChip = live;
-  state.liveChipText = liveText;
+  dot.className = "status-dot";
+  dot.setAttribute("aria-hidden", "true");
+  const text = document.createElement("span");
+  text.className = "status-text";
+  status.append(dot, text);
+  state.statusEl = status;
+  state.statusTextEl = text;
 
-  header.append(brand, main, meta);
+  const actions = document.createElement("div");
+  actions.className = "header-actions";
+  actions.append(
+    makeButton("Refresh now", {
+      icon: makeIcon("M20 11a8 8 0 1 0-2.3 5.6M20 4v7h-7"),
+      onClick: () => state.scheduler?.refresh("manual"),
+    }),
+  );
+  const shell = bridge();
+  if (typeof shell?.lockScreenEnabled === "function" && typeof shell?.setLockScreen === "function") {
+    const lock = makeButton("Show on lock screen", {
+      className: "icon-button toggle",
+      icon: makeIcon("M7 11V8a5 5 0 0 1 10 0v3M6 11h12v9H6z"),
+      onClick: () => {
+        const enabled = lock.getAttribute("aria-pressed") !== "true";
+        try {
+          shell.setLockScreen(enabled);
+          lock.setAttribute("aria-pressed", String(shell.lockScreenEnabled() === true));
+          showToast(
+            enabled
+              ? "When locked, this dashboard stays on in grayscale"
+              : "Lock-screen view off",
+          );
+        } catch {
+          showToast("Lock-screen view is unavailable");
+        }
+      },
+    });
+    let enabled = false;
+    try {
+      enabled = shell.lockScreenEnabled() === true;
+    } catch {
+      enabled = false;
+    }
+    lock.setAttribute("aria-pressed", String(enabled));
+    actions.append(lock);
+  }
+  if (state.config.debug) {
+    actions.append(
+      makeButton("Open diagnostics", {
+        icon: makeIcon("M12 16v-5M12 8h.01M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"),
+        onClick: openDebug,
+      }),
+    );
+  }
+
+  const heading = document.createElement("div");
+  heading.className = "app-heading";
+  heading.append(title, status);
+  header.append(heading, actions);
   return header;
 }
 
-function createStatusBar() {
-  const bar = document.createElement("footer");
-  bar.className = "status-bar";
-  bar.id = "status-bar";
-  bar.dataset.status = "loading";
-  bar.setAttribute("aria-live", "polite");
-  bar.setAttribute("aria-label", "Dashboard status");
+/**
+ * Time range as a segmented control and the refresh interval as a native
+ * select (the platform picker on Android). Choices apply immediately and are
+ * persisted by the shell when present (C-006, C-007 `setView`).
+ */
+function createToolbar() {
+  const toolbar = document.createElement("nav");
+  toolbar.className = "toolbar";
+  toolbar.setAttribute("aria-label", "View");
 
-  const stateEl = document.createElement("span");
-  stateEl.className = "status-state";
-  const dot = document.createElement("span");
-  dot.className = "live-dot";
-  const stateText = document.createElement("span");
-  stateText.textContent = "Loading";
-  stateEl.append(dot, stateText);
-  const detail = document.createElement("span");
-  detail.className = "status-detail";
-  detail.textContent = "Contacting dashboard and metrics";
-
-  const actions = document.createElement("div");
-  actions.className = "status-actions";
-  const refresh = makeButton("Refresh now", {
-    icon: makeIcon("M20 11a8.1 8.1 0 0 0-14.9-4.6L3 9m0 0V4m0 5h5M4 13a8.1 8.1 0 0 0 14.9 4.6L21 15m0 0v5m0-5h-5"),
-    onClick: () => {
-      state.scheduler?.refresh("manual");
-    },
-  });
-  actions.append(refresh);
-  if (state.config.debug) {
-    const debug = makeButton("Open diagnostics", {
-      icon: makeIcon("M12 7h.01M12 11v6M5 4h14a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1Z"),
-      onClick: openDebug,
-    });
-    actions.append(debug);
+  const ranges = [...RANGE_PRESETS];
+  if (state.rangeText && !ranges.some((item) => parseDuration(item) === state.rangeMs)) {
+    ranges.push(state.rangeText);
+    ranges.sort((a, b) => parseDuration(a) - parseDuration(b));
   }
-  bar.append(stateEl, detail, actions);
-  state.statusStateEl = stateText;
-  state.statusDetailEl = detail;
-  return bar;
+  const segmented = document.createElement("div");
+  segmented.className = "segmented";
+  segmented.setAttribute("role", "radiogroup");
+  segmented.setAttribute("aria-label", "Time range");
+  for (const range of ranges) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "segment";
+    button.setAttribute("role", "radio");
+    button.dataset.range = range;
+    button.textContent = range;
+    button.setAttribute("aria-label", `Last ${range}`);
+    button.addEventListener("click", () => setView({ range }));
+    segmented.append(button);
+  }
+
+  const refreshes = [...REFRESH_PRESETS];
+  if (!refreshes.includes(state.intervalSeconds)) {
+    refreshes.push(state.intervalSeconds);
+    refreshes.sort((a, b) => a - b);
+  }
+  const select = document.createElement("select");
+  select.className = "refresh-select";
+  select.setAttribute("aria-label", "Refresh interval");
+  for (const seconds of refreshes) {
+    const option = document.createElement("option");
+    option.value = String(seconds);
+    option.textContent = refreshLabel(seconds);
+    select.append(option);
+  }
+  select.addEventListener("change", () => setView({ refreshSeconds: Number(select.value) }));
+
+  toolbar.append(segmented, select);
+  state.toolbar = { segmented, select };
+  syncToolbar();
+  return toolbar;
+}
+
+function syncToolbar() {
+  if (!state.toolbar) return;
+  for (const button of state.toolbar.segmented.children) {
+    const active = parseDuration(button.dataset.range) === state.rangeMs;
+    button.setAttribute("aria-checked", String(active));
+  }
+  state.toolbar.select.value = String(state.intervalSeconds);
+}
+
+/** Apply an in-app range/refresh choice now and ask the shell to persist it. */
+function setView({ range = null, refreshSeconds = null }) {
+  if (range !== null) {
+    const ms = parseDuration(range);
+    if (!ms || ms === state.rangeMs) return;
+    state.rangeMs = ms;
+    state.rangeText = range;
+    state.config = { ...state.config, timeRange: range };
+  }
+  if (refreshSeconds !== null) {
+    if (!Number.isInteger(refreshSeconds) || refreshSeconds === state.intervalSeconds) return;
+    state.intervalSeconds = refreshSeconds;
+    state.config = { ...state.config, refreshSeconds };
+    state.scheduler?.setIntervalSeconds(refreshSeconds);
+  }
+  syncToolbar();
+  try {
+    bridge()?.setView?.(state.rangeText, String(state.intervalSeconds));
+  } catch {
+    // The browser has no shell; the choice still applies for this session.
+  }
+  if (range !== null) state.scheduler?.refresh("range");
+  updateStatus();
 }
 
 function createPanel(item) {
@@ -479,7 +540,6 @@ function createPanelShell(panel) {
   heading.append(description);
   const badge = document.createElement("span");
   badge.className = "panel-badge";
-  badge.textContent = "Loading";
   header.append(heading, badge);
 
   const body = document.createElement("div");
@@ -571,13 +631,12 @@ function renderMarkdownPanel(panelId) {
     try {
       const body = renderPanelBody(panel, [], {
         warn: (code, message, _panelId, detail) => warn(code, message, panelId, detail),
-        displayMode: state.config.displayMode,
       });
       const empty = body.dataset.empty === "true";
       section.querySelector(".panel-body").replaceChildren(body);
       section.dataset.panelState = empty ? "empty" : "ready";
       section.setAttribute("aria-busy", "false");
-      section.querySelector(".panel-badge").textContent = empty ? "No data" : "Static";
+      section.querySelector(".panel-badge").textContent = "";
     } catch (error) {
       showRenderError(section, panel, error);
     }
@@ -599,8 +658,8 @@ function applyDataPanel(panelId, series, staleError = null) {
     try {
       const content = renderPanelBody(panel, series, {
         warn: (code, message, _panelId, detail) => warn(code, message, panelId, detail),
-        displayMode: state.config.displayMode,
         size: panelBodySize(body),
+        timeWindow: state.panelWindows.get(panelId) || null,
       });
       if (!content) throw new Error(`No renderer for ${panel.panelKind}`);
       const empty = content.dataset.empty === "true";
@@ -616,7 +675,7 @@ function applyDataPanel(panelId, series, staleError = null) {
         );
       } else {
         section.dataset.panelState = empty ? "empty" : "ready";
-        section.querySelector(".panel-badge").textContent = empty ? "No data" : "Live";
+        section.querySelector(".panel-badge").textContent = "";
         setPanelSubtitle(section, panel, panel.description, false);
       }
       section.setAttribute("aria-busy", "false");
@@ -781,6 +840,7 @@ async function runCycle({ reason }) {
         const series = await executePanel(entry, { startMs, endMs, signal: controller.signal });
         if (controller.signal.aborted) return { ok: false, aborted: true };
         state.lastSeries.set(entry.panel.id, series);
+        state.panelWindows.set(entry.panel.id, { startMs, endMs });
         state.panelErrors.delete(entry.panel.id);
         state.hasLastGood = true;
         applyDataPanel(entry.panel.id, series);
@@ -849,54 +909,26 @@ function syncDiagnostics() {
   }
 }
 
+/**
+ * One dashboard-wide status, updated when a cycle settles or the scheduler
+ * changes state. There is no per-second countdown: nothing here runs while the
+ * dashboard is idle between refreshes.
+ */
 function updateStatus() {
-  if (!state.statusBar) {
-    if (state.liveChip && state.liveChipText) {
-      const status = currentStatus();
-      state.liveChipText.textContent = statusLabel(status);
-      state.liveChip.className = status === "live" ? "chip chip-live" : "chip";
-    }
-    return;
-  }
   const status = currentStatus();
-  const schedulerState = state.scheduler?.state();
-  const counts = state.filtered?.counts;
-  const hidden = counts?.hidden || 0;
-  const errors = state.panelErrors.size;
-  const parts = [];
-
-  if (status === "loading") {
-    parts.push("Contacting dashboard and metrics");
-  } else {
-    const lastSuccess = schedulerState?.lastSuccessAt;
-    if (lastSuccess) parts.push(`Updated ${formatClockShort(lastSuccess)}`);
-    else parts.push("No successful update");
-    if (state.intervalSeconds === 0) {
-      parts.push("Manual refresh");
-    } else if (schedulerState?.running) {
-      parts.push("Refreshing…");
-    } else if (schedulerState?.nextRefreshAt) {
-      parts.push(`Next ${formatCountdown(schedulerState.nextRefreshAt - Date.now())}`);
-    }
-  }
-  if (hidden > 0) parts.push(`${hidden} hidden`);
-  if (errors > 0) parts.push(`${errors} failing`);
-  if (status === "stale") parts.push("last good data retained");
-
-  state.statusBar.dataset.status = status;
-  state.statusStateEl.textContent = statusLabel(status);
-  state.statusDetailEl.textContent = parts.join(" · ");
-  state.statusBar.setAttribute("aria-label", `Status: ${statusLabel(status)}. ${parts.join(". ")}`);
-  if (state.liveChip && state.liveChipText) {
-    state.liveChipText.textContent = statusLabel(status);
-    state.liveChip.className =
-      status === "live"
-        ? "chip chip-live"
-        : status === "degraded" || status === "stale"
-          ? "chip chip-warn"
-          : status === "error"
-            ? "chip chip-danger"
-            : "chip";
+  if (state.statusEl && state.statusTextEl) {
+    const lastSuccess = state.scheduler?.state()?.lastSuccessAt;
+    const total = state.filtered?.dataPanelIds?.length || 0;
+    const errors = state.panelErrors.size;
+    let text;
+    if (status === "loading") text = "Loading";
+    else if (status === "error") text = lastSuccess ? `Offline since ${formatClock(lastSuccess)}` : "Offline";
+    else if (status === "stale") text = `Stale since ${formatClock(lastSuccess)}`;
+    else if (status === "degraded") text = `${errors} of ${total} failing · ${formatClock(lastSuccess)}`;
+    else text = lastSuccess ? formatClock(lastSuccess) : "Live";
+    state.statusEl.dataset.status = status;
+    state.statusTextEl.textContent = text;
+    state.statusEl.setAttribute("aria-label", `${statusLabel(status)}. ${text}`);
   }
   syncDiagnostics();
 }
@@ -1154,8 +1186,6 @@ async function reloadDashboard() {
     const old = state.scheduler;
     if (old) old.stop();
     state.scheduler = null;
-    if (state.statusTicker) clearInterval(state.statusTicker);
-    state.statusTicker = null;
     state.currentAbort?.abort();
     await loadApp();
     return { ok: true };
@@ -1199,6 +1229,14 @@ function installApi() {
         // API calls never throw to callers (C-009).
       }
     },
+    setLocked(locked) {
+      try {
+        state.locked = locked === true;
+        applyDisplayMode();
+      } catch {
+        // API calls never throw to callers (C-009).
+      }
+    },
     reloadDashboard() {
       return reloadDashboard().catch((error) => ({
         ok: false,
@@ -1210,11 +1248,14 @@ function installApi() {
   window.androdash = Object.freeze(api);
 }
 
+/**
+ * Display mode is pure CSS: colours are variables, so switching to the locked
+ * grayscale view (C-005/C-007) restyles everything without a re-render.
+ */
 function applyDisplayMode() {
-  const mode = state.config?.displayMode || "standard";
+  const mode = state.locked ? "monochrome" : state.config?.displayMode || "standard";
   document.documentElement.dataset.displayMode = mode;
-  const theme = document.querySelector('meta[name="theme-color"]');
-  if (theme) theme.setAttribute("content", mode === "standard" ? "#080b12" : "#000000");
+  document.documentElement.dataset.locked = String(state.locked);
 }
 
 function updateMode() {

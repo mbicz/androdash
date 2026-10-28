@@ -161,3 +161,32 @@ test("C-006 records failure and success timestamps", async () => {
   assert.equal(scheduler.state().lastSuccessAt, timers.now());
   scheduler.stop();
 });
+
+test("C-006 changing the interval at runtime reschedules; 0 switches to manual", async () => {
+  const timers = fakeTimers();
+  let calls = 0;
+  const scheduler = new Scheduler({
+    intervalSeconds: 10,
+    now: timers.now,
+    setTimeoutFn: timers.setTimeoutFn,
+    clearTimeoutFn: timers.clearTimeoutFn,
+    run: async () => {
+      calls += 1;
+      return { ok: true, succeeded: 1, failed: 0, total: 1 };
+    },
+  });
+  await scheduler.start();
+  await flush();
+  scheduler.setIntervalSeconds(60);
+  assert.equal(scheduler.state().nextRefreshAt, timers.now() + 60_000);
+  timers.advance(10_000);
+  await flush();
+  assert.equal(calls, 1);
+  timers.advance(50_000);
+  await flush();
+  assert.equal(calls, 2);
+  scheduler.setIntervalSeconds(0);
+  assert.equal(timers.pending(), 0);
+  assert.equal(scheduler.state().nextRefreshAt, null);
+  scheduler.stop();
+});

@@ -116,44 +116,17 @@ export function seriesDisplayName(labels) {
   return fallback.length ? `${name} · ${fallback.join(" · ")}` : name;
 }
 
-const PALETTE = [
-  "#66d9ef",
-  "#a78bfa",
-  "#f472b6",
-  "#34d399",
-  "#fbbf24",
-  "#fb7185",
-  "#38bdf8",
-  "#c084fc",
-  "#4ade80",
-  "#f59e0b",
-  "#e879f9",
-  "#2dd4bf",
-];
+export const SERIES_COLORS = 8;
 
-const MONOCHROME_PALETTE = [
-  "#ffffff",
-  "#d0d0d0",
-  "#a6a6a6",
-  "#7f7f7f",
-  "#e8e8e8",
-  "#bdbdbd",
-  "#949494",
-  "#6f6f6f",
-  "#f2f2f2",
-  "#c6c6c6",
-  "#8b8b8b",
-  "#5f5f5f",
-];
-
-export function seriesColor(key, { monochrome = false } = {}) {
-  let hash = 2166136261;
-  for (let i = 0; i < key.length; i += 1) {
-    hash ^= key.charCodeAt(i);
-    hash = Math.imul(hash, 16777619);
-  }
-  const palette = monochrome ? MONOCHROME_PALETTE : PALETTE;
-  return palette[Math.abs(hash) % palette.length];
+/**
+ * Series colours are assigned by position within a panel, never by hashing
+ * labels, so two series in one chart can never share a colour. The value is a
+ * CSS variable: display modes (standard, AMOLED, monochrome, locked) restyle
+ * charts without re-rendering them.
+ */
+export function seriesColor(index) {
+  const slot = ((Number(index) || 0) % SERIES_COLORS + SERIES_COLORS) % SERIES_COLORS;
+  return `var(--series-${slot})`;
 }
 
 function downsample(points, maxPoints, warnings) {
