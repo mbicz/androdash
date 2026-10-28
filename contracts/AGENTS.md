@@ -29,6 +29,9 @@ change is needed, the contract doc and every consumer change too.
 - `fixtures/demo-dashboard.json` — shared Perses subset demo (9 panels, 6
   eligible, 3 hidden).
 - `fixtures/spark-dashboard.json` — 14-panel Spark Exporter integration fixture.
+- `fixtures/macos-node-dashboard.json` — Darwin node_exporter dashboard for a
+  real Prometheus; the mock does not answer it. Use only families Darwin
+  node_exporter publishes (no temperatures, fans, or GPU).
 - `fixtures/prometheus/*.json` — deterministic Prometheus API envelopes.
 
 ## Validation

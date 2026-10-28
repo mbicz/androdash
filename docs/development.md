@@ -145,6 +145,36 @@ The fixture uses real Spark Exporter metric families plus `node_load1`/`node_loa
 The mock returns deterministic values for every query. See
 [`integrations/spark-exporter.md`](integrations/spark-exporter.md).
 
+### Live macOS host on a physical phone
+
+`macos-node-dashboard.json` targets a real Prometheus scraping node_exporter on
+the Mac; the mock does not answer it. Homebrew setup (host config, outside the
+repo):
+
+```sh
+brew install node_exporter prometheus
+echo '--web.listen-address=127.0.0.1:9100' > "$(brew --prefix)/etc/node_exporter.args"
+# prometheus.yml: add a job scraping 127.0.0.1:9100 every 10s
+# prometheus.args: --web.listen-address=0.0.0.0:9090 so the phone can reach it
+brew services start node_exporter
+brew services start prometheus
+```
+
+Prometheus's default `--web.cors.origin=.*` already answers
+`http://androdash.local`. Serve the dashboard on the LAN and launch on the phone
+(`adb devices` must list it; replace the IP with the Mac's `ipconfig getifaddr en0`):
+
+```sh
+python3 tools/serve_demo.py --host 192.168.1.20 --port 8099
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+adb shell am start -n com.mbicz.androdash/.MainActivity \
+  --es dashboard_url "http://192.168.1.20:8099/contracts/fixtures/macos-node-dashboard.json" \
+  --es prometheus_url "http://192.168.1.20:9090"
+```
+
+Prometheus on `0.0.0.0:9090` has no auth; keep it on a trusted LAN (decision
+0006). `serve_demo.py` serves the repository root, so stop it when done.
+
 Kiosk off for development:
 
 ```sh

@@ -10,6 +10,7 @@ contracts/
     ├── app-config.example.json
     ├── demo-dashboard.json      # 9 panels: 6 eligible, 3 hidden
     ├── spark-dashboard.json     # 14-panel Spark Exporter dashboard
+    ├── macos-node-dashboard.json # live macOS node_exporter dashboard (no mock)
     ├── diagnostics.example.json
     └── prometheus/
         ├── buildinfo.json

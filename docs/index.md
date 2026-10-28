@@ -63,6 +63,7 @@ The index is [`contracts/README.md`](contracts/README.md).
 | [`../contracts/diagnostics.schema.json`](../contracts/diagnostics.schema.json) | Diagnostics snapshot shape |
 | [`../contracts/fixtures/demo-dashboard.json`](../contracts/fixtures/demo-dashboard.json) | Small Perses dashboard used by the demo and tests |
 | [`../contracts/fixtures/spark-dashboard.json`](../contracts/fixtures/spark-dashboard.json) | Spark Exporter host, inference, fabric, and health dashboard |
+| [`../contracts/fixtures/macos-node-dashboard.json`](../contracts/fixtures/macos-node-dashboard.json) | Live macOS host dashboard (node_exporter + real Prometheus) |
 | [`../contracts/fixtures/app-config.example.json`](../contracts/fixtures/app-config.example.json) | Example canonical config |
 | [`../contracts/fixtures/prometheus/`](../contracts/fixtures/prometheus/) | Deterministic Prometheus API responses |
 
