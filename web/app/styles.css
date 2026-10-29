@@ -270,6 +270,9 @@ p {
   display: grid;
   gap: 18px;
   width: min(560px, 100%);
+  max-height: 88vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   margin: 0 auto;
   padding: 14px var(--gutter) calc(24px + env(safe-area-inset-bottom));
   border-radius: 20px 20px 0 0;
@@ -620,16 +623,40 @@ html:has([data-layout-mode="stack"]) {
   color: var(--crit);
 }
 
+/*
+ * Panel scrolling (C-005): the body is the panel's one scroll container. Text
+ * and lists that do not fit scroll inside it; the panel itself stays put. Edges
+ * that hide more content fade out instead of showing a scrollbar.
+ */
 .panel-body {
   position: relative;
   flex: 1 1 auto;
   min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+.panel-body::-webkit-scrollbar {
+  display: none;
+}
+
+.panel-body[data-overflow="below"] {
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 22px), transparent);
+}
+
+.panel-body[data-overflow="above"] {
+  mask-image: linear-gradient(to top, #000 calc(100% - 22px), transparent);
+}
+
+.panel-body[data-overflow="above below"] {
+  mask-image: linear-gradient(to bottom, transparent, #000 22px, #000 calc(100% - 22px), transparent);
 }
 
 .stat-wrap,
 .gauge-wrap,
-.chart-wrap,
-.table-wrap {
+.chart-wrap {
   height: 100%;
   min-height: 0;
 }
@@ -1000,7 +1027,7 @@ html[data-display-mode="monochrome"] .legend-dot[data-series="6"] {
 /* Table ------------------------------------------------------------------ */
 
 .table-wrap {
-  overflow: auto;
+  overflow-x: auto;
 }
 
 .data-table {
@@ -1049,8 +1076,6 @@ html[data-display-mode="monochrome"] .legend-dot[data-series="6"] {
 /* Markdown --------------------------------------------------------------- */
 
 .markdown-body {
-  height: 100%;
-  overflow: auto;
   color: var(--label-2);
   font-size: 14px;
   line-height: 1.45;
@@ -1548,10 +1573,6 @@ html[data-layout="fit"] body {
   font-size: calc(9.5px * var(--fit-scale, 1));
 }
 
-[data-layout-mode="fit"] .table-wrap {
-  overflow: hidden;
-}
-
 [data-layout-mode="fit"] .data-table thead {
   display: none;
 }
@@ -1563,10 +1584,117 @@ html[data-layout="fit"] body {
   line-height: 18px;
 }
 
-.table-more {
-  color: var(--label-3);
-  font-size: 11px;
-  line-height: 18px;
+[data-layout-mode="fit"] .chart-svg {
+  min-height: 48px;
+}
+
+[data-layout-mode="fit"] .markdown-body {
+  font-size: calc(13px * var(--fit-scale, 1));
+}
+
+/* Dashboards -------------------------------------------------------------- */
+
+.dashboard-dots {
+  display: flex;
+  align-items: center;
+  margin-left: 2px;
+}
+
+.dashboard-dot {
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  background: none;
+}
+
+.dashboard-dot::after {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--label-3);
+}
+
+.dashboard-dot[aria-current="true"]::after {
+  background: var(--label);
+}
+
+[data-layout-mode="fit"] .app-heading {
+  align-items: center;
+}
+
+.app-shell[data-enter="next"] main {
+  animation: enter-next 220ms ease-out;
+}
+
+.app-shell[data-enter="prev"] main {
+  animation: enter-prev 220ms ease-out;
+}
+
+@keyframes enter-next {
+  from {
+    opacity: 0;
+    transform: translateX(24px);
+  }
+}
+
+@keyframes enter-prev {
+  from {
+    opacity: 0;
+    transform: translateX(-24px);
+  }
+}
+
+.dashboard-list {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.dashboard-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.dashboard-open {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 40px;
+  padding: 0 12px;
+  overflow: hidden;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  font-size: 15px;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dashboard-item[aria-current="true"] .dashboard-open {
+  background: var(--fill);
+  font-weight: 600;
+}
+
+.dashboard-remove {
+  height: 32px;
+  padding: 0 10px;
+  border: 0;
+  background: none;
+  color: var(--crit);
+  font-size: 13px;
+}
+
+.dashboard-add {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 
 /* Wide screens ----------------------------------------------------------- */
@@ -1580,5 +1708,6 @@ html[data-layout="fit"] body {
 @media (prefers-reduced-motion: reduce) {
   * {
     transition: none !important;
+    animation: none !important;
   }
 }

@@ -51,7 +51,7 @@ fetches; the definition is normalized as untrusted input whatever its source.
 | Source | When | Behaviour |
 |---|---|---|
 | `bundled` | `dashboard_url` is `http://androdash.local/dashboards/<file>.json` | A dashboard built into the APK (C-007). Always local; never stored. |
-| `stored` | `dashboard_source=stored` (default) and the Android shell's store is present | Read `http://androdash.local/stored/meta.json`. If its `sourceUrl` equals `dashboard_url`, load `/stored/dashboard.json` and **do not contact the dashboard server**. Otherwise fetch `dashboard_url`, normalize it, and store it with `AndroDash.storeDashboard(dashboard_url, json)`; a new `dashboard_url` therefore replaces the stored copy on its first successful load. |
+| `stored` | `dashboard_source=stored` (default) and the Android shell's store is present | Read `http://androdash.local/stored/<i>/meta.json`, where `<i>` is the position of `dashboard_url` in `dashboard_urls` (slots 0–7). If its `sourceUrl` equals `dashboard_url`, load `/stored/<i>/dashboard.json` and **do not contact the dashboard server**. Otherwise fetch `dashboard_url`, normalize it, and store it with `AndroDash.storeDashboard(dashboard_url, json)`; a new `dashboard_url` therefore replaces the stored copy on its first successful load. |
 | `url` | `dashboard_source=url`, or no shell store (browser) | Fetch `dashboard_url` on every load; store nothing. |
 
 - A stored copy that cannot be read or does not normalize records

@@ -1,5 +1,10 @@
 import { ConfigError, parseConfig } from "./config.js";
-import { loadDashboard, shellDashboardStore, updateStoredDashboard } from "./dashboard/load.js";
+import {
+  bundledDashboards,
+  loadDashboard,
+  shellDashboardStore,
+  updateStoredDashboard,
+} from "./dashboard/load.js";
 import {
   DashboardError,
   collectPrometheusBaseUrls,
@@ -23,7 +28,7 @@ import {
   statusLabel,
 } from "./diagnostics.js";
 import { orderedItems, renderRows, resolveLayoutMode } from "./layout.js";
-import { FIT_EXCLUDED_KINDS, planFit } from "./fit.js";
+import { planFit } from "./fit.js";
 import { renderPanelBody } from "./panels/index.js";
 import { labelValues as prometheusLabelValues, queryInstant, queryRange, stepFor } from "./prometheus.js";
 import { Scheduler } from "./scheduler.js";
@@ -57,6 +62,10 @@ const state = {
   rangeText: null,
   panelWindows: new Map(),
   locked: false,
+  titles: new Map(),
+  rotateTimer: null,
+  lastTouchAt: 0,
+  switching: false,
   pendingVariables: [],
   variablesCheckedAt: 0,
   probesCheckedAt: 0,
@@ -248,7 +257,7 @@ async function loadApp() {
   const dashboard = await loadDashboard(state.config, {
     onRequest: recordRequest,
     warn,
-    store: shellDashboardStore(bridge()),
+    store: dashboardStore(),
   });
   state.dashboard = dashboard;
   state.rangeText = state.config.timeRange || dashboard.durationText;
@@ -279,6 +288,7 @@ async function loadApp() {
   state.variablesCheckedAt = Date.now();
   state.probesCheckedAt = Date.now();
   applyDisplayVariables(dashboard, state.variables, warn);
+  state.titles.set(state.config.dashboardUrl, dashboard.title);
 
   state.filtered = filterDashboard(dashboard, {
     config: state.config,
@@ -449,7 +459,6 @@ function fitItems() {
   for (const row of state.filtered.rows) {
     for (const item of orderedItems(row.items)) {
       if (item.state === "unsupported" || !item.panel) continue;
-      if (FIT_EXCLUDED_KINDS.has(item.panel.panelKind)) continue;
       items.push({
         id: String(items.length),
         kind: item.panel.panelKind,
@@ -570,8 +579,271 @@ function createHeader() {
   const heading = document.createElement("div");
   heading.className = "app-heading";
   heading.append(title, status);
+  const pager = dashboardDots();
+  if (pager) heading.append(pager);
   header.append(heading, actions);
   return header;
+}
+
+/** One dot per dashboard in `dashboard_urls`; the current one is filled. */
+function dashboardDots() {
+  const urls = state.config.dashboardUrls;
+  if (urls.length < 2) return null;
+  const nav = document.createElement("nav");
+  nav.className = "dashboard-dots";
+  nav.setAttribute("aria-label", "Dashboards");
+  urls.forEach((url, index) => {
+    const dot = document.createElement("button");
+    dot.type = "button";
+    dot.className = "dashboard-dot";
+    dot.setAttribute("aria-label", `Show ${state.titles.get(url) || dashboardLabel(url)}`);
+    dot.setAttribute("aria-current", String(url === state.config.dashboardUrl));
+    dot.addEventListener("click", () => showDashboard(index));
+    nav.append(dot);
+  });
+  return nav;
+}
+
+function dashboardStore() {
+  const slot = Math.max(0, state.config.dashboardUrls.indexOf(state.config.dashboardUrl));
+  return shellDashboardStore(bridge(), { slot });
+}
+
+function dashboardLabel(url) {
+  try {
+    const name = new URL(url).pathname.split("/").pop() || url;
+    return name.replace(/\.json$/i, "").replace(/-dashboard$/i, "").replace(/[-_]+/g, " ");
+  } catch {
+    return url;
+  }
+}
+
+/**
+ * Show dashboard `index` of `dashboard_urls` (wrapping). Only one dashboard is
+ * live at a time: the others are not queried. The choice is persisted, so a
+ * relaunch shows the last dashboard viewed (C-001 `dashboard_url`).
+ */
+async function showDashboard(index, { direction = 0 } = {}) {
+  const urls = state.config.dashboardUrls;
+  if (urls.length < 2 || state.switching) return;
+  const next = urls[((index % urls.length) + urls.length) % urls.length];
+  if (next === state.config.dashboardUrl && state.dashboard) return;
+  state.switching = true;
+  closeSettings();
+  closeDebug();
+  state.config = { ...state.config, dashboardUrl: next };
+  persistOption("dashboard_url", next);
+  app.dataset.enter = direction > 0 ? "next" : direction < 0 ? "prev" : "";
+  try {
+    await reloadDashboard();
+  } finally {
+    state.switching = false;
+    setTimeout(() => {
+      app.dataset.enter = "";
+    }, 260);
+    scheduleRotation();
+  }
+}
+
+function stepDashboard(delta) {
+  const urls = state.config.dashboardUrls;
+  showDashboard(urls.indexOf(state.config.dashboardUrl) + delta, { direction: delta });
+}
+
+/**
+ * Rotation (C-001 `rotate_seconds`): advance to the next dashboard on a timer,
+ * for an unattended screen. Any touch pauses it for two minutes.
+ */
+function scheduleRotation() {
+  if (state.rotateTimer) clearTimeout(state.rotateTimer);
+  state.rotateTimer = null;
+  const seconds = state.config.rotateSeconds;
+  if (!seconds || state.config.dashboardUrls.length < 2) return;
+  const idleFor = Date.now() - state.lastTouchAt;
+  const delay = Math.max(seconds * 1000, 120_000 - idleFor);
+  state.rotateTimer = setTimeout(() => {
+    state.rotateTimer = null;
+    if (document.hidden || state.sheet || state.debugOverlay) {
+      scheduleRotation();
+      return;
+    }
+    if (Date.now() - state.lastTouchAt < 120_000) {
+      scheduleRotation();
+      return;
+    }
+    stepDashboard(1);
+  }, delay);
+}
+
+/** Can `element` (or an ancestor up to the app) scroll further along `axis`? */
+function canScroll(element, axis, delta) {
+  for (let node = element; node && node !== app && node !== document.body; node = node.parentElement) {
+    const style = getComputedStyle(node);
+    const overflow = axis === "x" ? style.overflowX : style.overflowY;
+    if (overflow !== "auto" && overflow !== "scroll") continue;
+    const max = axis === "x" ? node.scrollWidth - node.clientWidth : node.scrollHeight - node.clientHeight;
+    if (max <= 1) continue;
+    const position = axis === "x" ? node.scrollLeft : node.scrollTop;
+    if (delta < 0 ? position < max - 1 : position > 1) return true;
+  }
+  return false;
+}
+
+/**
+ * Gestures (C-005 "Gestures"): a horizontal swipe pages between dashboards —
+ * anywhere in the fit layout, on the header in the scroll layout (where
+ * horizontal strips own the page). Content that can still scroll sideways
+ * gets the swipe first. Vertical drags only ever scroll content.
+ */
+function installGestures() {
+  // Touch events, not pointer events: once the WebView starts panning a
+  // scrollable panel it cancels the pointer stream, but touchend still fires.
+  let start = null;
+  const begin = (x, y, t, target) => {
+    state.lastTouchAt = Date.now();
+    start = { x, y, t, target };
+  };
+  const finish = (x, y, t) => {
+    const origin = start;
+    start = null;
+    scheduleRotation();
+    if (!origin || (state.config?.dashboardUrls.length ?? 0) < 2) return;
+    if (state.sheet || state.debugOverlay) return;
+    const dx = x - origin.x;
+    const dy = y - origin.y;
+    if (Math.abs(dx) < 56 || Math.abs(dx) < Math.abs(dy) * 1.8 || t - origin.t > 700) return;
+    const target = origin.target instanceof Element ? origin.target : null;
+    if (target?.closest(".sheet-overlay, .debug-overlay, input, select")) return;
+    if (state.mode !== "fit" && !state.fatal && !target?.closest(".app-header")) return;
+    if (target && canScroll(target, "x", dx)) return;
+    stepDashboard(dx < 0 ? 1 : -1);
+  };
+  window.addEventListener(
+    "touchstart",
+    (event) => {
+      if (event.touches.length !== 1) {
+        start = null;
+        return;
+      }
+      const touch = event.touches[0];
+      begin(touch.clientX, touch.clientY, event.timeStamp, event.target);
+    },
+    { passive: true },
+  );
+  window.addEventListener(
+    "touchend",
+    (event) => {
+      const touch = event.changedTouches[0];
+      if (touch) finish(touch.clientX, touch.clientY, event.timeStamp);
+    },
+    { passive: true },
+  );
+  window.addEventListener(
+    "pointerdown",
+    (event) => {
+      if (event.pointerType === "touch") return;
+      if (!event.isPrimary || event.button > 0) return;
+      begin(event.clientX, event.clientY, event.timeStamp, event.target);
+    },
+    { passive: true },
+  );
+  window.addEventListener(
+    "pointerup",
+    (event) => {
+      if (event.pointerType === "touch" || !event.isPrimary) return;
+      finish(event.clientX, event.clientY, event.timeStamp);
+    },
+    { passive: true },
+  );
+  document.addEventListener("keydown", (event) => {
+    if (state.sheet || state.debugOverlay) return;
+    if (event.key === "ArrowRight") stepDashboard(1);
+    if (event.key === "ArrowLeft") stepDashboard(-1);
+  });
+}
+
+/**
+ * Dashboards to page through: the configured list, plus dashboards built into
+ * the app that can be added. Adding or removing persists `dashboard_urls`
+ * (C-007 `setOption`), which only ever accepts built-in or already listed URLs.
+ */
+async function dashboardsGroup() {
+  const wrap = document.createElement("div");
+  wrap.className = "sheet-stack";
+  const list = document.createElement("ul");
+  list.className = "dashboard-list";
+  const urls = state.config.dashboardUrls;
+  const bundled = await bundledDashboards();
+  const titleOf = (url) =>
+    state.titles.get(url) || bundled.find((item) => item.url === url)?.title || dashboardLabel(url);
+  for (const url of urls) {
+    const item = document.createElement("li");
+    item.className = "dashboard-item";
+    item.setAttribute("aria-current", String(url === state.config.dashboardUrl));
+    const open = document.createElement("button");
+    open.type = "button";
+    open.className = "dashboard-open";
+    open.textContent = safeText(titleOf(url), 80);
+    open.addEventListener("click", () => showDashboard(urls.indexOf(url)));
+    item.append(open);
+    if (urls.length > 1) {
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "dashboard-remove";
+      remove.setAttribute("aria-label", `Remove ${titleOf(url)}`);
+      remove.textContent = "Remove";
+      remove.addEventListener("click", () => setDashboardList(urls.filter((other) => other !== url)));
+      item.append(remove);
+    }
+    list.append(item);
+  }
+  wrap.append(list);
+  const addable = bundled.filter((item) => !urls.includes(item.url));
+  if (addable.length > 0 && urls.length < 8) {
+    const add = document.createElement("div");
+    add.className = "dashboard-add";
+    for (const item of addable) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "sheet-action";
+      button.textContent = `+ ${safeText(item.title, 60)}`;
+      button.addEventListener("click", () => setDashboardList([...urls, item.url]));
+      add.append(button);
+    }
+    wrap.append(add);
+  }
+  if (urls.length > 1) {
+    wrap.append(
+      segmented(
+        "Rotate",
+        [
+          { value: 0, label: "Stay" },
+          { value: 30, label: "30s" },
+          { value: 60, label: "1m" },
+          { value: 300, label: "5m" },
+        ],
+        state.config.rotateSeconds,
+        (seconds) => {
+          state.config = { ...state.config, rotateSeconds: seconds };
+          persistOption("rotate_seconds", seconds);
+          scheduleRotation();
+          return true;
+        },
+      ),
+    );
+  }
+  return settingsGroup(urls.length > 1 ? "Dashboards · swipe to switch" : "Dashboards", wrap);
+}
+
+function setDashboardList(urls) {
+  if (urls.length === 0 || urls.length > 8) return;
+  const current = urls.includes(state.config.dashboardUrl) ? state.config.dashboardUrl : urls[0];
+  state.config = { ...state.config, dashboardUrls: Object.freeze([...urls]), dashboardUrl: current };
+  persistOption("dashboard_urls", urls.join(","));
+  persistOption("dashboard_url", current);
+  closeSettings();
+  scheduleRotation();
+  reloadDashboard();
 }
 
 /** A segmented control: one choice of several, applied on tap. */
@@ -628,7 +900,7 @@ function lockChoice() {
  * lock-screen view. Every choice applies at once and is persisted by the
  * shell when present; the page itself carries no controls.
  */
-function openSettings() {
+async function openSettings() {
   closeSettings();
   const overlay = document.createElement("div");
   overlay.className = "sheet-overlay";
@@ -693,7 +965,8 @@ function openSettings() {
       ),
     ),
   );
-  if (shellDashboardStore(bridge())) sheet.append(dashboardGroup());
+  sheet.append(await dashboardsGroup());
+  if (dashboardStore()) sheet.append(dashboardGroup());
   const collector = collectorStatus();
   if (collector?.enabled) sheet.append(collectorGroup(collector));
   if (lockSupport()) {
@@ -764,7 +1037,7 @@ function dashboardGroup() {
       update.disabled = true;
       try {
         const ok = await updateStoredDashboard(state.config, {
-          store: shellDashboardStore(bridge()),
+          store: dashboardStore(),
           onRequest: recordRequest,
           warn,
         });
@@ -1033,6 +1306,32 @@ function panelElements(panelId) {
 }
 
 /**
+ * Panel content can always scroll inside its panel (C-005 "Panel scrolling");
+ * in the fit layout the panel itself never moves. `data-overflow` marks which
+ * edges hide more content so CSS can fade them. Updated on scroll and resize
+ * only — nothing runs while the panel is still.
+ */
+function trackOverflow(element) {
+  if (!element || element.dataset.overflowTracked === "true") {
+    if (element) updateOverflow(element);
+    return;
+  }
+  element.dataset.overflowTracked = "true";
+  element.addEventListener("scroll", () => updateOverflow(element), { passive: true });
+  if (typeof ResizeObserver === "function") {
+    new ResizeObserver(() => updateOverflow(element)).observe(element);
+  }
+  updateOverflow(element);
+}
+
+function updateOverflow(element) {
+  const below = element.scrollHeight - element.clientHeight - element.scrollTop > 2;
+  const above = element.scrollTop > 2;
+  const value = `${above ? "above " : ""}${below ? "below" : ""}`.trim();
+  if (element.dataset.overflow !== value) element.dataset.overflow = value;
+}
+
+/**
  * Content-box size of a panel body in CSS pixels. Renderers that draw SVG use
  * it so their viewBox matches the real box and text keeps its CSS size.
  */
@@ -1059,6 +1358,7 @@ function renderMarkdownPanel(panelId) {
       });
       const empty = body.dataset.empty === "true";
       section.querySelector(".panel-body").replaceChildren(body);
+      trackOverflow(section.querySelector(".panel-body"));
       section.dataset.panelState = empty ? "empty" : "ready";
       section.setAttribute("aria-busy", "false");
       section.querySelector(".panel-badge").textContent = "";
@@ -1089,7 +1389,11 @@ function applyDataPanel(panelId, series, staleError = null) {
       });
       if (!content) throw new Error(`No renderer for ${panel.panelKind}`);
       const empty = content.dataset.empty === "true";
+      const scrolled = body.scrollTop;
       body.replaceChildren(content);
+      // Keep the reader's place in a scrolled panel across refreshes.
+      if (scrolled > 0) body.scrollTop = scrolled;
+      trackOverflow(body);
       if (staleError) {
         section.dataset.panelState = "stale";
         section.querySelector(".panel-badge").textContent = "Stale";
@@ -1734,7 +2038,9 @@ async function init() {
       warn(item.code, item.message, null, item.detail);
     }
     if (state.config.kiosk) document.body.dataset.kiosk = "true";
+    installGestures();
     await loadApp();
+    scheduleRotation();
   } catch (error) {
     bootFatal(error, !state.config);
   }

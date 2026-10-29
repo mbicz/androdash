@@ -9,7 +9,7 @@
   },
   "spec": {
     "display": {
-      "name": "$host",
+      "name": "Agents on $host",
       "description": "AI coding harnesses and macOS health (agenticmac-exporter)"
     },
     "duration": "1h",

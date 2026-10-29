@@ -59,22 +59,24 @@ export async function fetchDashboardDocument(url, { signal = null, onRequest = n
 }
 
 /**
- * The shell's dashboard store (C-002 "Stored dashboards", C-007
- * `storeDashboard`). Reads go through the virtual origin; writes through the
- * bridge. Returns null outside the Android shell.
+ * The shell's dashboard store (C-002 "Dashboard sources", C-007
+ * `storeDashboard`): one slot per entry of `dashboard_urls`. Reads go through
+ * the virtual origin; writes through the bridge, which picks the slot from the
+ * source URL. Returns null outside the Android shell.
  */
-export function shellDashboardStore(shell, { fetch = fetchJson } = {}) {
+export function shellDashboardStore(shell, { slot = 0, fetch = fetchJson } = {}) {
   if (typeof shell?.storeDashboard !== "function") return null;
+  const base = `http://${LOCAL_HOST}/stored/${Math.max(0, Math.min(7, slot | 0))}`;
   return {
     async read() {
       let meta;
       try {
-        meta = (await fetch(`http://${LOCAL_HOST}/stored/meta.json`, { timeoutMs: 3000 })).data;
+        meta = (await fetch(`${base}/meta.json`, { timeoutMs: 3000 })).data;
       } catch (error) {
         if (error?.code === "E_HTTP" && error.status === 404) return null;
         throw error;
       }
-      const document = await fetch(`http://${LOCAL_HOST}/stored/dashboard.json`, {
+      const document = await fetch(`${base}/dashboard.json`, {
         timeoutMs: 5000,
         maxBytes: MAX_BYTES,
       });
@@ -153,4 +155,22 @@ export async function updateStoredDashboard(config, { store, onRequest = null, w
   const { data, url } = await fetchDashboardDocument(config.dashboardUrl, { onRequest });
   normalizeFrom(data, url, config, warn);
   return store.write(config.dashboardUrl, JSON.stringify(data));
+}
+
+/**
+ * Dashboards built into the APK (`/dashboards/index.json`, C-007). Returns
+ * `[{url, title}]`, or `[]` outside the shell.
+ */
+export async function bundledDashboards({ fetch = fetchJson } = {}) {
+  try {
+    const { data } = await fetch(`http://${LOCAL_HOST}/dashboards/index.json`, { timeoutMs: 3000 });
+    return (Array.isArray(data?.dashboards) ? data.dashboards : [])
+      .filter((item) => typeof item?.file === "string" && /^[A-Za-z0-9_.-]+\.json$/.test(item.file))
+      .map((item) => ({
+        url: `http://${LOCAL_HOST}/dashboards/${item.file}`,
+        title: typeof item.title === "string" ? item.title.slice(0, 80) : item.file,
+      }));
+  } catch {
+    return [];
+  }
 }

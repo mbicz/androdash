@@ -25,6 +25,7 @@ export function redactConfig(config) {
   return {
     ...config,
     dashboardUrl: redactUrl(config.dashboardUrl),
+    dashboardUrls: (config.dashboardUrls || []).map(redactUrl),
     prometheusUrl: redactUrl(config.prometheusUrl),
   };
 }

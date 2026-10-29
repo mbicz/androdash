@@ -1,11 +1,13 @@
 # C-007 — Kiosk and lifecycle
 
-- **Version:** 6
-- **Status:** Accepted, 2026-10-28 (v3: lock-screen grayscale, re-light, view
+- **Version:** 7
+- **Status:** Accepted, 2026-10-29 (v3: lock-screen grayscale, re-light, view
   and lock-screen bridge methods, decision 0016; v4: generic `setOption`
   bridge method, `lock_style`, decision 0017; v5: stored dashboard bridge
   methods, `dashboard_source` option, decision 0018; v6: collector service and
-  `collectorStatus`, decision 0019)
+  `collectorStatus`, decision 0019; v7: multiple dashboards — `setOption`
+  `dashboard_url`/`dashboard_urls`/`rotate_seconds`, stored slots, API 33+
+  back callback, new intents without reload, decision 0020)
 - **Consumers:** Android shell (W1), renderer debug affordance (W2)
 - **Related:** C-001 (config), C-008 (WebView security), C-009 (diagnostics)
 
@@ -50,7 +52,14 @@ behavior may vary; document the limitation rather than promising AOD.
 
 ### `kiosk=true`
 
-- Back button/gesture is a no-op (do not finish).
+- Back button/gesture is a no-op (do not finish):
+  - API 33+: the activity sets `android:enableOnBackInvokedCallback="true"`
+    and registers an `OnBackInvokedCallback` at `PRIORITY_DEFAULT` while
+    `kiosk=true` that consumes Back (logs `back ignored in kiosk`), so no
+    predictive-back animation peeks at the launcher. It is unregistered when a
+    launch resolves `kiosk=false`.
+  - Before API 33 (and on API 33, where the per-activity opt-in is not read):
+    `onBackPressed` ignores Back while `kiosk=true`.
 - Home/recents are not intercepted (requires lock task/device owner for real
   containment; do not fake it).
 - Apply immersive sticky mode.
@@ -148,18 +157,21 @@ A kiosk must be serviceable:
   extra overrides and replaces it; `AndroDash.setLockScreen()` updates it. The
   effective value is still gated by `kiosk`. `lock_task` is never persisted.
 - `AndroDash.setOption()` updates `timeRange`, `refreshSeconds`, `layoutMode`,
-  `lockStyle`, or `dashboardSource` in the persisted `AppConfig` and the current
-  renderer URL.
-- The stored dashboard copy (C-001 `dashboard_source=stored`, decision 0018)
-  lives in app-private storage as two fixed files,
-  `<filesDir>/dashboards/stored.json` and `stored.meta.json`
-  (`{"sourceUrl", "storedAt", "bytes"}`). Each is written to a temp file, synced,
-  and atomically renamed; the old meta is deleted first and the new meta is
-  renamed in last, and the dashboard is readable only while its meta exists, so
-  an interrupted write reads as "nothing stored". It survives relaunch and
-  reboot, is replaced by the next successful store, and is removed by
-  `clearStoredDashboard()` or clearing app data. It is independent of
-  `launch_config`.
+  `lockStyle`, `dashboardSource`, `dashboardUrl`, `dashboardUrls`, or
+  `rotateSeconds` in the persisted `AppConfig` and the current renderer URL. A
+  relaunch therefore shows the last viewed dashboard.
+- The stored dashboard copies (C-001 `dashboard_source=stored`, decision 0018,
+  slots decision 0020) live in app-private storage as 8 fixed slots, one per
+  `dashboard_urls` position: slot `i` (`0…7`) is the pair
+  `<filesDir>/dashboards/stored-<i>.json` and `stored-<i>.meta.json`
+  (`{"sourceUrl", "storedAt", "bytes"}`). Each file is written to a temp file,
+  synced, and atomically renamed; the slot's old meta is deleted first and the
+  new meta is renamed in last, and a dashboard is readable only while its meta
+  exists, so an interrupted write reads as "nothing stored". Slots survive
+  relaunch and reboot, are replaced by the next successful store into the same
+  slot, and are all removed by `clearStoredDashboard()` or clearing app data.
+  They are independent of `launch_config`. The pre-slot single copy
+  (`stored.json`, `stored.meta.json`) is deleted on every Activity start.
 - If no valid config exists, show the native fatal screen (`E_CONFIG`) with the
   launch command shape; do not open a blank WebView.
 - Do not persist secrets (none in v1).
@@ -220,7 +232,16 @@ Decision 0019; configuration in C-001
 
 ## Lifecycle
 
-- `onCreate`: parse config, configure WebView, load local URL, apply kiosk.
+- `onCreate`: delete the legacy stored copy, parse config, configure WebView,
+  load local URL, apply kiosk.
+- `onNewIntent` (`launchMode=singleTask`: launcher tap, `adb am start`, a
+  SystemUI re-start right after launch): parse the intent like a launch. When
+  a renderer is live (WebView present, no fatal screen) and the intent either
+  carries no C-001/C-007 launch extra or resolves to the renderer URL already
+  loaded, keep the WebView — no recreate, no reload — and log
+  `intent without changes; keeping renderer`; only persist the config and
+  re-apply kiosk/back handling, `show_when_locked`, `lock_task`, and the
+  collector sync. Otherwise recreate the WebView and load the new URL.
 - `onResume`/`onWindowFocusChanged`: re-apply immersive; with
   `show_when_locked`, push the locked state and dim/undim (see above).
 - `onPageFinished` (local renderer): with `show_when_locked`, push the current
@@ -250,11 +271,11 @@ Optional `window.AndroDash` (present only in the Android shell):
 | `reload()` | none | Reload the local renderer page (with the latest `setOption` choices) |
 | `exitKiosk()` | none | Stop the collector service (if running), then finish the Activity; renderer may prompt/confirm in debug |
 | `log(level, message)` | strings | Log a redacted, length-limited message |
-| `setOption(name, value)` | strings, ≤ 64 chars each | The user changed one renderer option. `name` is one of `time_range`, `refresh_seconds`, `layout_mode`, `lock_style`, `dashboard_source`; `value` is validated with the C-001 rules for the launch extra of that name: durations `1s…30d`; refresh `0` = manual, `5–3600`, `1–4` clamps to `5` with `W_REFRESH_CLAMPED`; `layout_mode` `auto`/`grid`/`stack`/`fit`; `lock_style` `monochrome`/`color`; `dashboard_source` `stored`/`url` (enum values are trimmed and lowercased). Runs on the UI thread, then the in-memory config, persisted `AppConfig`, and renderer URL are updated; the page is not reloaded. An unknown name, a `null`/blank value, or an invalid value logs a warning and is ignored. Returns nothing. |
+| `setOption(name, value)` | strings; `name` ≤ 64 chars; `value` ≤ 2048 chars for `dashboard_url`/`dashboard_urls`, else ≤ 64 | The user changed one renderer option. `name` is one of `time_range`, `refresh_seconds`, `layout_mode`, `lock_style`, `dashboard_source`, `dashboard_url`, `dashboard_urls`, `rotate_seconds`; `value` is validated with the C-001 rules for the launch extra of that name: durations `1s…30d`; refresh `0` = manual, `5–3600`, `1–4` clamps to `5` with `W_REFRESH_CLAMPED`; `layout_mode` `auto`/`grid`/`stack`/`fit`; `lock_style` `monochrome`/`color`; `dashboard_source` `stored`/`url` (enum values are trimmed and lowercased); `rotate_seconds` `0` or `10–3600`. `dashboard_url` must be an entry of the current `dashboard_urls`. `dashboard_urls` is a comma list of 1–8 entries, each either a bundled `http://androdash.local/dashboards/<[A-Za-z0-9_.-]+>.json` (not `index.json`) or already in the current `dashboard_urls` — the page can reorder, drop, and add bundled dashboards but never introduce a remote URL; when the current `dashboard_url` is not in the new list it is inserted first. Runs on the UI thread, then the in-memory config, persisted `AppConfig`, and renderer URL are updated; the page is not reloaded. An unknown name, a `null`/blank value, or an invalid value logs a warning and is ignored. Returns nothing. |
 | `lockScreenEnabled()` | none | Returns the effective `show_when_locked` boolean |
 | `setLockScreen(enabled)` | boolean | Toggle `show_when_locked` at runtime: persist it, apply/clear the keyguard window flags and screen receiver immediately, and push `setLocked(false)` and undim when disabling. Enabling is ignored (warning) when `kiosk=false`. |
-| `storeDashboard(sourceUrl, json)` | strings; `json` ≤ 5 MiB UTF-8 | Store the dashboard JSON the renderer fetched (C-001 [Dashboard source](C-001-launch-config.md#dashboard-source)). Accepted only when `sourceUrl` equals the current `dashboard_url` exactly, `dashboard_source` is `stored`, and `sourceUrl` is not an `http://androdash.local/` URL; `json` must parse as one JSON object (nothing after it) and be at most 5 MiB (5 242 880 bytes) as UTF-8. Replaces the previous copy (see [Persistence](#persistence-and-relaunch)). Runs the file IO on the calling bridge thread. Returns `true` when stored, `false` on any rejection or IO failure (with a warning); never throws. Logs sizes only, never contents or URLs. |
-| `clearStoredDashboard()` | none | Delete the stored copy; `/stored/*` answers 404 afterwards. Never throws. Returns nothing. |
+| `storeDashboard(sourceUrl, json)` | strings; `json` ≤ 5 MiB UTF-8 | Store the dashboard JSON the renderer fetched (C-001 [Dashboard source](C-001-launch-config.md#dashboard-source)) in slot `i`, the position of `sourceUrl` in the current `dashboard_urls`. Accepted only when `sourceUrl` equals a `dashboard_urls` entry exactly, `dashboard_source` is `stored`, and `sourceUrl` is not an `http://androdash.local/` URL; `json` must parse as one JSON object (nothing after it) and be at most 5 MiB (5 242 880 bytes) as UTF-8. Replaces that slot's previous copy (see [Persistence](#persistence-and-relaunch)). Runs the file IO on the calling bridge thread. Returns `true` when stored, `false` on any rejection or IO failure (with a warning); never throws. Logs sizes and the slot only, never contents or URLs. |
+| `clearStoredDashboard()` | none | Delete every stored slot; `/stored/*` answers 404 afterwards. Never throws. Returns nothing. |
 | `collectorStatus()` | none | Returns the [collector](#collector-service) state as a JSON string of at most 4 KiB (UTF-8): `{"enabled": bool, "running": bool, "url": "http://127.0.0.1:19090" \| null, "targets": [{"job", "instance", "address"}], "restarts": n, "startedAt": unix ms \| null, "lastExit": string \| null}`. `enabled` is the current `collector` value; `url` and `targets` are set only when enabled (trailing targets are dropped if the list would exceed 4 KiB); `running` is true while the Prometheus process is alive; `restarts` counts supervisor restarts of the current configuration; `startedAt` is the current process's start (null when not running); `lastExit` is printable ASCII ≤ 200 characters such as `exited with code 1 after 3s`, `start failed: IOException`, or `stopped`. Never throws (falls back to the disabled shape). |
 
 Native → renderer (not a bridge method): with `show_when_locked`, the shell
@@ -271,7 +292,8 @@ Rules:
   `clearStoredDashboard` do bounded file IO on the bridge thread;
   `collectorStatus` reads in-memory state only. None throws to JS.
 - Inputs are length-limited and never injected into shell/Intent/file APIs.
-  The stored dashboard uses fixed file names; no input becomes a path.
+  The stored dashboards use fixed file names per slot; the slot is the bounded
+  position in `dashboard_urls`, and no input becomes a path.
 - No arbitrary URL loading, file access, clipboard, Intent launching, or
   network calls.
 - If the bridge is absent (browser dev), the renderer must degrade gracefully.
@@ -296,6 +318,8 @@ Contents:
 ## Manual acceptance
 
 1. Launch with `kiosk=true`: status/nav hidden, screen stays on, Back no-op.
+   On API 34+ (gesture navigation) a back swipe shows no predictive-back
+   preview of the launcher and logcat shows `back ignored in kiosk`.
 2. Launch with `kiosk=false`: Back exits.
 3. `lock_task=true` on a non-provisioned emulator: no crash; logs the failure;
    immersive remains.
@@ -326,12 +350,13 @@ Contents:
    holds a copy for that exact URL, which then renders without the server.
 10. Bundled dashboard: launch with
     `--es dashboard_url "http://androdash.local/dashboards/macos-node-dashboard.json"`
-    and no dashboard server: the dashboard renders; `/stored/meta.json` stays
+    and no dashboard server: the dashboard renders; `/stored/0/meta.json` stays
     404 (bundled URLs are never stored).
 11. Stored dashboard: launch with a LAN `dashboard_url` while the server is up;
-    logcat shows `dashboard stored (<n> bytes)`. Stop the server, force-stop,
-    relaunch from the launcher: the same dashboard renders. Relaunch with
-    `--es dashboard_source url`: `E_DASHBOARD_FETCH` while the server is down.
+    logcat shows `dashboard stored (slot 0, <n> bytes)`. Stop the server,
+    force-stop, relaunch from the launcher: the same dashboard renders.
+    Relaunch with `--es dashboard_source url`: `E_DASHBOARD_FETCH` while the
+    server is down.
 12. Collector (physical arm64 phone): launch with
     `--ez collector true --es collector_targets "node:mac=<mac-lan-ip>:9100"`
     and the bundled `macos-node-dashboard.json`. Logcat shows
@@ -348,6 +373,16 @@ Contents:
     - Relaunch with `--ez collector false`: the process exits within 5 s, the
       notification goes away, and the renderer uses the configured
       `prometheus_url` again. `exitKiosk()` also stops the service.
+13. Return without reload: with the dashboard showing, press Home, then tap
+    the launcher icon (and separately re-run the same `adb am start` command):
+    logcat shows `intent without changes; keeping renderer`, no
+    `renderer loaded`, and the page keeps its state (no reload flash). A
+    relaunch with a different `dashboard_url` does reload.
+14. Multiple dashboards: launch with
+    `--es dashboard_urls "http://androdash.local/dashboards/agenticmac-dashboard.json,http://androdash.local/dashboards/macos-node-dashboard.json" --es rotate_seconds 60`:
+    the first dashboard shows; the renderer switches (swipe, or every 60 s)
+    with `setOption("dashboard_url", …)` (logcat `option set … dashboard=2/2`);
+    force-stop and relaunch from the launcher shows the last viewed one.
 
 ## Test obligations
 
@@ -356,9 +391,11 @@ Contents:
   `show_when_locked` precedence, `setOption` validation (`ConfigParserTest`),
   the re-light transitions (`LockRelightPolicyTest`: first press re-lights,
   second press stays off, manual wake is locked-lit, unlock resets), the stored
-  dashboard (`DashboardStoreTest`: write/read/meta, UTF-8 size limit,
-  non-object JSON rejected, overwrite, clear, meta-last consistency, the
-  `storeDashboard` source gate), the virtual-origin routes
+  dashboard slots (`DashboardStoreTest`: write/read/meta per slot, slot
+  bounds, independent slots, UTF-8 size limit, non-object JSON rejected,
+  overwrite, clear-all, meta-last consistency, legacy cleanup, the
+  `storeDashboard` slot gate), the intent-without-changes decision
+  (`ConfigParserTest`: `hasConfigExtras`, `keepsRenderer`), the virtual-origin routes
   (`AssetServerRouteTest`), and the collector (`CollectorConfigTest`:
   target grammar, `prometheus.yml`, arguments; `RestartPolicyTest`: backoff
   sequence, cap, healthy reset; `CollectorStatusTest`: payload shape, 4 KiB

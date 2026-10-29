@@ -107,7 +107,7 @@ web/tests/contract/c009-diagnostics.test.js
 - Stat/Gauge calculations and thresholds; state word only on crossing; meter
   only with thresholds;
 - Table rows and limit; a shared single label key becomes the heading; fit
-  tables show the rows their box holds plus `+N more`;
+  text panels get a bounded share and scroll inside;
 - Markdown escaping (no HTML/JS);
 - formatting units;
 - DOM state attributes;

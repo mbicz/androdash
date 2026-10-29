@@ -192,11 +192,15 @@ headers, page dots, header actions, and the settings sheet.
   tracks `minmax(min px, weight fr)` (tables capped at their rows), so spare
   height goes to charts first. A shortfall shrinks type and minimums to
   `--fit-scale` ≥ 0.72; below that the grid scrolls and `W_FIT_OVERFLOW` is
-  recorded. Markdown panels are not shown in fit. Resize/rotation re-plans
+  recorded. Markdown is shown in fit and, like any panel, scrolls inside itself.
+  Resize/rotation re-plans
   after 120 ms (`scheduleRelayout`), as does a cycle that changes a panel's
   series count. Renderers get `fit: true` and fill their box: stat tiles size
   their numbers to the cell (`fitTiles`), gauges pick columns by box shape
-  (`bestCellGrid`, all layouts), tables show the rows that fit plus `+N more`.
+  (`bestCellGrid`, all layouts); anything still too long scrolls inside its
+  panel body (`trackOverflow` fades hidden edges). Multiple dashboards
+  (`dashboard_urls`): header dots, horizontal swipe (`installGestures`),
+  rotation (`scheduleRotation`), and the settings "Dashboards" group.
 - Row headers fold/unfold rows (`hidden` on `.row-body`, `aria-expanded`);
   dashboard-collapsed rows start folded.
 - A row with no eligible items is omitted (unless `show_unsupported=true`

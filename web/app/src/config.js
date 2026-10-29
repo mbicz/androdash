@@ -3,6 +3,8 @@ import { parseDuration } from "./dashboard/duration.js";
 export const DEFAULT_CONFIG = Object.freeze({
   schemaVersion: 1,
   dashboardUrl: null,
+  dashboardUrls: [],
+  rotateSeconds: 0,
   prometheusUrl: null,
   refreshSeconds: null,
   timeRange: null,
@@ -31,6 +33,7 @@ const MAX_URL = 8192;
 const MAX_QUERY = 2000;
 const MAX_CAPABILITIES = 16;
 const CAPABILITY_RE = /^[a-z0-9][a-z0-9_-]*$/;
+const MAX_DASHBOARDS = 8;
 const DISPLAY_MODES = ["standard", "amoled", "monochrome"];
 const LAYOUT_MODES = ["auto", "grid", "stack", "fit"];
 const LOCK_STYLES = ["monochrome", "color"];
@@ -119,9 +122,31 @@ export function parseConfig(search = "") {
   const params = new URLSearchParams(rawQuery);
   const warnings = [];
 
-  const dashboardUrl = parseUrl(params.get("dashboard_url"), "dashboard_url");
+  // `dashboard_urls` lists every dashboard to page through (1–8); a comma
+  // inside a URL must be written %2C. `dashboard_url` is the one shown now and
+  // is placed first when it is missing from the list (C-001).
+  const listed = [];
+  const rawList = params.get("dashboard_urls");
+  if (rawList !== null && rawList !== "") {
+    for (const raw of rawList.split(",")) {
+      const url = parseUrl(raw.trim(), "dashboard_urls");
+      if (!listed.includes(url)) listed.push(url);
+    }
+  }
+  const dashboardUrl = parseUrl(params.get("dashboard_url"), "dashboard_url") ?? listed[0] ?? null;
   if (!dashboardUrl) {
     throw new ConfigError("dashboard_url is required");
+  }
+  const dashboardUrls = Object.freeze(
+    listed.includes(dashboardUrl) ? listed : [dashboardUrl, ...listed],
+  );
+  if (dashboardUrls.length > MAX_DASHBOARDS) {
+    throw new ConfigError(`dashboard_urls lists more than ${MAX_DASHBOARDS} dashboards`, "dashboard_urls");
+  }
+
+  const rotateSeconds = parseInteger(params, "rotate_seconds", { min: 0, max: 3600 }) ?? 0;
+  if (rotateSeconds > 0 && rotateSeconds < 10) {
+    throw new ConfigError("rotate_seconds must be 0 or 10–3600", "rotate_seconds");
   }
 
   const rawPrometheusUrl = params.get("prometheus_url");
@@ -190,6 +215,8 @@ export function parseConfig(search = "") {
   const config = Object.freeze({
     schemaVersion: 1,
     dashboardUrl,
+    dashboardUrls,
+    rotateSeconds,
     prometheusUrl,
     refreshSeconds,
     timeRange,
@@ -212,6 +239,8 @@ export function parseConfig(search = "") {
 export function buildQuery(config) {
   const params = new URLSearchParams();
   params.set("dashboard_url", config.dashboardUrl);
+  if (config.dashboardUrls.length > 1) params.set("dashboard_urls", config.dashboardUrls.join(","));
+  if (config.rotateSeconds > 0) params.set("rotate_seconds", String(config.rotateSeconds));
   if (config.prometheusUrl !== null) params.set("prometheus_url", config.prometheusUrl);
   if (config.refreshSeconds !== null) params.set("refresh_seconds", String(config.refreshSeconds));
   if (config.timeRange !== null) params.set("time_range", config.timeRange);

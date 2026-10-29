@@ -82,7 +82,26 @@
       "type": "string",
       "enum": ["stored", "url"],
       "default": "stored",
-      "description": "Where the renderer gets the dashboard JSON (C-001, C-007). stored loads the on-device copy at /stored/dashboard.json when its meta sourceUrl equals dashboardUrl, otherwise fetches dashboardUrl and stores the result with AndroDash.storeDashboard; url fetches dashboardUrl on every load and stores nothing. Bundled http://androdash.local/dashboards/ URLs are always local and never stored. Additive; persisted objects without it default to stored."
+      "description": "Where the renderer gets the dashboard JSON (C-001, C-007). stored loads the on-device copy at /stored/<i>/dashboard.json (i = the position of dashboardUrl in dashboardUrls) when that slot's meta sourceUrl equals dashboardUrl, otherwise fetches dashboardUrl and stores the result with AndroDash.storeDashboard; url fetches dashboardUrl on every load and stores nothing. Bundled http://androdash.local/dashboards/ URLs are always local and never stored. Additive; persisted objects without it default to stored."
+    },
+    "dashboardUrls": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 8,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 8192,
+        "pattern": "^https?://[^\\s,]+$"
+      },
+      "description": "Dashboards the renderer can switch between (C-001 dashboard_urls), in order; always contains dashboardUrl. A comma inside a URL is written %2C. The position is also the stored-copy slot (/stored/<i>/). Additive; persisted objects without it default to [dashboardUrl]."
+    },
+    "rotateSeconds": {
+      "type": "integer",
+      "anyOf": [{ "const": 0 }, { "minimum": 10, "maximum": 3600 }],
+      "default": 0,
+      "description": "Advance to the next dashboardUrls entry every N seconds; 0 is off. Additive; persisted objects without it default to 0."
     },
     "dashboardName": {
       "type": ["string", "null"],

@@ -22,9 +22,6 @@ export const FIT = Object.freeze({
   comfort: 1.12,
 });
 
-/** Kinds that are documentation, not readings; they do not take fit space. */
-export const FIT_EXCLUDED_KINDS = new Set(["Markdown"]);
-
 const TILE = { width: 76, height: 44, single: 34, gap: 6 };
 const RING = { width: 70, height: 74, single: 64, gap: 6 };
 const CHART = { minWidth: 150, plot: 56, axis: 14, legendEntry: 140, legendLine: 15 };
@@ -99,6 +96,10 @@ export function panelDemand(kind, count, width, { thresholds = false } = {}) {
       weight: 1,
       maxH: FIT.chrome + n * TABLE.row,
     };
+  }
+  if (kind === "Markdown") {
+    // Text scrolls inside its panel; it never claims more than a few lines.
+    return { minW: 140, minH: FIT.chrome + 48, weight: 1, maxH: FIT.chrome + 132 };
   }
   return { minW: 120, minH: FIT.chrome + 40, weight: 1 };
 }

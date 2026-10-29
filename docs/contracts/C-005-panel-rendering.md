@@ -1,12 +1,13 @@
 # C-005 — Panel rendering
 
-- **Version:** 6
+- **Version:** 7
 - **Status:** Accepted, 2026-10-27 (v5: phone pagination, working folding,
   round axes on the cycle window, series colour by position, flat visual system
   and locked view; decision 0015); amended 2026-10-28 (v6: fit-to-screen
   layout, settings sheet, box-shaped gauges and stat tiles, shared table label
   heading, height-aware axes, `lock_style` palette for the locked view;
-  decision 0017)
+  decision 0017); amended 2026-10-29 (v7: panel scrolling, Markdown in fit,
+  multiple dashboards with swipe and rotation; decision 0020)
 - **Consumers:** Web renderer (W2)
 - **Fixtures:** [`demo-dashboard.json`](../../contracts/fixtures/demo-dashboard.json),
   [`spark-dashboard.json`](../../contracts/fixtures/spark-dashboard.json)
@@ -120,8 +121,8 @@ content legible, with no scrolling and no padding with empty space. The planner
 is `web/app/src/fit.js` (pure functions, no DOM); `main.js` builds the DOM.
 
 - **Items.** Rows in order; inside a row, items by `y`, then `x`. Unsupported
-  placeholders and `Markdown` panels (`FIT_EXCLUDED_KINDS`: documentation, not
-  readings) are **not shown** in fit. Row headers, folding, strips, and page
+  placeholders are not shown in fit; every other panel is, including
+  `Markdown`, whose text scrolls inside its panel. Row headers, folding, strips, and page
   dots are not used; panels of folded rows are shown. Each item carries its
   kind and a display count: after data, its series count (gauges capped at 4);
   before the first data, 6 for a `Table`, otherwise its query count (≥ 1).
@@ -134,7 +135,8 @@ is `web/app/src/fit.js` (pure functions, no DOM); `main.js` builds the DOM.
   | `StatChart` | one tile: 34; else tile rows × 44 + 6 px gaps, tiles ≥ 76 px wide | 96 | 1 |
   | `GaugeChart` | one ring: 64; else ring rows × 74 + 6 px gaps, rings ≥ 70 px wide (≤ 4) | 90 | 2 |
   | `TimeSeriesChart` | plot 56 + time axis 14 + legend `lines × 15 + 4`; legend entries are 140 px one-liners, `lines = ceil(min(n, 8) / floor(inner / 140))` | 150 | 3 |
-  | `Table` | `min(n, 3)` rows × 18, + 14 for `+N more` when `n > 3`; capped at all `n` rows × 18 | 140 | 1 |
+  | `Table` | `min(n, 3)` rows × 18, + 14 when `n > 3`; capped at all `n` rows × 18 | 140 | 1 |
+  | `Markdown` | 48; capped at 132 | 140 | 1 |
   | other | 40 | 120 | 1 |
 
 - **Plan** (`planFit(items, { width, height })`, 8 px gap):
@@ -174,7 +176,44 @@ is `web/app/src/fit.js` (pure functions, no DOM); `main.js` builds the DOM.
 - **Content.** Renderers receive `fit: true` and the measured body box and fill
   it: stat tiles size to the box (StatChart), gauges choose columns by box
   shape (GaugeChart, all layouts), chart legends become a grid of one-line
-  entries, and tables show the rows that fit plus `+N more` (Table).
+  entries, and content that still does not fit scrolls inside its panel
+  (Panel scrolling).
+
+### Panel scrolling
+
+Any panel's content may scroll **inside the panel**; the panel itself never
+moves in the fit layout. `.panel-body` is the one scroll container per panel
+(`overflow: auto`, `overscroll-behavior: contain`, no visible scrollbar).
+Tables show all rows, Markdown all text, chart legends all entries; a stat
+panel whose tiles would need numbers below 18 px keeps 18 px+ tiles and
+scrolls. An edge that hides more content fades out (`data-overflow` =
+`above` / `below` / `above below`, updated on scroll and resize only). A
+refresh keeps the panel's scroll position. A vertical drag inside a panel only
+scrolls that panel; it never scrolls the page in fit.
+
+### Multiple dashboards
+
+C-001 `dashboard_urls` lists up to 8 dashboards; `dashboard_url` is the one
+shown. Only the shown dashboard is loaded and queried.
+
+- **Header:** one dot per dashboard after the status, the current one filled;
+  tapping a dot shows that dashboard.
+- **Gestures:** a horizontal swipe (≥ 56 px, mostly horizontal, ≤ 700 ms)
+  shows the next (swipe left) or previous dashboard, wrapping. In fit it works
+  anywhere; in the scroll layouts only on the header, because horizontal
+  strips own the page. Content that can still scroll sideways takes the swipe
+  first. `ArrowLeft`/`ArrowRight` do the same. The new dashboard slides in
+  over 220 ms (none with reduced motion).
+- **Persistence:** each switch calls `setOption("dashboard_url", url)`, so a
+  relaunch shows the last dashboard viewed.
+- **Rotation:** C-001 `rotate_seconds` advances to the next dashboard on a
+  timer; any touch, an open sheet, or a hidden page postpones it, and it waits
+  at least 2 minutes after the last touch.
+- **Settings sheet:** "Dashboards" lists the dashboards (tap to show, Remove),
+  offers the dashboards built into the app (`/dashboards/index.json`) as
+  `+ <title>` to add, and a Rotate control (Stay, 30s, 1m, 5m). Changes persist
+  with `setOption("dashboard_urls")`, which accepts only built-in or already
+  listed URLs (C-007).
 
 ### Rows
 
@@ -478,10 +517,8 @@ carries a short name (`gpu`, `hbm`, `zone`, `hwmon`, `sm`, `mem`, `cpu`, `draw`,
   (heading `collector`, cells `cpu`, `disk`; heading `code`, cell `200`). This
   applies in every layout, but the fit layout hides the header row, so there
   the cells show the bare values.
-- Fit layout: rows are 18 px and the header row is hidden. The body box holds
-  `capacity = floor(height / 18)` rows; when there are more, the first
-  `max(1, capacity − 1)` rows are shown followed by a `.table-more` line
-  `+N more` counting the rest.
+- Fit layout: rows are 18 px and the header row is hidden; all rows are
+  rendered and scroll inside the panel (Panel scrolling).
 - Max 100 rows; extra → `W_ROWS_TRUNCATED`.
 - Numeric values formatted with `spec.format` if present; raw otherwise.
 - No sorting/pagination/column settings in v1.
@@ -669,7 +706,8 @@ and layout. Showing the Activity over the keyguard is C-007's
 - stat/gauge calculations, thresholds, state word only on crossing, meter only
   with thresholds, multiple series;
 - table rows/sort/limit; a shared single label key becomes the column heading;
-  fit tables show the rows their box holds and count the rest (`+N more`);
+  panel scrolling replaces truncation; multiple dashboards: list parsing,
+  current-first, limit, rotation bounds;
 - Markdown escaping: `<script>`, raw HTML, links, code blocks;
 - formatting units/decimals/unknown unit;
 - bands: side-by-side items form one band, full-width items stay vertical, tall

@@ -1,8 +1,9 @@
 # C-001 — Launch configuration
 
-- **Version:** 5
-- **Status:** Accepted, 2026-10-28 (v4: `dashboard_source`, bundled and stored
-  dashboards, decision 0018; v5: on-phone collector fields, decision 0019)
+- **Version:** 6
+- **Status:** Accepted, 2026-10-29 (v4: `dashboard_source`, bundled and stored
+  dashboards, decision 0018; v5: on-phone collector fields, decision 0019; v6:
+  `dashboard_urls`, `rotate_seconds`, stored slots, decision 0020)
 - **Consumers:** Android shell (W1), web renderer config (W2)
 - **Machine-readable:** [`contracts/app-config.schema.json`](../../contracts/app-config.schema.json)
 - **Fixtures:** [`app-config.example.json`](../../contracts/fixtures/app-config.example.json)
@@ -40,7 +41,8 @@ This is deliberate: one name per concept, easy to debug with `adb`.
 
 | Parameter / Intent extra | Type | Default | Notes |
 |---|---|---|---|
-| `dashboard_url` | string | **required** | Absolute `http://` or `https://` URL of the Perses dashboard JSON. A bundled dashboard is `http://androdash.local/dashboards/<file>.json` (see [Dashboard source](#dashboard-source)). |
+| `dashboard_url` | string | **required** | Absolute `http://` or `https://` URL of the Perses dashboard JSON currently shown. A bundled dashboard is `http://androdash.local/dashboards/<file>.json` (see [Dashboard source](#dashboard-source)). Required unless `dashboard_urls` supplies it; persisted, so a relaunch shows the last viewed dashboard. |
+| `dashboard_urls` | string | `[dashboard_url]` | Comma-separated list of the dashboards the renderer switches between (swipe, rotation); see [Multiple dashboards](#multiple-dashboards). 1–8 absolute `http(s)` URLs after deduplication, each validated like `dashboard_url`; a comma inside a URL must be written `%2C`. Added in v6. |
 | `prometheus_url` | string | `null` | Absolute `http://`/`https://` base URL. Overrides dashboard datasource URLs for all Prometheus queries. |
 | `refresh_seconds` | integer | `null` | Auto-refresh interval. `null` = use dashboard `refreshInterval`; `0` = manual only; `1–4` is clamped to `5` with a warning; max `3600`. |
 | `time_range` | string | `null` | Duration such as `15m`, `1h`, `1h30m`, `7d`. `null` = dashboard `spec.duration`; fallback `1h`. Range `1s…30d`. |
@@ -54,6 +56,7 @@ This is deliberate: one name per concept, easy to debug with `adb`.
 | `dashboard_name` | string | `null` | Selects a dashboard when the URL returns an array (C-002). Must be non-empty when set. |
 | `capabilities` | string | `null` | Comma-separated capability IDs; when present, authoritative for filtering (C-004). 1–16 entries after deduplication. |
 | `show_unsupported` | boolean | `false` | Render explicit placeholders for hidden panels instead of removing them. |
+| `rotate_seconds` | integer | `0` | Advance to the next `dashboard_urls` entry every N seconds; `0` = off, else `10–3600`. Added in v6. |
 | `collector` | boolean | `false` | Run the bundled Prometheus on the phone ([On-phone collector](#on-phone-collector), C-007). When `true` the shell passes `prometheus_url=http://127.0.0.1:19090` to the renderer instead of the configured `prometheus_url`. Native-only. Added in v5. |
 | `collector_targets` | string | `null` | Comma-separated scrape targets, `[job:]instance=host:port` or `host:port`; 1–32 entries. **Required** (non-empty) when `collector=true`. Native-only. Added in v5. |
 | `collector_scrape_seconds` | integer | `15` | Collector scrape interval, `5–300`. Native-only. Added in v5. |
@@ -95,7 +98,12 @@ effect on the wire is the substituted `prometheus_url` while `collector=true`.
   "collector": false,
   "collectorTargets": null,
   "collectorScrapeSeconds": 15,
-  "collectorRetention": "24h"
+  "collectorRetention": "24h",
+  "dashboardUrls": [
+    "http://10.0.2.2:8099/contracts/fixtures/demo-dashboard.json",
+    "http://androdash.local/dashboards/macos-node-dashboard.json"
+  ],
+  "rotateSeconds": 0
 }
 ```
 
@@ -104,7 +112,8 @@ for types and constraints; this table is normative for semantics.
 
 ### Required and nullable
 
-- `dashboardUrl` is required and non-empty.
+- `dashboardUrl` is required and non-empty, and is always an entry of
+  `dashboardUrls`.
 - `prometheusUrl`, `refreshSeconds`, `timeRange`, `stepSeconds`, `dashboardName`,
   and `capabilities` may be `null` when unset.
 - `kiosk`, `debug`, and `showUnsupported` are always booleans after defaults.
@@ -121,6 +130,35 @@ for types and constraints; this table is normative for semantics.
   string when `collector` is `true`. Pre-v5 persisted objects without them
   default to `false`, `null`, `15`, and `24h`. Additive; `schemaVersion` stays
   `1`.
+- `dashboardUrls` always holds 1–8 distinct URLs and `rotateSeconds` is `0` or
+  `10–3600`. Pre-v6 persisted objects without them default to
+  `[dashboardUrl]` and `0`. Additive; `schemaVersion` stays `1`.
+
+## Multiple dashboards
+
+Decision 0020. `dashboard_urls` lists the dashboards one launch can show;
+`dashboard_url` is the one shown now.
+
+Launch resolution (native, after the extras are read):
+
+1. `dashboard_urls` explicit: entries are split on `,`, trimmed, blank entries
+   skipped, each validated like `dashboard_url`, duplicates removed keeping the
+   first; 1–8 entries remain or the launch is `E_CONFIG`.
+   - `dashboard_url` absent → it becomes the first entry.
+   - `dashboard_url` present and not in the list → it is inserted first (still
+     at most 8 entries, else `E_CONFIG`).
+2. `dashboard_urls` absent: the persisted list is kept while it contains the
+   resolved `dashboard_url` (explicit or persisted); otherwise the list becomes
+   `[dashboard_url]`. A launch with only a new `dashboard_url` therefore starts
+   a one-entry list instead of growing the old one.
+
+The renderer receives the list as `dashboard_urls=<comma-joined>` and
+`rotate_seconds=<n>` and switches by calling `AndroDash.setOption("dashboard_url", …)`
+(C-007) with an entry of the list, so the choice is persisted. With
+`rotate_seconds > 0` it advances to the next entry (wrapping) every
+`rotate_seconds`. At runtime the page may reorder or shrink the list and add
+bundled dashboards through `setOption("dashboard_urls", …)`, but never add a
+remote URL (C-007, C-008).
 
 ## On-phone collector
 
@@ -165,28 +203,35 @@ virtual origin (C-008):
 - **Bundled:** every `contracts/fixtures/*-dashboard.json` is packaged into the
   APK and served at `http://androdash.local/dashboards/<file>.json` (for
   example `.../dashboards/macos-node-dashboard.json`). Such a `dashboard_url`
-  is valid like any other `http` URL.
-- **Stored:** one copy of a remote dashboard, written by the renderer through
-  `AndroDash.storeDashboard(sourceUrl, json)` (C-007) and served read-only at
-  `GET /stored/dashboard.json`, with `GET /stored/meta.json` =
-  `{"sourceUrl": "<dashboard_url it came from>", "storedAt": <unix ms>, "bytes": <UTF-8 size>}`.
-  Both answer 404 when nothing is stored.
+  is valid like any other `http` URL. The build also generates
+  `http://androdash.local/dashboards/index.json` =
+  `{"dashboards": [{"file": "<file>.json", "title": "<metadata.name>"}]}`,
+  one entry per bundled dashboard sorted by file name, so the renderer can
+  offer them; `index.json` is not a dashboard.
+- **Stored:** one copy per `dashboard_urls` position (8 slots), written by the
+  renderer through `AndroDash.storeDashboard(sourceUrl, json)` (C-007) into
+  the slot `i` of `sourceUrl` in `dashboard_urls`, and served read-only at
+  `GET /stored/<i>/dashboard.json`, with `GET /stored/<i>/meta.json` =
+  `{"sourceUrl": "<dashboard URL it came from>", "storedAt": <unix ms>, "bytes": <UTF-8 size>}`,
+  for `i` = `0…7`. Both answer 404 when slot `i` holds nothing.
 
-Renderer semantics (the shell does not fetch dashboards):
+Renderer semantics (the shell does not fetch dashboards); `i` is the position
+of `dashboard_url` in `dashboard_urls`:
 
 | Value | Behavior |
 |---|---|
-| `stored` (default) | Read `/stored/meta.json`; when its `sourceUrl` equals `dashboard_url`, load `/stored/dashboard.json` and do not fetch. Otherwise fetch `dashboard_url` and, on success, call `AndroDash.storeDashboard(dashboard_url, json)`. |
+| `stored` (default) | Read `/stored/<i>/meta.json`; when its `sourceUrl` equals `dashboard_url`, load `/stored/<i>/dashboard.json` and do not fetch. Otherwise fetch `dashboard_url` and, on success, call `AndroDash.storeDashboard(dashboard_url, json)`. |
 | `url` | Fetch `dashboard_url` on every load; store nothing. |
 
 - A bundled `http://androdash.local/dashboards/…` URL is always local: it is
   fetched from the APK in either mode and never stored (the shell refuses it).
-- A new `dashboard_url` replaces the stored copy on its first successful load;
-  there is one stored copy, not one per URL.
+- A slot is replaced by the first successful load of a different URL at that
+  position; reordering `dashboard_urls` therefore refetches (the meta
+  `sourceUrl` no longer matches) rather than showing the wrong dashboard.
 - In browser development there is no bridge and no `/stored/` route: `stored`
   behaves like `url`.
-- The stored copy is untrusted dashboard JSON and is normalized exactly like a
-  fetched one (C-002).
+- The stored copies are untrusted dashboard JSON and are normalized exactly
+  like a fetched one (C-002).
 
 ## Precedence
 
@@ -195,7 +240,8 @@ Native:
 1. Explicit Intent extras on the current launch.
 2. Persisted last-valid `AppConfig` (if the app was launched before).
 3. Built-in defaults for optional fields.
-4. If `dashboardUrl` is still missing, fail with `E_CONFIG`.
+4. If `dashboardUrl` is still missing (no `dashboard_url`, no `dashboard_urls`,
+   nothing persisted), fail with `E_CONFIG`.
 
 Web:
 
@@ -210,7 +256,11 @@ persistence.
 
 An implementation MUST reject:
 
-- a missing or empty `dashboard_url`;
+- a missing or empty `dashboard_url` when `dashboard_urls` is absent too;
+- `dashboard_urls` with no non-blank entry, more than 8 distinct entries
+  (counting an inserted `dashboard_url`), or any entry that fails the URL rules
+  below;
+- `rotate_seconds` that is not an integer `0` or in `10–3600`;
 - a URL that is not absolute `http`/`https`;
 - `javascript:`, `file:`, `data:`, `content:`, `intent:`, or other schemes;
 - userinfo (`user:password@`) in v1 (authentication is out of scope);
@@ -269,10 +319,14 @@ The native shell shows `E_CONFIG` on its fatal screen. The renderer shows an
   erase persisted values unless the operator explicitly clears it (a future
   settings UI may add `--ez reset_config true`, not in v1).
 - The renderer may change `timeRange`, `refreshSeconds`, `layoutMode`,
-  `lockStyle`, and `dashboardSource` at runtime through
-  `AndroDash.setOption(name, value)` (C-007). The shell validates the value with
-  the same rules as the launch extra of that name, persists the updated
-  `AppConfig`, and rebuilds the local URL.
+  `lockStyle`, `dashboardSource`, `dashboardUrl`, `dashboardUrls`, and
+  `rotateSeconds` at runtime through `AndroDash.setOption(name, value)`
+  (C-007). The shell validates the value with the same rules as the launch
+  extra of that name, plus: `dashboard_url` must be an entry of the current
+  `dashboard_urls`; every `dashboard_urls` entry must be a bundled
+  `http://androdash.local/dashboards/<name>.json` (not `index.json`) or already
+  in the current list, and the current `dashboard_url` is inserted first when
+  missing. It persists the updated `AppConfig` and rebuilds the local URL.
 - Log the result with redacted URLs only.
 - With `collector=true`, build the local URL with
   `prometheus_url=http://127.0.0.1:19090`, log that substitution, and start the
@@ -306,7 +360,9 @@ The native shell shows `E_CONFIG` on its fatal screen. The renderer shows an
 - capability list parsing, deduplication, sorting, 16-entry limit, and empty-list
   rejection;
 - empty optional values become `null`, except invalid `dashboard_url`;
-- canonical query → object → canonical query round-trip.
+- canonical query → object → canonical query round-trip;
+- `dashboard_urls` (with `%2C` inside an entry) and `rotate_seconds` parsing,
+  defaults, and limits.
 
 `app/src/test/java/com/mbicz/androdash/ConfigParserTest.kt` (M2):
 
@@ -318,7 +374,14 @@ The native shell shows `E_CONFIG` on its fatal screen. The renderer shows an
 - a bundled `http://androdash.local/dashboards/<file>.json` `dashboard_url` is
   valid;
 - local URL encoding and parameter names match the renderer parser;
-- `setOption` for every allowed name, invalid values, and unknown names;
+- `setOption` for every allowed name, invalid values, and unknown names,
+  including a rejected new remote `dashboard_urls` entry and a `dashboard_url`
+  outside the list;
+- `dashboard_urls` parsing, defaults, insertion of `dashboard_url`,
+  deduplication, the 8-entry limit, `%2C` entries, persistence; and the
+  `rotate_seconds` range;
+- the C-007 intent-without-changes decision (`hasConfigExtras`,
+  `keepsRenderer`);
 - collector defaults, extras, persistence, the `prometheus_url` substitution
   (and its reversal with `collector=false`), the targets requirement, and
   limits.
@@ -326,14 +389,14 @@ The native shell shows `E_CONFIG` on its fatal screen. The renderer shows an
 `CollectorConfigTest.kt` covers the `collector_targets` grammar, the
 `prometheus.yml` text, and the Prometheus arguments.
 
-`DashboardStoreTest.kt` and `AssetServerRouteTest.kt` cover the stored copy
-(C-007) and the `/dashboards/` and `/stored/` routes (C-008).
+`DashboardStoreTest.kt` and `AssetServerRouteTest.kt` cover the stored slots
+(C-007), the legacy cleanup, and the `/dashboards/` (including `index.json`)
+and `/stored/<i>/` routes (C-008).
 
 ## Out of scope
 
 - Authentication/secrets.
 - Remote config files.
-- Multiple dashboards in one launch (array selection is dashboard-level).
 - Changing kiosk settings at runtime (other than the C-007 `setOption` and
   `setLockScreen` bridge methods).
 

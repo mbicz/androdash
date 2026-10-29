@@ -1,9 +1,11 @@
 # C-008 — WebView security
 
-- **Version:** 3
-- **Status:** Accepted, 2026-10-28 (v2: bundled and stored dashboards on the
+- **Version:** 4
+- **Status:** Accepted, 2026-10-29 (v2: bundled and stored dashboards on the
   virtual origin, decision 0018; v3: bundled Prometheus executable on
-  loopback, decision 0019)
+  loopback, decision 0019; v4: stored-dashboard slots, generated
+  `dashboards/index.json`, `setOption("dashboard_urls")` cannot add remote
+  URLs, decision 0020)
 - **Consumers:** Android shell (W1), web renderer (W2)
 - **Related:** C-001 (URL validation), C-003 (CORS/cleartext), C-007 (bridge), C-009 (redaction)
 
@@ -20,7 +22,7 @@ untrusted; the local renderer is trusted.
   pinned upstream Prometheus binary bundled as `libprometheus.so` (decision
   0019; trusted as code, not its scrape data).
 - Untrusted: dashboard JSON — including the bundled `/dashboards/*.json`
-  fixtures and the stored copy under `/stored/` — Markdown, labels, error
+  fixtures and the stored copies under `/stored/` — Markdown, labels, error
   strings, every HTTP response. Serving dashboard JSON from the virtual origin
   does not make it trusted.
 - Not allowed: any remote page, script, style, font, iframe, or navigation.
@@ -63,8 +65,9 @@ If a setting needs to change, update this table and the security doc.
 - The shell intercepts every request to `http://androdash.local` and serves it
   from bundled assets (decision 0007). No network listener or DNS exists for that
   host. Only an explicit route list is reachable: `/`, `/index.html`,
-  `/styles.css`, `/src/**.js`, `/dashboards/<name>.json` (bundled dashboards,
-  `[A-Za-z0-9_.-]+`), and the two exact stored-dashboard paths below. Paths with
+  `/styles.css`, `/src/**.js`, `/dashboards/<name>.json` (bundled dashboards
+  and the build-generated `dashboards/index.json` listing them,
+  `[A-Za-z0-9_.-]+`), and the stored-dashboard slot paths below. Paths with
   `..`, `\`, `%`, or `//` are rejected (400); anything else is 404.
 - `WebViewClient.shouldOverrideUrlLoading` returns `true` (block) for every URL
   outside `http://androdash.local/`. Do not open an external browser from kiosk
@@ -77,25 +80,37 @@ If a setting needs to change, update this table and the security doc.
 - Do not inject `evaluateJavascript` from untrusted input. Native may evaluate a
   fixed, constant script for lifecycle (if needed); prefer bridge/page APIs.
 
-### Stored dashboard (decision 0018)
+### Stored dashboards (decisions 0018, 0020)
 
-- The shell keeps at most one stored dashboard: untrusted JSON that the
-  renderer fetched from the configured `dashboard_url` and handed back through
-  `AndroDash.storeDashboard` (C-007). It is served back verbatim, only to the
-  same virtual origin, at `GET /stored/dashboard.json` and
-  `GET /stored/meta.json` (`application/json`, `Cache-Control: no-store`,
-  `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`; 404 when absent).
+- The shell keeps at most 8 stored dashboards, one per position (slot `i`,
+  `0…7`) in C-001 `dashboard_urls`: untrusted JSON that the renderer fetched
+  from a configured dashboard URL and handed back through
+  `AndroDash.storeDashboard` (C-007). Each is served back verbatim, only to the
+  same virtual origin, at `GET /stored/<i>/dashboard.json` and
+  `GET /stored/<i>/meta.json`, matched exactly by
+  `^/stored/([0-7])/(dashboard|meta)\.json$` (`application/json`,
+  `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`,
+  `X-Frame-Options: DENY`; 404 when the slot is empty). No other `/stored/`
+  path exists; the pre-slot `/stored/dashboard.json` and `/stored/meta.json`
+  are 404.
 - The shell checks only that it is one JSON object of at most 5 MiB UTF-8; it
-  does not interpret it. The renderer normalizes the stored copy as untrusted
+  does not interpret it. The renderer normalizes a stored copy as untrusted
   exactly like a fetched dashboard (C-002, [Untrusted content
   handling](#untrusted-content-handling)); storing it grants no privilege.
-- No path parameter, query, or JSON field reaches the filesystem: the store
-  uses the fixed names `dashboards/stored.json` and `dashboards/stored.meta.json`
-  in app-private storage. The routes take no parameters.
-- `storeDashboard` accepts only the current `dashboard_url` in
+- No path parameter, query, or JSON field reaches the filesystem: slot `i`
+  uses the fixed names `dashboards/stored-<i>.json` and
+  `dashboards/stored-<i>.meta.json` in app-private storage, where `i` is the
+  route digit or the bounded list position, never caller text.
+- `storeDashboard` accepts only a current `dashboard_urls` entry in
   `dashboard_source=stored` mode and never a virtual-origin URL, so a page cannot
   plant a dashboard for a different URL or overwrite a bundled one.
-- The shell never logs stored contents or source URLs; it logs byte counts.
+- The page cannot widen that set: `setOption("dashboard_urls", …)` (C-007)
+  accepts only bundled `http://androdash.local/dashboards/<name>.json` URLs
+  (not `index.json`) and entries already in the list, and
+  `setOption("dashboard_url", …)` only an entry of the list. Remote dashboard
+  URLs come from launch extras alone.
+- The shell never logs stored contents or source URLs; it logs byte counts and
+  slot numbers.
 
 ## Bundled executable (decision 0019)
 
@@ -246,7 +261,7 @@ Constraints:
 - [ ] Downloads/file chooser/permissions stay disabled.
 - [ ] Limits still bound untrusted payload sizes (stored dashboard ≤ 5 MiB).
 - [ ] Virtual-origin routes unchanged, or this contract and
-      `AssetServerRouteTest` updated; stored-dashboard files keep fixed names.
+      `AssetServerRouteTest` updated; stored-dashboard slots keep fixed names.
 - [ ] Bundled Prometheus still pinned by both SHA-256 values, listening on
       `127.0.0.1` only, with no admin/lifecycle/remote-write flags
       (`CollectorConfigTest`).

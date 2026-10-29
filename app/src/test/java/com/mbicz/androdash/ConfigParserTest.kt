@@ -611,6 +611,257 @@ class ConfigParserTest {
         )
     }
 
+    private val agents = "http://androdash.local/dashboards/agenticmac-dashboard.json"
+    private val mac = "http://androdash.local/dashboards/macos-node-dashboard.json"
+    private val spark = "http://androdash.local/dashboards/spark-dashboard.json"
+    private val lan = "http://192.168.192.16:8099/contracts/fixtures/macos-node-dashboard.json"
+
+    @Test
+    fun `dashboard_urls defaults to the one dashboard_url and rotation to off`() {
+        val config = ConfigParser.parse(extras("dashboard_url" to dashboard)).config
+        assertEquals(listOf(dashboard), config.dashboardUrls)
+        assertEquals(0, config.rotateSeconds)
+        assertEquals(listOf(dashboard), AppConfig(dashboardUrl = dashboard).dashboardUrls)
+    }
+
+    @Test
+    fun `dashboard_urls without dashboard_url shows the first entry`() {
+        val config = ConfigParser.parse(extras("dashboard_urls" to " $agents , $mac,, ")).config
+        assertEquals(agents, config.dashboardUrl)
+        assertEquals(listOf(agents, mac), config.dashboardUrls)
+    }
+
+    @Test
+    fun `dashboard_url in the list is kept in place, a missing one is inserted first`() {
+        val inList = ConfigParser.parse(
+            extras("dashboard_url" to mac, "dashboard_urls" to "$agents,$mac"),
+        ).config
+        assertEquals(mac, inList.dashboardUrl)
+        assertEquals(listOf(agents, mac), inList.dashboardUrls)
+
+        val missing = ConfigParser.parse(
+            extras("dashboard_url" to dashboard, "dashboard_urls" to "$agents,$mac"),
+        ).config
+        assertEquals(dashboard, missing.dashboardUrl)
+        assertEquals(listOf(dashboard, agents, mac), missing.dashboardUrls)
+    }
+
+    @Test
+    fun `dashboard_urls drops duplicates keeping the first`() {
+        val config = ConfigParser.parse(extras("dashboard_urls" to "$mac,$agents,$mac,$agents")).config
+        assertEquals(listOf(mac, agents), config.dashboardUrls)
+    }
+
+    @Test
+    fun `dashboard_urls holds 1 to 8 valid URLs`() {
+        val eight = (1..8).map { "http://androdash.local/dashboards/d$it.json" }
+        assertEquals(eight, ConfigParser.parse(extras("dashboard_urls" to eight.joinToString(","))).config.dashboardUrls)
+        // Duplicates do not count towards the limit.
+        assertEquals(
+            eight,
+            ConfigParser.parse(extras("dashboard_urls" to (eight + eight.first()).joinToString(","))).config.dashboardUrls,
+        )
+
+        val nine = eight + "http://androdash.local/dashboards/d9.json"
+        assertFails { ConfigParser.parse(extras("dashboard_urls" to nine.joinToString(","))) }
+        // Inserting dashboard_url into a full list exceeds the limit too.
+        assertFails {
+            ConfigParser.parse(extras("dashboard_url" to dashboard, "dashboard_urls" to eight.joinToString(",")))
+        }
+        assertFails { ConfigParser.parse(extras("dashboard_urls" to " , ,")) }
+        assertFails { ConfigParser.parse(extras("dashboard_urls" to "$agents,file:///sdcard/d.json")) }
+        assertFails { ConfigParser.parse(extras("dashboard_urls" to "$agents,http://user:pw@example.com/d.json")) }
+        assertFails { ConfigParser.parse(extras("dashboard_urls" to "$agents,not a url")) }
+        assertFails { ConfigParser.parse(extras("dashboard_url" to dashboard, "dashboard_urls" to "javascript:alert(1)")) }
+    }
+
+    @Test
+    fun `a comma inside a dashboard URL is written as %2C`() {
+        val withComma = "http://192.168.192.16:8099/d.json?panels=a%2Cb"
+        val config = ConfigParser.parse(extras("dashboard_urls" to "$withComma,$mac")).config
+        assertEquals(listOf(withComma, mac), config.dashboardUrls)
+
+        val query = queryParameters(config)
+        assertEquals("$withComma,$mac", query["dashboard_urls"])
+        assertEquals(listOf(withComma, mac), query.getValue("dashboard_urls").split(","))
+
+        // A raw comma cannot be persisted inside an entry.
+        assertFails { ConfigParser.validateConfig(AppConfig(dashboardUrl = "http://a/b,c", dashboardUrls = listOf("http://a/b,c"))) }
+    }
+
+    @Test
+    fun `persisted dashboard_urls survive a relaunch and an explicit dashboard_url`() {
+        val persisted = ConfigParser.parse(
+            extras("dashboard_urls" to "$agents,$mac", "rotate_seconds" to "60"),
+        ).config.copy(dashboardUrl = mac)
+
+        val relaunch = ConfigParser.parse(emptyMap(), persisted).config
+        assertEquals(mac, relaunch.dashboardUrl)
+        assertEquals(listOf(agents, mac), relaunch.dashboardUrls)
+        assertEquals(60, relaunch.rotateSeconds)
+
+        val switch = ConfigParser.parse(extras("dashboard_url" to agents), persisted).config
+        assertEquals(agents, switch.dashboardUrl)
+        assertEquals(listOf(agents, mac), switch.dashboardUrls)
+
+        // A dashboard_url outside the persisted list starts a new one-entry list.
+        val other = ConfigParser.parse(extras("dashboard_url" to dashboard), persisted).config
+        assertEquals(listOf(dashboard), other.dashboardUrls)
+
+        val decoded = ConfigParser.decodePersisted(persisted.toJson())!!
+        assertEquals(persisted, decoded)
+    }
+
+    @Test
+    fun `persisted objects without the new fields default them`() {
+        val legacy = JSONObject(AppConfig(dashboardUrl = dashboard).toJson()).apply {
+            remove("dashboardUrls")
+            remove("rotateSeconds")
+        }
+        val decoded = ConfigParser.decodePersisted(legacy.toString())!!
+        assertEquals(listOf(dashboard), decoded.dashboardUrls)
+        assertEquals(0, decoded.rotateSeconds)
+
+        // A persisted list that lost the current dashboard is invalid.
+        val broken = JSONObject(AppConfig(dashboardUrl = dashboard).toJson())
+            .put("dashboardUrls", org.json.JSONArray().put(mac))
+        assertNull(ConfigParser.decodePersisted(broken.toString()))
+        val rotate = JSONObject(AppConfig(dashboardUrl = dashboard).toJson()).put("rotateSeconds", 5)
+        assertNull(ConfigParser.decodePersisted(rotate.toString()))
+    }
+
+    @Test
+    fun `rotate_seconds is 0 or 10 to 3600`() {
+        listOf("0" to 0, "10" to 10, " 60 " to 60, "3600" to 3600).forEach { (raw, value) ->
+            assertEquals(value, ConfigParser.parse(extras("dashboard_url" to dashboard, "rotate_seconds" to raw)).config.rotateSeconds)
+        }
+        listOf("1", "9", "-1", "3601", "1m", "x").forEach { raw ->
+            assertFails { ConfigParser.parse(extras("dashboard_url" to dashboard, "rotate_seconds" to raw)) }
+        }
+        val persisted = AppConfig(dashboardUrl = dashboard, rotateSeconds = 30)
+        assertEquals(30, ConfigParser.parse(extras("rotate_seconds" to ""), persisted).config.rotateSeconds)
+    }
+
+    @Test
+    fun `buildQuery emits dashboard_urls and rotate_seconds after the existing parameters`() {
+        val config = ConfigParser.parse(
+            extras("dashboard_urls" to "$agents,$mac", "rotate_seconds" to "60"),
+        ).config
+        val names = ConfigParser.buildQuery(config).split("&").map { it.substringBefore("=") }
+        assertEquals(listOf("show_unsupported", "dashboard_urls", "rotate_seconds"), names.takeLast(3))
+        val query = queryParameters(config)
+        assertEquals("$agents,$mac", query["dashboard_urls"])
+        assertEquals("60", query["rotate_seconds"])
+        assertEquals(agents, query["dashboard_url"])
+    }
+
+    @Test
+    fun `setOption dashboard_url switches among dashboard_urls only`() {
+        val base = AppConfig(dashboardUrl = agents, dashboardUrls = listOf(agents, mac, lan))
+        val switched = ConfigParser.applyOption(base, "dashboard_url", " $lan ")
+        assertEquals(base.copy(dashboardUrl = lan), switched.config)
+        assertTrue(ConfigParser.launchUrl(switched.config).contains("dashboard_url=http%3A%2F%2F192.168.192.16"))
+
+        assertFails { ConfigParser.applyOption(base, "dashboard_url", spark) }
+        assertFails { ConfigParser.applyOption(base, "dashboard_url", "http://evil.example/d.json") }
+    }
+
+    @Test
+    fun `setOption dashboard_urls may add bundled dashboards but never a new remote URL`() {
+        val base = AppConfig(dashboardUrl = lan, dashboardUrls = listOf(lan, agents))
+
+        val added = ConfigParser.applyOption(base, "dashboard_urls", "$lan,$agents,$spark")
+        assertEquals(listOf(lan, agents, spark), added.config.dashboardUrls)
+        assertEquals(lan, added.config.dashboardUrl)
+
+        // Reorder and drop; the current dashboard is put back first when left out.
+        val reordered = ConfigParser.applyOption(base, "dashboard_urls", "$spark,$agents")
+        assertEquals(listOf(lan, spark, agents), reordered.config.dashboardUrls)
+        val remoteKept = ConfigParser.applyOption(base.copy(dashboardUrl = agents), "dashboard_urls", "$agents,$lan")
+        assertEquals(listOf(agents, lan), remoteKept.config.dashboardUrls)
+        val remoteDropped = ConfigParser.applyOption(base.copy(dashboardUrl = agents), "dashboard_urls", agents)
+        assertEquals(listOf(agents), remoteDropped.config.dashboardUrls)
+
+        assertFails { ConfigParser.applyOption(base, "dashboard_urls", "$lan,http://evil.example/d.json") }
+        assertFails { ConfigParser.applyOption(base, "dashboard_urls", "http://192.168.192.16:8099/other.json") }
+        assertFails { ConfigParser.applyOption(base, "dashboard_urls", "http://androdash.local/dashboards/index.json") }
+        assertFails { ConfigParser.applyOption(base, "dashboard_urls", "http://androdashXlocal/dashboards/x.json") }
+        assertFails { ConfigParser.applyOption(base, "dashboard_urls", "https://androdash.local/dashboards/x.json") }
+        assertFails { ConfigParser.applyOption(base, "dashboard_urls", "http://androdash.local/dashboards/sub/x.json") }
+        assertFails { ConfigParser.applyOption(base, "dashboard_urls", "http://androdash.local/dashboards/..json") }
+        assertFails { ConfigParser.applyOption(base, "dashboard_urls", "http://androdash.local/stored/0/dashboard.json") }
+        assertFails { ConfigParser.applyOption(base, "dashboard_urls", " , ") }
+        val eight = (1..8).map { "http://androdash.local/dashboards/d$it.json" }
+        // Eight bundled entries plus the current remote dashboard is nine.
+        assertFails { ConfigParser.applyOption(base, "dashboard_urls", eight.joinToString(",")) }
+        assertEquals(
+            eight,
+            ConfigParser.applyOption(base.copy(dashboardUrl = eight[0], dashboardUrls = listOf(eight[0])), "dashboard_urls", eight.joinToString(","))
+                .config.dashboardUrls,
+        )
+    }
+
+    @Test
+    fun `setOption dashboard URL values accept up to 2048 characters, other names 64`() {
+        assertEquals(2048, ConfigParser.maxOptionValue("dashboard_urls"))
+        assertEquals(2048, ConfigParser.maxOptionValue(" dashboard_urls "))
+        assertEquals(2048, ConfigParser.maxOptionValue("dashboard_url"))
+        assertEquals(64, ConfigParser.maxOptionValue("time_range"))
+        assertEquals(64, ConfigParser.maxOptionValue(null))
+
+        val long = "http://androdash.local/dashboards/${"a".repeat(1990)}.json"
+        val base = AppConfig(dashboardUrl = long)
+        assertTrue(long.length in 2000..2048)
+        // A long value is accepted (blank entries are skipped).
+        val padded = ",".repeat(2048 - agents.length) + agents
+        assertEquals(
+            listOf(mac, agents),
+            ConfigParser.applyOption(AppConfig(dashboardUrl = mac), "dashboard_urls", padded).config.dashboardUrls,
+        )
+        // Within the option limit; the 2000-character query cap still applies.
+        assertFails { ConfigParser.applyOption(base, "dashboard_urls", long) }
+        assertFails { ConfigParser.applyOption(base, "dashboard_urls", "$long${"b".repeat(2048 - long.length + 1)}") }
+        assertFails { ConfigParser.applyOption(AppConfig(dashboardUrl = mac), "dashboard_url", "x".repeat(2049)) }
+        assertFails { ConfigParser.applyOption(AppConfig(dashboardUrl = mac), "time_range", "1".repeat(64) + "s") }
+    }
+
+    @Test
+    fun `setOption rotate_seconds uses the launch range`() {
+        val base = AppConfig(dashboardUrl = dashboard)
+        assertEquals(60, ConfigParser.applyOption(base, "rotate_seconds", "60").config.rotateSeconds)
+        assertEquals(0, ConfigParser.applyOption(base.copy(rotateSeconds = 60), "rotate_seconds", "0").config.rotateSeconds)
+        assertTrue(ConfigParser.launchUrl(ConfigParser.applyOption(base, "rotate_seconds", "600").config).endsWith("rotate_seconds=600"))
+        listOf("5", "3601", "-10", "1m").forEach { raw ->
+            assertFails { ConfigParser.applyOption(base, "rotate_seconds", raw) }
+        }
+    }
+
+    @Test
+    fun `an intent without launch extras keeps the live renderer`() {
+        val current = ConfigParser.launchUrl(AppConfig(dashboardUrl = mac))
+        val changed = ConfigParser.launchUrl(AppConfig(dashboardUrl = agents))
+
+        assertFalse(ConfigParser.hasConfigExtras(emptyMap()))
+        assertFalse(ConfigParser.hasConfigExtras(extras("android.intent.extra.REFERRER_NAME" to "x", "profile" to "0")))
+        listOf("dashboard_url", "dashboard_urls", "rotate_seconds", "collector_targets", "lock_task", "show_when_locked")
+            .forEach { assertTrue(it, ConfigParser.hasConfigExtras(extras(it to "x"))) }
+
+        // Launcher tap or system re-start: no extras.
+        assertTrue(ConfigParser.keepsRenderer(emptyMap(), current, current))
+        assertTrue(ConfigParser.keepsRenderer(extras("profile" to "0"), current, changed))
+        // Extras that resolve to the same renderer URL (e.g. only lock_task).
+        assertTrue(ConfigParser.keepsRenderer(extras("lock_task" to "true"), current, current))
+        // Extras that change the renderer URL reload it.
+        assertFalse(ConfigParser.keepsRenderer(extras("dashboard_url" to agents), current, changed))
+        // Nothing live (first launch, fatal screen): always load.
+        assertFalse(ConfigParser.keepsRenderer(emptyMap(), null, current))
+    }
+
+    private fun queryParameters(config: AppConfig): Map<String, String> =
+        ConfigParser.buildQuery(config).split("&").associate { part ->
+            part.substringBefore("=") to URLDecoder.decode(part.substringAfter("="), "UTF-8")
+        }
+
     private fun assertFails(block: () -> Unit) {
         try {
             block()

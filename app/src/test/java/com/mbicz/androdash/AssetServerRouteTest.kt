@@ -28,16 +28,33 @@ class AssetServerRouteTest {
         assertEquals(Route.NotFound, AssetServer.route("/dashboards/.json"))
         assertEquals(Route.NotFound, AssetServer.route("/dashboards/"))
         assertEquals(Route.NotFound, AssetServer.route("/contracts/fixtures/demo-dashboard.json"))
+        // The generated bundled-dashboard index rides on the same allow-list.
+        assertEquals(Route.Asset("dashboards/index.json"), AssetServer.route("/dashboards/index.json"))
     }
 
     @Test
-    fun `stored dashboard routes are exact`() {
-        assertEquals(Route.StoredDashboard, AssetServer.route("/stored/dashboard.json"))
-        assertEquals(Route.StoredMeta, AssetServer.route("/stored/meta.json"))
-        assertEquals(Route.NotFound, AssetServer.route("/stored/stored.json"))
-        assertEquals(Route.NotFound, AssetServer.route("/stored/stored.meta.json"))
-        assertEquals(Route.NotFound, AssetServer.route("/stored/"))
-        assertEquals(Route.NotFound, AssetServer.route("/stored/dashboard.json/"))
+    fun `stored dashboard slot routes are exact`() {
+        for (slot in 0..7) {
+            assertEquals(Route.StoredDashboard(slot), AssetServer.route("/stored/$slot/dashboard.json"))
+            assertEquals(Route.StoredMeta(slot), AssetServer.route("/stored/$slot/meta.json"))
+        }
+        listOf(
+            "/stored/8/dashboard.json",
+            "/stored/9/meta.json",
+            "/stored/00/dashboard.json",
+            "/stored/-1/dashboard.json",
+            "/stored/a/dashboard.json",
+            "/stored/0/stored.json",
+            "/stored/0/dashboard.json/",
+            "/stored/0/",
+            "/stored/0",
+            // The pre-slot single-copy routes are gone.
+            "/stored/dashboard.json",
+            "/stored/meta.json",
+            "/stored/stored.json",
+            "/stored/stored.meta.json",
+            "/stored/",
+        ).forEach { assertEquals(it, Route.NotFound, AssetServer.route(it)) }
     }
 
     @Test
@@ -46,6 +63,8 @@ class AssetServerRouteTest {
         assertEquals(Route.BadPath, AssetServer.route("/dashboards/..json"))
         assertEquals(Route.BadPath, AssetServer.route("/stored/%2e%2e/meta.json"))
         assertEquals(Route.BadPath, AssetServer.route("/dashboards\\x.json"))
-        assertEquals(Route.BadPath, AssetServer.route("//stored/dashboard.json"))
+        assertEquals(Route.BadPath, AssetServer.route("//stored/0/dashboard.json"))
+        assertEquals(Route.BadPath, AssetServer.route("/stored/0/../meta.json"))
+        assertEquals(Route.BadPath, AssetServer.route("/stored/%30/meta.json"))
     }
 }

@@ -17,5 +17,10 @@
   "collector": false,
   "collectorTargets": null,
   "collectorScrapeSeconds": 15,
-  "collectorRetention": "24h"
+  "collectorRetention": "24h",
+  "dashboardUrls": [
+    "http://10.0.2.2:8099/contracts/fixtures/demo-dashboard.json",
+    "http://androdash.local/dashboards/macos-node-dashboard.json"
+  ],
+  "rotateSeconds": 0
 }

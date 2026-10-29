@@ -28,6 +28,14 @@ data class AppConfig(
     val collectorTargets: String? = null,
     val collectorScrapeSeconds: Int = DEFAULT_COLLECTOR_SCRAPE_SECONDS,
     val collectorRetention: String = DEFAULT_COLLECTOR_RETENTION,
+    /**
+     * C-001 `dashboard_urls`: 1–8 distinct dashboard URLs, always containing
+     * [dashboardUrl] (the one currently shown). Each index is also the stored
+     * copy's slot (decision 0018).
+     */
+    val dashboardUrls: List<String> = listOf(dashboardUrl),
+    /** C-001 `rotate_seconds`: 0 = off, else 10–3600. */
+    val rotateSeconds: Int = 0,
 ) {
     fun toJson(): String {
         val json = JSONObject()
@@ -55,6 +63,8 @@ data class AppConfig(
         json.put("collectorTargets", collectorTargets ?: JSONObject.NULL)
         json.put("collectorScrapeSeconds", collectorScrapeSeconds)
         json.put("collectorRetention", collectorRetention)
+        json.put("dashboardUrls", JSONArray().apply { dashboardUrls.forEach { put(it) } })
+        json.put("rotateSeconds", rotateSeconds)
         return json.toString()
     }
 
@@ -76,8 +86,17 @@ data class AppConfig(
                         for (index in 0 until array.length()) add(array.getString(index))
                     }
                 }
+                val dashboardUrl = json.getString("dashboardUrl")
+                val dashboardUrls = if (json.has("dashboardUrls")) {
+                    val array = json.getJSONArray("dashboardUrls")
+                    buildList<String> {
+                        for (index in 0 until array.length()) add(array.getString(index))
+                    }
+                } else {
+                    listOf(dashboardUrl)
+                }
                 AppConfig(
-                    dashboardUrl = json.getString("dashboardUrl"),
+                    dashboardUrl = dashboardUrl,
                     prometheusUrl = json.optNullableString("prometheusUrl"),
                     refreshSeconds = json.optNullableInt("refreshSeconds"),
                     timeRange = json.optNullableString("timeRange"),
@@ -101,6 +120,8 @@ data class AppConfig(
                         "collectorRetention",
                         DEFAULT_COLLECTOR_RETENTION,
                     ),
+                    dashboardUrls = dashboardUrls,
+                    rotateSeconds = json.optInt("rotateSeconds", 0),
                 )
             } catch (_: Exception) {
                 null
