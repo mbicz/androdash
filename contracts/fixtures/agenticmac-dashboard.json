@@ -1,0 +1,660 @@
+{
+  "kind": "Dashboard",
+  "metadata": {
+    "name": "Agents on the Mac",
+    "project": "androdash",
+    "createdAt": "2026-10-28T00:00:00Z",
+    "updatedAt": "2026-10-28T00:00:00Z",
+    "version": 1
+  },
+  "spec": {
+    "display": {
+      "name": "$host",
+      "description": "AI coding harnesses and macOS health (agenticmac-exporter)"
+    },
+    "duration": "1h",
+    "refreshInterval": "15s",
+    "datasources": {
+      "prom": {
+        "default": true,
+        "plugin": {
+          "kind": "PrometheusDatasource",
+          "spec": {
+            "directUrl": "http://localhost:9090"
+          }
+        }
+      }
+    },
+    "variables": [
+      {
+        "kind": "ListVariable",
+        "spec": {
+          "name": "ds",
+          "defaultValue": "prom",
+          "allowMultiple": false,
+          "allowAllValue": false,
+          "plugin": {
+            "kind": "DatasourceVariable",
+            "spec": {
+              "datasourcePluginKind": "PrometheusDatasource"
+            }
+          }
+        }
+      },
+      {
+        "kind": "ListVariable",
+        "spec": {
+          "name": "host",
+          "allowMultiple": false,
+          "allowAllValue": false,
+          "plugin": {
+            "kind": "PrometheusLabelValuesVariable",
+            "spec": {
+              "labelName": "nodename",
+              "matchers": [
+                "node_uname_info"
+              ]
+            }
+          }
+        }
+      }
+    ],
+    "panels": {
+      "harnesses": {
+        "kind": "Panel",
+        "spec": {
+          "display": {
+            "name": "Running agents",
+            "description": "Interactive harness processes (omp, opencode, codex, claude, …)"
+          },
+          "plugin": {
+            "kind": "StatChart",
+            "spec": {
+              "calculation": "last-number",
+              "format": {
+                "unit": "none",
+                "decimalPlaces": 0
+              }
+            }
+          },
+          "queries": [
+            {
+              "kind": "TimeSeriesQuery",
+              "spec": {
+                "plugin": {
+                  "kind": "PrometheusTimeSeriesQuery",
+                  "spec": {
+                    "datasource": "$ds",
+                    "query": "label_replace(sum by (harness) (agent_processes{role=\"interactive\"}) > 0, \"reading\", \"$1\", \"harness\", \"(.*)\")"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "sessions": {
+        "kind": "Panel",
+        "spec": {
+          "display": {
+            "name": "Active sessions",
+            "description": "Sessions written within the exporter's active window, for running harnesses"
+          },
+          "plugin": {
+            "kind": "StatChart",
+            "spec": {
+              "calculation": "last-number",
+              "format": {
+                "unit": "none",
+                "decimalPlaces": 0
+              }
+            }
+          },
+          "queries": [
+            {
+              "kind": "TimeSeriesQuery",
+              "spec": {
+                "plugin": {
+                  "kind": "PrometheusTimeSeriesQuery",
+                  "spec": {
+                    "datasource": "$ds",
+                    "query": "label_replace(sum by (harness) (agent_sessions_active) and on (harness) (sum by (harness) (agent_processes{role=\"interactive\"}) > 0), \"reading\", \"$1\", \"harness\", \"(.*)\")"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "throughput": {
+        "kind": "Panel",
+        "spec": {
+          "display": {
+            "name": "Output tokens per second",
+            "description": "Generated tokens, 5m rate, per harness"
+          },
+          "plugin": {
+            "kind": "TimeSeriesChart",
+            "spec": {
+              "legend": {
+                "position": "bottom"
+              },
+              "format": {
+                "unit": "tokens",
+                "decimalPlaces": 1
+              }
+            }
+          },
+          "queries": [
+            {
+              "kind": "TimeSeriesQuery",
+              "spec": {
+                "plugin": {
+                  "kind": "PrometheusTimeSeriesQuery",
+                  "spec": {
+                    "datasource": "$ds",
+                    "query": "label_replace(sum by (harness) (rate(agent_tokens_total{type=\"output\"}[5m])), \"reading\", \"$1\", \"harness\", \"(.*)\")"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "spend": {
+        "kind": "Panel",
+        "spec": {
+          "display": {
+            "name": "Spend per hour (USD)",
+            "description": "List-price estimate from harness usage records; subscriptions are not billed this"
+          },
+          "plugin": {
+            "kind": "TimeSeriesChart",
+            "spec": {
+              "legend": {
+                "position": "bottom"
+              },
+              "format": {
+                "unit": "none",
+                "decimalPlaces": 2
+              }
+            }
+          },
+          "queries": [
+            {
+              "kind": "TimeSeriesQuery",
+              "spec": {
+                "plugin": {
+                  "kind": "PrometheusTimeSeriesQuery",
+                  "spec": {
+                    "datasource": "$ds",
+                    "query": "label_replace(sum by (harness) (rate(agent_cost_usd_total[15m])) * 3600, \"reading\", \"$1\", \"harness\", \"(.*)\")"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "quota": {
+        "kind": "Panel",
+        "spec": {
+          "display": {
+            "name": "Quota used",
+            "description": "Subscription rate-limit windows reported by omp"
+          },
+          "plugin": {
+            "kind": "GaugeChart",
+            "spec": {
+              "calculation": "last-number",
+              "format": {
+                "unit": "percent",
+                "decimalPlaces": 0
+              },
+              "thresholds": {
+                "steps": [
+                  {
+                    "value": 80,
+                    "name": "High"
+                  },
+                  {
+                    "value": 95,
+                    "name": "Limit"
+                  }
+                ]
+              }
+            }
+          },
+          "queries": [
+            {
+              "kind": "TimeSeriesQuery",
+              "spec": {
+                "plugin": {
+                  "kind": "PrometheusTimeSeriesQuery",
+                  "spec": {
+                    "datasource": "$ds",
+                    "query": "label_join(100 * max by (provider, window) (agent_quota_used_ratio), \"reading\", \" \", \"provider\", \"window\")"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "models": {
+        "kind": "Panel",
+        "spec": {
+          "display": {
+            "name": "Model speed",
+            "description": "Recent output tokens per second per model (omp, decayed average)"
+          },
+          "plugin": {
+            "kind": "Table",
+            "spec": {
+              "format": {
+                "unit": "tokens",
+                "decimalPlaces": 0
+              }
+            }
+          },
+          "queries": [
+            {
+              "kind": "TimeSeriesQuery",
+              "spec": {
+                "plugin": {
+                  "kind": "PrometheusTimeSeriesQuery",
+                  "spec": {
+                    "datasource": "$ds",
+                    "query": "topk(8, max by (model) (agent_model_output_tokens_per_second))"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "pressure": {
+        "kind": "Panel",
+        "spec": {
+          "display": {
+            "name": "Pressure",
+            "description": "macOS memory and thermal pressure levels (0 normal)"
+          },
+          "plugin": {
+            "kind": "StatChart",
+            "spec": {
+              "calculation": "last-number",
+              "format": {
+                "unit": "none",
+                "decimalPlaces": 0
+              },
+              "thresholds": {
+                "steps": [
+                  {
+                    "value": 1,
+                    "name": "Elevated"
+                  },
+                  {
+                    "value": 2,
+                    "name": "Critical"
+                  }
+                ]
+              }
+            }
+          },
+          "queries": [
+            {
+              "kind": "TimeSeriesQuery",
+              "spec": {
+                "plugin": {
+                  "kind": "PrometheusTimeSeriesQuery",
+                  "spec": {
+                    "datasource": "$ds",
+                    "query": "label_replace(macos_memory_pressure_level, \"reading\", \"memory\", \"\", \"\")"
+                  }
+                }
+              }
+            },
+            {
+              "kind": "TimeSeriesQuery",
+              "spec": {
+                "plugin": {
+                  "kind": "PrometheusTimeSeriesQuery",
+                  "spec": {
+                    "datasource": "$ds",
+                    "query": "label_replace(macos_thermal_pressure_level, \"reading\", \"thermal\", \"\", \"\")"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "power": {
+        "kind": "Panel",
+        "spec": {
+          "display": {
+            "name": "SoC power",
+            "description": "Apple Silicon power by component (macmon)"
+          },
+          "plugin": {
+            "kind": "TimeSeriesChart",
+            "spec": {
+              "legend": {
+                "position": "bottom"
+              },
+              "format": {
+                "unit": "watts",
+                "decimalPlaces": 1
+              }
+            }
+          },
+          "queries": [
+            {
+              "kind": "TimeSeriesQuery",
+              "spec": {
+                "plugin": {
+                  "kind": "PrometheusTimeSeriesQuery",
+                  "spec": {
+                    "datasource": "$ds",
+                    "query": "label_replace(macos_soc_power_watts{component=~\"cpu|gpu|ram|sys\"}, \"reading\", \"$1\", \"component\", \"(.*)\")"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "temperature": {
+        "kind": "Panel",
+        "spec": {
+          "display": {
+            "name": "Temperature",
+            "description": "SoC sensors (macmon) and the internal NVMe drive"
+          },
+          "plugin": {
+            "kind": "StatChart",
+            "spec": {
+              "calculation": "last-number",
+              "format": {
+                "unit": "celsius",
+                "decimalPlaces": 0
+              },
+              "thresholds": {
+                "steps": [
+                  {
+                    "value": 80,
+                    "name": "Hot"
+                  },
+                  {
+                    "value": 95,
+                    "name": "Critical"
+                  }
+                ]
+              }
+            }
+          },
+          "queries": [
+            {
+              "kind": "TimeSeriesQuery",
+              "spec": {
+                "plugin": {
+                  "kind": "PrometheusTimeSeriesQuery",
+                  "spec": {
+                    "datasource": "$ds",
+                    "query": "label_replace(macos_soc_temperature_celsius, \"reading\", \"$1\", \"sensor\", \"(.*)\")"
+                  }
+                }
+              }
+            },
+            {
+              "kind": "TimeSeriesQuery",
+              "spec": {
+                "plugin": {
+                  "kind": "PrometheusTimeSeriesQuery",
+                  "spec": {
+                    "datasource": "$ds",
+                    "query": "label_replace(macos_nvme_temperature_celsius, \"reading\", \"nvme\", \"\", \"\")"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "agent-memory": {
+        "kind": "Panel",
+        "spec": {
+          "display": {
+            "name": "Agent memory",
+            "description": "Resident memory of harness processes"
+          },
+          "plugin": {
+            "kind": "StatChart",
+            "spec": {
+              "calculation": "last-number",
+              "format": {
+                "unit": "bytes",
+                "decimalPlaces": 1
+              }
+            }
+          },
+          "queries": [
+            {
+              "kind": "TimeSeriesQuery",
+              "spec": {
+                "plugin": {
+                  "kind": "PrometheusTimeSeriesQuery",
+                  "spec": {
+                    "datasource": "$ds",
+                    "query": "label_replace(sum by (harness) (agent_process_resident_memory_bytes) > 0, \"reading\", \"$1\", \"harness\", \"(.*)\")"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "services": {
+        "kind": "Panel",
+        "spec": {
+          "display": {
+            "name": "Homebrew services",
+            "description": "1 = running"
+          },
+          "plugin": {
+            "kind": "Table",
+            "spec": {
+              "format": {
+                "unit": "none",
+                "decimalPlaces": 0
+              }
+            }
+          },
+          "queries": [
+            {
+              "kind": "TimeSeriesQuery",
+              "spec": {
+                "plugin": {
+                  "kind": "PrometheusTimeSeriesQuery",
+                  "spec": {
+                    "datasource": "$ds",
+                    "query": "max by (service) (macos_brew_service_up)"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "vms": {
+        "kind": "Panel",
+        "spec": {
+          "display": {
+            "name": "Lima VMs",
+            "description": "1 = running"
+          },
+          "plugin": {
+            "kind": "Table",
+            "spec": {
+              "format": {
+                "unit": "none",
+                "decimalPlaces": 0
+              }
+            }
+          },
+          "queries": [
+            {
+              "kind": "TimeSeriesQuery",
+              "spec": {
+                "plugin": {
+                  "kind": "PrometheusTimeSeriesQuery",
+                  "spec": {
+                    "datasource": "$ds",
+                    "query": "max by (vm) (macos_lima_vm_running)"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "layouts": [
+      {
+        "kind": "Grid",
+        "spec": {
+          "display": {
+            "title": "Agents",
+            "collapse": {
+              "open": true
+            }
+          },
+          "items": [
+            {
+              "x": 0,
+              "y": 0,
+              "width": 12,
+              "height": 4,
+              "content": {
+                "$ref": "#/spec/panels/harnesses"
+              }
+            },
+            {
+              "x": 12,
+              "y": 0,
+              "width": 12,
+              "height": 4,
+              "content": {
+                "$ref": "#/spec/panels/sessions"
+              }
+            },
+            {
+              "x": 0,
+              "y": 4,
+              "width": 12,
+              "height": 7,
+              "content": {
+                "$ref": "#/spec/panels/throughput"
+              }
+            },
+            {
+              "x": 12,
+              "y": 4,
+              "width": 12,
+              "height": 7,
+              "content": {
+                "$ref": "#/spec/panels/spend"
+              }
+            },
+            {
+              "x": 0,
+              "y": 11,
+              "width": 12,
+              "height": 8,
+              "content": {
+                "$ref": "#/spec/panels/quota"
+              }
+            },
+            {
+              "x": 12,
+              "y": 11,
+              "width": 12,
+              "height": 8,
+              "content": {
+                "$ref": "#/spec/panels/models"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "kind": "Grid",
+        "spec": {
+          "display": {
+            "title": "Mac",
+            "collapse": {
+              "open": true
+            }
+          },
+          "items": [
+            {
+              "x": 0,
+              "y": 0,
+              "width": 8,
+              "height": 4,
+              "content": {
+                "$ref": "#/spec/panels/pressure"
+              }
+            },
+            {
+              "x": 8,
+              "y": 0,
+              "width": 8,
+              "height": 4,
+              "content": {
+                "$ref": "#/spec/panels/temperature"
+              }
+            },
+            {
+              "x": 16,
+              "y": 0,
+              "width": 8,
+              "height": 4,
+              "content": {
+                "$ref": "#/spec/panels/agent-memory"
+              }
+            },
+            {
+              "x": 0,
+              "y": 4,
+              "width": 24,
+              "height": 7,
+              "content": {
+                "$ref": "#/spec/panels/power"
+              }
+            },
+            {
+              "x": 0,
+              "y": 11,
+              "width": 12,
+              "height": 6,
+              "content": {
+                "$ref": "#/spec/panels/services"
+              }
+            },
+            {
+              "x": 12,
+              "y": 11,
+              "width": 12,
+              "height": 6,
+              "content": {
+                "$ref": "#/spec/panels/vms"
+              }
+            }
+          ]
+        }
+      }
+    ]
+  }
+}
