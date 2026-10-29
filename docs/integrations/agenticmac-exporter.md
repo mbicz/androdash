@@ -19,6 +19,7 @@ cursor-agent, aider) and the macOS readings Darwin node_exporter lacks.
 | Active sessions | `agent_sessions_active` | Sessions written within the exporter's active window, for harnesses that are running. |
 | Output tokens per second | `agent_tokens_total{type="output"}` | 5m rate per harness. |
 | Spend per hour (USD) | `agent_cost_usd_total` | The harness's list-price estimate; subscriptions are not billed this. No currency unit exists in C-005, so the unit is in the title. |
+| Requests today by plan | `agent_requests_total{tier}` | `tier` = free / subscription / paid / local / unknown, from the exporter's configurable tier rules (exporter ≥ 0.2.0). |
 | Quota used | `agent_quota_used_ratio` | Rate-limit windows recorded by omp, per provider and window. |
 | Model speed | `agent_model_output_tokens_per_second` | omp's decayed per-model throughput, top 8. |
 | Pressure | `macos_memory_pressure_level`, `macos_thermal_pressure_level` | 0 normal; 1 Elevated; 2+ Critical. |

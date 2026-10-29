@@ -196,6 +196,39 @@
           ]
         }
       },
+      "tiers": {
+        "kind": "Panel",
+        "spec": {
+          "display": {
+            "name": "Requests today by plan",
+            "description": "free, subscription, paid, local — classified by the exporter's tier rules"
+          },
+          "plugin": {
+            "kind": "StatChart",
+            "spec": {
+              "calculation": "last-number",
+              "format": {
+                "unit": "short",
+                "decimalPlaces": 0
+              }
+            }
+          },
+          "queries": [
+            {
+              "kind": "TimeSeriesQuery",
+              "spec": {
+                "plugin": {
+                  "kind": "PrometheusTimeSeriesQuery",
+                  "spec": {
+                    "datasource": "$ds",
+                    "query": "label_replace(sum by (tier) (increase(agent_requests_total{tier!=\"\"}[1d])) > 0, \"reading\", \"$1\", \"tier\", \"(.*)\")"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
       "quota": {
         "kind": "Panel",
         "spec": {
@@ -570,6 +603,15 @@
             {
               "x": 0,
               "y": 11,
+              "width": 24,
+              "height": 4,
+              "content": {
+                "$ref": "#/spec/panels/tiers"
+              }
+            },
+            {
+              "x": 0,
+              "y": 15,
               "width": 12,
               "height": 8,
               "content": {
@@ -578,7 +620,7 @@
             },
             {
               "x": 12,
-              "y": 11,
+              "y": 15,
               "width": 12,
               "height": 8,
               "content": {
