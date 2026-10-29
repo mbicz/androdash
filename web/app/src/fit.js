@@ -62,13 +62,15 @@ export function bestCellGrid(count, width, height, { aspect = 1, gap = 8 } = {})
  * and its growth weight. `count` is the number of series (tiles, rings, lines,
  * or rows) the panel shows.
  */
-export function panelDemand(kind, count, width) {
+export function panelDemand(kind, count, width, { thresholds = false } = {}) {
   const inner = Math.max(0, width - 20);
   const n = Math.max(1, count);
   if (kind === "StatChart") {
-    if (n === 1) return { minW: TILE.width + 20, minH: FIT.chrome + TILE.single, weight: 1 };
+    // Thresholds add a meter and, when crossed, a state word under the value.
+    const extra = thresholds ? 20 : 0;
+    if (n === 1) return { minW: TILE.width + 20, minH: FIT.chrome + TILE.single + extra, weight: 1 };
     const grid = cellGrid(n, inner, TILE.width, TILE.gap);
-    const body = grid.rows * TILE.height + (grid.rows - 1) * TILE.gap;
+    const body = grid.rows * (TILE.height + extra) + (grid.rows - 1) * TILE.gap;
     return { minW: TILE.width + 20, minH: FIT.chrome + body, weight: 1 };
   }
   if (kind === "GaugeChart") {
@@ -133,7 +135,7 @@ function planColumns(items, columns, width, gap) {
         let ok = true;
         const cells = group.map((item, index) => {
           const w = spanWidth(spans[index], columns, width, gap);
-          const demand = panelDemand(item.kind, item.count, w);
+          const demand = panelDemand(item.kind, item.count, w, item);
           if (w + 0.5 < demand.minW) ok = false;
           rowMin = Math.max(rowMin, demand.minH);
           weight = Math.max(weight, demand.weight);

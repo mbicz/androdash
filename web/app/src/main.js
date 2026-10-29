@@ -454,6 +454,7 @@ function fitItems() {
         id: String(items.length),
         kind: item.panel.panelKind,
         count: displayCount(item.panel),
+        thresholds: (item.panel.panelSpec?.thresholds?.steps?.length || 0) > 0,
         item,
       });
     }

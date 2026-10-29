@@ -11,6 +11,7 @@ contracts/
     ├── demo-dashboard.json      # 9 panels: 6 eligible, 3 hidden
     ├── spark-dashboard.json     # 14-panel Spark Exporter dashboard
     ├── macos-node-dashboard.json # live macOS node_exporter dashboard (no mock)
+    ├── agenticmac-dashboard.json # AI harnesses + macOS health (agenticmac-exporter; generated)
     ├── diagnostics.example.json
     └── prometheus/
         ├── buildinfo.json
