@@ -49,6 +49,10 @@ panels = {
         "Spend per hour (USD)", "List-price estimate from harness usage records; subscriptions are not billed this",
         "TimeSeriesChart", {"legend": {"position": "bottom"}, "format": {"unit": "none", "decimalPlaces": 2}},
         [by("sum by (harness) (rate(agent_cost_usd_total[15m])) * 3600", "harness")]),
+    "tiers": panel(
+        "Requests today by plan", "free, subscription, paid, local — classified by the exporter's tier rules",
+        "StatChart", {"calculation": "last-number", "format": {"unit": "short", "decimalPlaces": 0}},
+        [by('sum by (tier) (increase(agent_requests_total{tier!=""}[1d])) > 0', "tier")]),
     "quota": panel(
         "Quota used", "Subscription rate-limit windows reported by omp",
         "GaugeChart", {"calculation": "last-number", "format": {"unit": "percent", "decimalPlaces": 0},
@@ -100,7 +104,8 @@ def row(title: str, items: list[dict]) -> dict:
 layouts = [
     row("Agents", [item(0, 0, 12, 4, "harnesses"), item(12, 0, 12, 4, "sessions"),
                    item(0, 4, 12, 7, "throughput"), item(12, 4, 12, 7, "spend"),
-                   item(0, 11, 12, 8, "quota"), item(12, 11, 12, 8, "models")]),
+                   item(0, 11, 24, 4, "tiers"),
+                   item(0, 15, 12, 8, "quota"), item(12, 15, 12, 8, "models")]),
     row("Mac", [item(0, 0, 8, 4, "pressure"), item(8, 0, 8, 4, "temperature"), item(16, 0, 8, 4, "agent-memory"),
                 item(0, 4, 24, 7, "power"),
                 item(0, 11, 12, 6, "services"), item(12, 11, 12, 6, "vms")]),
