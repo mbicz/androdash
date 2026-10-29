@@ -42,7 +42,7 @@ app/
     │   │   ├── ConfigParser.kt   # Intent/persisted parsing, validation, launch URL
     │   │   ├── ConfigStore.kt    # SharedPreferences persistence (+ show_when_locked)
     │   │   ├── AssetServer.kt    # virtual-origin routes: renderer, bundled + stored dashboards
-    │   │   ├── DashboardStore.kt # stored remote-dashboard copy (fixed files, atomic)
+    │   │   ├── DashboardStore.kt # stored remote-dashboard slots (fixed files, atomic)
     │   │   ├── LockRelightPolicy.kt # pure power-button re-light state machine
     │   │   ├── CollectorConfig.kt   # pure: collector_targets grammar, prometheus.yml, arguments
     │   │   ├── CollectorService.kt  # foreground service running/supervising libprometheus.so
@@ -116,6 +116,7 @@ one-to-one:
 | Intent extra | Query parameter | Type |
 |---|---|---|
 | `dashboard_url` | `dashboard_url` | string |
+| `dashboard_urls` | `dashboard_urls` | comma string (1–8 URLs; `%2C` inside a URL) |
 | `prometheus_url` | `prometheus_url` | string |
 | `refresh_seconds` | `refresh_seconds` | int |
 | `time_range` | `time_range` | string |
@@ -129,6 +130,7 @@ one-to-one:
 | `dashboard_name` | `dashboard_name` | string |
 | `capabilities` | `capabilities` | comma string |
 | `show_unsupported` | `show_unsupported` | boolean |
+| `rotate_seconds` | `rotate_seconds` | int (`0` or `10–3600`) |
 | `lock_task` | — | boolean (native-only; C-007, not in AppConfig) |
 | `show_when_locked` | — | boolean (native-only; C-007, not in AppConfig; persisted as its own preference) |
 | `collector` | — (sets `prometheus_url=http://127.0.0.1:19090` when true) | boolean (native-only; in AppConfig) |
@@ -160,26 +162,45 @@ After a valid launch, persist the canonical config JSON under
 without extras, use the persisted config, so tapping the launcher icon restores
 the kiosk. Explicit extras override persisted fields; omitted optional fields
 fall back to defaults (C-001). A persisted object without `lockStyle` (written
-before it existed) decodes as `monochrome`. The renderer's
+before it existed) decodes as `monochrome`; one without `dashboardUrls` /
+`rotateSeconds` decodes as `[dashboardUrl]` / `0`. The renderer's
 `AndroDash.setOption(name, value)` (`time_range`, `refresh_seconds`,
-`layout_mode`, `lock_style`, `dashboard_source`) is validated with the same
-rules as the launch extra, saved into this config, and folded into the renderer
-URL (C-007). Do not persist secrets if auth is added later; record the storage
-decision first.
+`layout_mode`, `lock_style`, `dashboard_source`, `dashboard_url`,
+`dashboard_urls`, `rotate_seconds`) is validated with the same rules as the
+launch extra, saved into this config, and folded into the renderer URL
+(C-007). `dashboard_url` must be in the current list, and `dashboard_urls` may
+only add bundled `androdash.local/dashboards/` URLs, never a remote one. Do not
+persist secrets if auth is added later; record the storage decision first.
 
-### Stored dashboard
+### New intents
 
-`DashboardStore` keeps one copy of a remote dashboard so the phone starts
-without the dashboard server (C-001 `dashboard_source=stored`, decision 0018).
-The renderer fetches the dashboard and hands it to
-`AndroDash.storeDashboard(sourceUrl, json)`; the shell accepts it only for the
-current `dashboard_url` in `stored` mode and never for an `androdash.local`
-URL, checks it is one JSON object of at most 5 MiB UTF-8, and writes
-`<filesDir>/dashboards/stored.json` then `stored.meta.json`
+The activity is `singleTask`, so a launcher tap or a repeated `adb am start`
+arrives as `onNewIntent`. `applyIntent` parses it like a launch, then
+`ConfigParser.keepsRenderer` decides: with a live WebView and either no
+C-001/C-007 extra (`hasConfigExtras`) or the same renderer URL, the WebView is
+kept (log `intent without changes; keeping renderer`) and only the config,
+kiosk/back callback, `show_when_locked`, `lock_task`, and the collector are
+re-applied. Otherwise `setupWebView()` recreates the WebView.
+
+### Stored dashboards
+
+`DashboardStore` keeps up to 8 copies of remote dashboards, one slot per
+`dashboard_urls` position, so the phone starts without the dashboard server
+(C-001 `dashboard_source=stored`, decisions 0018 and 0020). The renderer
+fetches a dashboard and hands it to `AndroDash.storeDashboard(sourceUrl, json)`;
+the shell accepts it only for a current `dashboard_urls` entry in `stored`
+mode (`DashboardStore.slotFor`) and never for an `androdash.local` URL, checks
+it is one JSON object of at most 5 MiB UTF-8, and writes
+`<filesDir>/dashboards/stored-<i>.json` then `stored-<i>.meta.json`
 (`{"sourceUrl", "storedAt", "bytes"}`) with temp file + fsync + atomic rename,
-meta last. `AssetServer` serves them back at `/stored/dashboard.json` and
-`/stored/meta.json`. The shell never parses dashboard semantics; it only stores
-and serves bytes.
+meta last. `AssetServer` serves them back at `/stored/<i>/dashboard.json` and
+`/stored/<i>/meta.json` (`i` = `0…7`). `onCreate` deletes the pre-slot
+`stored.json`/`stored.meta.json`. The shell never parses dashboard semantics;
+it only stores and serves bytes.
+
+The build generates `dashboards/index.json`
+(`{"dashboards":[{"file","title"}]}`, sorted by file, `title` =
+`metadata.name`) next to the bundled fixtures in `copyDashboardAssets`.
 
 ### Collector
 
@@ -233,9 +254,10 @@ file/network/Intent access.
 - Assets root: the module's `assets` (which maps `web/app/` plus the generated
   `dashboards/` directory).
 - Routes (pure `AssetServer.route`, unit-tested): `/index.html`, `/styles.css`,
-  `/src/**.js`, `/dashboards/<[A-Za-z0-9_.-]+>.json` from assets, and the exact
-  `/stored/dashboard.json` and `/stored/meta.json` from `DashboardStore` (404
-  when nothing is stored). Everything else is 404; `..`, `\`, `%`, `//` → 400.
+  `/src/**.js`, `/dashboards/<[A-Za-z0-9_.-]+>.json` (including the generated
+  `index.json`) from assets, and `/stored/<0-7>/dashboard.json` and
+  `/stored/<0-7>/meta.json` from `DashboardStore` (404 when the slot is empty).
+  Everything else is 404; `..`, `\`, `%`, `//` → 400.
 - Normalize the URL path, decode once, reject `..`/backslashes/absolute paths;
   never serve outside the asset root.
 - Only `GET`; return 405 for other methods.
@@ -253,7 +275,11 @@ file/network/Intent access.
 - Immersive sticky mode: hide status/navigation bars and re-hide after focus or
   system UI changes.
 - `FLAG_KEEP_SCREEN_ON` while the activity is foreground.
-- Back: no-op in kiosk mode; finish only when `kiosk=false`.
+- Back: no-op in kiosk mode; finish only when `kiosk=false`. API 33+ uses an
+  `OnBackInvokedCallback` (`PRIORITY_DEFAULT`, registered only while
+  `kiosk=true`) with `android:enableOnBackInvokedCallback="true"` on the
+  activity, so the predictive-back gesture does not preview the launcher;
+  older releases use `onBackPressed`.
 - `kiosk=true` is the default. `lock_task=true` (optional, default false) calls
   `startLockTask()`; true unattended locking requires device-owner provisioning.
   The shell must tolerate failure and remain usable.

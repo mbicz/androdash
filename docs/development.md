@@ -199,6 +199,29 @@ adb shell am start -n com.mbicz.androdash/.MainActivity \
 
 Every `contracts/fixtures/*-dashboard.json` is bundled at build time.
 
+### Multiple dashboards
+
+`dashboard_urls` lists up to 8 dashboards the renderer switches between by
+swipe, and `rotate_seconds` (0 = off, 10–3600) advances through them
+automatically (C-001 "Multiple dashboards", decision 0020). The dashboard last
+shown is persisted, so a relaunch from the launcher returns to it:
+
+```sh
+adb shell am start -n com.mbicz.androdash/.MainActivity \
+  --es dashboard_urls "http://androdash.local/dashboards/agenticmac-dashboard.json,http://androdash.local/dashboards/macos-node-dashboard.json" \
+  --es rotate_seconds 60
+```
+
+- Without `dashboard_url` the first entry is shown; an explicit
+  `dashboard_url` missing from the list is inserted first.
+- A comma inside a URL must be written `%2C`.
+- The page can reorder the list and add bundled dashboards (listed in
+  `http://androdash.local/dashboards/index.json`), but remote URLs come only
+  from the launch extras.
+- Each remote entry gets its own stored copy (`dashboard_source=stored`).
+- Re-running `am start` with the same values, or tapping the launcher icon,
+  keeps the running page (logcat `intent without changes; keeping renderer`).
+
 ### Prometheus on the phone (collector)
 
 With `collector=true` the phone runs its own Prometheus (bundled in the APK)

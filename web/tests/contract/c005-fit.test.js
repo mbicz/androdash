@@ -70,3 +70,10 @@ test("C-005 cell grids follow the box shape", () => {
   assert.equal(bestCellGrid(4, 600, 120, { aspect: 1 }).columns, 4);
   assert.equal(bestCellGrid(4, 120, 600, { aspect: 1 }).columns, 1);
 });
+
+test("C-005 fit gives text panels a bounded share; they scroll inside", () => {
+  const plan = planFit([...mac, { id: "about", kind: "Markdown", count: 1 }], { width: 361, height: 780 });
+  const row = plan.rows.find((r) => r.cells.some((cell) => cell.id === "about"));
+  assert.ok(row, "Markdown is placed in the fit layout");
+  if (row.cells.length === 1) assert.ok(row.maxHeight !== null && row.maxHeight <= 36 + 132);
+});

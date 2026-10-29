@@ -38,6 +38,8 @@ import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import android.window.OnBackInvokedCallback
+import android.window.OnBackInvokedDispatcher
 
 class MainActivity : Activity() {
     private lateinit var configStore: ConfigStore
@@ -64,12 +66,16 @@ class MainActivity : Activity() {
     private var dashboardForeground = false
     private var lockedDim = false
 
+    /** The API 33+ kiosk back consumer (an `OnBackInvokedCallback`) while registered. */
+    private var backCallback: Any? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         WebView.setWebContentsDebuggingEnabled(BuildConfig.DEBUG)
         configStore = ConfigStore(this)
         dashboardStore = DashboardStore(filesDir)
+        dashboardStore.removeLegacy()
         assetServer = AssetServer(assets, dashboardStore)
         applyIntent(intent)
     }
@@ -80,19 +86,32 @@ class MainActivity : Activity() {
         applyIntent(intent)
     }
 
+    /**
+     * Parse and apply a launch. A new intent without launch extras (launcher
+     * tap, SystemUI re-start) or one that resolves to the renderer URL already
+     * loaded keeps the live WebView (C-007); only the native postures are
+     * re-applied.
+     */
     private fun applyIntent(intent: Intent?) {
-        fatal = false
         val extras = readExtras(intent)
         val persisted = configStore.load()
         try {
             val parsed = ConfigParser.parse(extras, persisted, configStore.loadShowWhenLocked())
+            val nextUrl = ConfigParser.launchUrl(parsed.config)
+            val liveUrl = if (fatal || webView == null) null else rendererUrl
+            val keep = ConfigParser.keepsRenderer(extras, liveUrl, nextUrl)
             config = parsed.config
-            rendererUrl = ConfigParser.launchUrl(parsed.config)
+            rendererUrl = nextUrl
             configStore.save(parsed.config)
             configStore.saveShowWhenLocked(parsed.showWhenLockedPreference)
             logConfig(parsed.config, parsed.warnings)
             syncCollector(parsed.config)
-            setupWebView()
+            if (keep) {
+                Log.i(TAG, "intent without changes; keeping renderer")
+            } else {
+                fatal = false
+                setupWebView()
+            }
             applyKiosk(parsed.config)
             applyShowWhenLocked(parsed.showWhenLocked)
             if (parsed.lockTask) attemptLockTask()
@@ -294,8 +313,28 @@ class MainActivity : Activity() {
                     WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
             }
         }
+        applyBackCallback(config.kiosk)
         if (config.kiosk) {
             Log.i(TAG, "kiosk enabled")
+        }
+    }
+
+    /**
+     * C-007 back handling on API 33+ (`enableOnBackInvokedCallback`): while
+     * kiosk is on, a default-priority callback consumes Back, so no predictive
+     * back animation reveals the launcher. Older releases use [onBackPressed].
+     */
+    private fun applyBackCallback(kiosk: Boolean) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
+        val dispatcher = onBackInvokedDispatcher
+        val registered = backCallback as OnBackInvokedCallback?
+        if (kiosk && registered == null) {
+            val callback = OnBackInvokedCallback { Log.i(TAG, "back ignored in kiosk") }
+            dispatcher.registerOnBackInvokedCallback(OnBackInvokedDispatcher.PRIORITY_DEFAULT, callback)
+            backCallback = callback
+        } else if (!kiosk && registered != null) {
+            dispatcher.unregisterOnBackInvokedCallback(registered)
+            backCallback = null
         }
     }
 
@@ -685,7 +724,8 @@ class MainActivity : Activity() {
                 "prometheus=${config.prometheusUrl?.let(::redactUrl) ?: "none"} " +
                 "kiosk=${config.kiosk} debug=${config.debug} display=${config.displayMode} " +
                 "layout=${config.layoutMode} lock_style=${config.lockStyle} " +
-                "dashboard_source=${config.dashboardSource} collector=${config.collector}",
+                "dashboard_source=${config.dashboardSource} collector=${config.collector} " +
+                "dashboards=${config.dashboardUrls.size} rotate_seconds=${config.rotateSeconds}",
         )
         if (config.collector) {
             Log.i(
@@ -754,13 +794,15 @@ class MainActivity : Activity() {
 
         /**
          * Renderer option choice (C-007): one of `time_range`, `refresh_seconds`,
-         * `layout_mode`, `lock_style`, `dashboard_source`, validated with the C-001 launch rules,
-         * persisted, and folded into the renderer URL so `reload()` keeps it.
+         * `layout_mode`, `lock_style`, `dashboard_source`, `dashboard_url`,
+         * `dashboard_urls`, `rotate_seconds`, validated with the C-001 launch
+         * rules (and the C-007 list rules), persisted, and folded into the
+         * renderer URL so `reload()` keeps it.
          */
         @JavascriptInterface
         fun setOption(name: String?, value: String?) {
             if ((name?.length ?: 0) > ConfigParser.MAX_OPTION_INPUT ||
-                (value?.length ?: 0) > ConfigParser.MAX_OPTION_INPUT
+                (value?.length ?: 0) > ConfigParser.maxOptionValue(name)
             ) {
                 Log.w(TAG, "setOption rejected: input too long")
                 return
@@ -786,25 +828,27 @@ class MainActivity : Activity() {
 
         /**
          * Store the dashboard JSON the renderer just fetched from [sourceUrl]
-         * (C-007, `dashboard_source=stored`). Accepted only for the current
-         * `dashboard_url`, never for a bundled `androdash.local` URL, and only
-         * for a JSON object of at most [DashboardStore.MAX_BYTES]. File IO runs
-         * on this bridge thread. Logs sizes, never contents or URLs.
+         * (C-007, `dashboard_source=stored`) in the slot of its position in
+         * `dashboard_urls`. Accepted only for a current `dashboard_urls` entry,
+         * never for a bundled `androdash.local` URL, and only for a JSON object
+         * of at most [DashboardStore.MAX_BYTES]. File IO runs on this bridge
+         * thread. Logs sizes and slots, never contents or URLs.
          */
         @JavascriptInterface
         fun storeDashboard(sourceUrl: String?, json: String?): Boolean {
             return try {
                 val current = config
-                if (fatal || current == null || !DashboardStore.acceptsSource(current, sourceUrl)) {
-                    Log.w(TAG, "storeDashboard rejected: not the current stored-mode dashboard")
+                val slot = current?.let { DashboardStore.slotFor(it, sourceUrl) }
+                if (fatal || slot == null) {
+                    Log.w(TAG, "storeDashboard rejected: not a current stored-mode dashboard")
                     return false
                 }
                 if (json == null || json.length > DashboardStore.MAX_BYTES) {
                     Log.w(TAG, "storeDashboard rejected: ${json?.length ?: 0} chars")
                     return false
                 }
-                val bytes = dashboardStore.write(sourceUrl!!, json)
-                Log.i(TAG, "dashboard stored ($bytes bytes)")
+                val bytes = dashboardStore.write(slot, sourceUrl!!, json)
+                Log.i(TAG, "dashboard stored (slot $slot, $bytes bytes)")
                 true
             } catch (error: IllegalArgumentException) {
                 Log.w(TAG, "storeDashboard rejected: ${sanitize(error.message.orEmpty(), 120)}")
@@ -815,12 +859,12 @@ class MainActivity : Activity() {
             }
         }
 
-        /** Forget the stored dashboard copy (C-007). Never throws to JS. */
+        /** Forget every stored dashboard copy (C-007). Never throws to JS. */
         @JavascriptInterface
         fun clearStoredDashboard() {
             try {
                 dashboardStore.clear()
-                Log.i(TAG, "stored dashboard cleared")
+                Log.i(TAG, "stored dashboards cleared")
             } catch (error: Exception) {
                 Log.w(TAG, "clearStoredDashboard failed: ${error.javaClass.simpleName}")
             }
@@ -846,7 +890,9 @@ class MainActivity : Activity() {
                 "option set time_range=${update.config.timeRange ?: "default"} " +
                     "refresh_seconds=${update.config.refreshSeconds ?: "default"} " +
                     "layout_mode=${update.config.layoutMode} lock_style=${update.config.lockStyle} " +
-                    "dashboard_source=${update.config.dashboardSource}",
+                    "dashboard_source=${update.config.dashboardSource} " +
+                    "dashboard=${update.config.dashboardUrls.indexOf(update.config.dashboardUrl) + 1}/" +
+                    "${update.config.dashboardUrls.size} rotate_seconds=${update.config.rotateSeconds}",
             )
         } catch (error: ConfigException) {
             Log.w(TAG, "setOption rejected: ${sanitize(error.message.orEmpty(), 120)}")

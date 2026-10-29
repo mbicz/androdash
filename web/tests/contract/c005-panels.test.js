@@ -215,13 +215,3 @@ test("C-005 empty series produce an empty state, not fabricated data", () => {
   const emptyTable = renderTable(panel("Table"), []);
   assert.equal(emptyTable.dataset.empty, "true");
 });
-
-test("C-005 fit tables show the rows their box holds and count the rest", () => {
-  const series = Array.from({ length: 13 }, (_, index) => ({
-    labels: { __name__: "up", collector: `c${String(index).padStart(2, "0")}` },
-    points: [{ t: 1, v: 1 }],
-  }));
-  const element = renderTable(panel("Table"), series, { fit: true, size: { width: 160, height: 90 } });
-  assert.equal(element.querySelectorAll("tbody tr").length, 4);
-  assert.equal(element.querySelector(".table-more").textContent, "+9 more");
-});

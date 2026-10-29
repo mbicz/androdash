@@ -10,33 +10,35 @@ import org.json.JSONObject
 import org.json.JSONTokener
 
 /**
- * The stored copy of a remote dashboard (C-001 `dashboard_source=stored`,
- * C-008). One fixed pair of files under `<filesDir>/dashboards/`; no caller
- * input ever becomes a path. The JSON is untrusted: it is only checked to be a
+ * Stored copies of remote dashboards (C-001 `dashboard_source=stored`, C-008).
+ * [SLOTS] fixed slots, one per position in `dashboard_urls`; slot `i` is the
+ * fixed pair `stored-<i>.json` + `stored-<i>.meta.json` under
+ * `<filesDir>/dashboards/`. The slot is a bounded integer, so no caller input
+ * ever becomes a path. The JSON is untrusted: it is only checked to be a
  * bounded JSON object and is served back verbatim to the renderer, which
  * normalizes it like any fetched dashboard (C-002).
  *
- * Write order keeps the pair consistent: the old meta is removed first, the
- * dashboard is renamed into place, and the meta is renamed in last. The
- * dashboard is only readable while its meta exists, so an interrupted write
- * reads as "nothing stored" and the renderer fetches again.
+ * Write order keeps each pair consistent: the old meta is removed first, the
+ * dashboard is renamed into place, and the meta is renamed in last. A dashboard
+ * is only readable while its meta exists, so an interrupted write reads as
+ * "nothing stored" and the renderer fetches again.
  */
 class DashboardStore(
     filesDir: File,
     private val clock: () -> Long = System::currentTimeMillis,
 ) {
     private val dir = File(filesDir, DIR_NAME)
-    private val dashboardFile = File(dir, DASHBOARD_FILE)
-    private val metaFile = File(dir, META_FILE)
 
     /**
-     * Store [json] as the dashboard fetched from [sourceUrl]. Throws
-     * [IllegalArgumentException] for input outside the contract (over
-     * [MAX_BYTES] UTF-8, not a single JSON object) and [IOException] when the
-     * files cannot be written. Returns the stored byte count.
+     * Store [json] in [slot] as the dashboard fetched from [sourceUrl]. Throws
+     * [IllegalArgumentException] for input outside the contract (slot outside
+     * `0 until SLOTS`, over [MAX_BYTES] UTF-8, not a single JSON object) and
+     * [IOException] when the files cannot be written. Returns the stored byte
+     * count.
      */
     @Synchronized
-    fun write(sourceUrl: String, json: String): Int {
+    fun write(slot: Int, sourceUrl: String, json: String): Int {
+        require(slot in 0 until SLOTS) { "slot must be 0 to ${SLOTS - 1}" }
         require(sourceUrl.isNotEmpty()) { "sourceUrl must not be empty" }
         // Every char is at least one UTF-8 byte: reject huge input before encoding it.
         require(json.length <= MAX_BYTES) { "dashboard exceeds $MAX_BYTES bytes" }
@@ -51,35 +53,54 @@ class DashboardStore(
             .toString()
             .toByteArray(Charsets.UTF_8)
 
+        val metaFile = metaFile(slot)
         if (!dir.isDirectory && !dir.mkdirs()) throw IOException("cannot create dashboard store")
         if (metaFile.exists() && !metaFile.delete()) throw IOException("cannot replace stored meta")
-        replace(dashboardFile, bytes)
+        replace(dashboardFile(slot), bytes)
         replace(metaFile, meta)
         return bytes.size
     }
 
-    /** The stored dashboard bytes, or null when nothing (complete) is stored. */
+    /** The dashboard bytes stored in [slot], or null when nothing (complete) is stored there. */
     @Synchronized
-    fun readDashboard(): ByteArray? {
-        if (!metaFile.isFile) return null
-        return readOrNull(dashboardFile)
+    fun readDashboard(slot: Int): ByteArray? {
+        if (slot !in 0 until SLOTS || !metaFile(slot).isFile) return null
+        return readOrNull(dashboardFile(slot))
     }
 
-    /** The `{"sourceUrl", "storedAt", "bytes"}` meta bytes, or null when nothing is stored. */
+    /** The `{"sourceUrl", "storedAt", "bytes"}` meta bytes of [slot], or null when nothing is stored there. */
     @Synchronized
-    fun readMeta(): ByteArray? {
-        if (!dashboardFile.isFile) return null
-        return readOrNull(metaFile)
+    fun readMeta(slot: Int): ByteArray? {
+        if (slot !in 0 until SLOTS || !dashboardFile(slot).isFile) return null
+        return readOrNull(metaFile(slot))
     }
 
+    /** Clear every slot. */
     @Synchronized
     fun clear() {
-        // Meta first: a dashboard without meta already reads as absent.
-        metaFile.delete()
-        dashboardFile.delete()
-        tempFile(metaFile).delete()
-        tempFile(dashboardFile).delete()
+        for (slot in 0 until SLOTS) {
+            // Meta first: a dashboard without meta already reads as absent.
+            val meta = metaFile(slot)
+            val dashboard = dashboardFile(slot)
+            meta.delete()
+            dashboard.delete()
+            tempFile(meta).delete()
+            tempFile(dashboard).delete()
+        }
     }
+
+    /** Delete the single-copy files of the pre-slot store (decision 0018). Call once at startup. */
+    @Synchronized
+    fun removeLegacy() {
+        LEGACY_FILES.forEach { name ->
+            File(dir, name).delete()
+            File(dir, "$name$TEMP_SUFFIX").delete()
+        }
+    }
+
+    private fun dashboardFile(slot: Int) = File(dir, "$FILE_PREFIX$slot.json")
+
+    private fun metaFile(slot: Int) = File(dir, "$FILE_PREFIX$slot.meta.json")
 
     private fun replace(target: File, bytes: ByteArray) {
         val temp = tempFile(target)
@@ -108,21 +129,26 @@ class DashboardStore(
     private fun tempFile(target: File) = File(dir, "${target.name}$TEMP_SUFFIX")
 
     companion object {
-        /** Upper bound on the stored dashboard, in UTF-8 bytes (C-007 `storeDashboard`). */
+        /** Upper bound on one stored dashboard, in UTF-8 bytes (C-007 `storeDashboard`). */
         const val MAX_BYTES = 5 * 1024 * 1024
+
+        /** One slot per possible `dashboard_urls` entry (C-001). */
+        const val SLOTS = ConfigParser.MAX_DASHBOARDS
         const val DIR_NAME = "dashboards"
-        const val DASHBOARD_FILE = "stored.json"
-        const val META_FILE = "stored.meta.json"
+        const val FILE_PREFIX = "stored-"
         private const val TEMP_SUFFIX = ".tmp"
+        private val LEGACY_FILES = listOf("stored.json", "stored.meta.json")
 
         /**
-         * C-007 `storeDashboard` gate: only the dashboard the shell was told to
-         * load, only in `stored` mode, and never a bundled virtual-origin URL.
+         * C-007 `storeDashboard` gate: the slot of [sourceUrl] in the current
+         * `dashboard_urls`, only in `stored` mode, and never for a bundled
+         * virtual-origin URL; null when the store is refused.
          */
-        fun acceptsSource(config: AppConfig, sourceUrl: String?): Boolean {
-            if (sourceUrl.isNullOrEmpty() || sourceUrl != config.dashboardUrl) return false
-            if (config.dashboardSource != "stored") return false
-            return !isVirtualOrigin(sourceUrl)
+        fun slotFor(config: AppConfig, sourceUrl: String?): Int? {
+            if (sourceUrl.isNullOrEmpty() || config.dashboardSource != "stored") return null
+            if (isVirtualOrigin(sourceUrl)) return null
+            val slot = config.dashboardUrls.indexOf(sourceUrl)
+            return if (slot in 0 until SLOTS) slot else null
         }
 
         fun isVirtualOrigin(url: String): Boolean = try {

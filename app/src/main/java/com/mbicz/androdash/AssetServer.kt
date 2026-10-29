@@ -9,10 +9,11 @@ import java.io.IOException
 import java.io.InputStream
 
 /**
- * Serves the trusted renderer, the bundled dashboards, and the stored
- * dashboard copy from the virtual origin. No file:// access and no directory
- * traversal: only the explicit routes in [route] are reachable, and the stored
- * copy lives under fixed file names in [DashboardStore].
+ * Serves the trusted renderer, the bundled dashboards (and their generated
+ * `dashboards/index.json`), and the stored dashboard slots from the virtual
+ * origin. No file:// access and no directory traversal: only the explicit
+ * routes in [route] are reachable, and the stored copies live under fixed file
+ * names in [DashboardStore].
  */
 class AssetServer(
     private val assets: AssetManager,
@@ -28,8 +29,8 @@ class AssetServer(
         return when (val route = route(uri.path.orEmpty())) {
             Route.BadPath -> textResponse(400, "Bad path")
             Route.NotFound -> textResponse(404, "Not found")
-            Route.StoredDashboard -> stored(store.readDashboard())
-            Route.StoredMeta -> stored(store.readMeta())
+            is Route.StoredDashboard -> stored(store.readDashboard(route.slot))
+            is Route.StoredMeta -> stored(store.readMeta(route.slot))
             is Route.Asset -> try {
                 ok(mimeType(route.path), assets.open(route.path, AssetManager.ACCESS_STREAMING))
             } catch (_: IOException) {
@@ -69,8 +70,8 @@ class AssetServer(
     sealed interface Route {
         data object BadPath : Route
         data object NotFound : Route
-        data object StoredDashboard : Route
-        data object StoredMeta : Route
+        data class StoredDashboard(val slot: Int) : Route
+        data class StoredMeta(val slot: Int) : Route
 
         /** A bundled asset, relative to the APK assets root. */
         data class Asset(val path: String) : Route
@@ -78,8 +79,8 @@ class AssetServer(
 
     companion object {
         const val HOST = ConfigParser.HOST
-        const val STORED_DASHBOARD_PATH = "/stored/dashboard.json"
-        const val STORED_META_PATH = "/stored/meta.json"
+        /** `/stored/<slot>/dashboard.json` and `/stored/<slot>/meta.json`, slot `0..7`. */
+        private val STORED = Regex("^/stored/([0-7])/(dashboard|meta)\\.json$")
         private val ALLOWED = Regex(
             "^(index\\.html|styles\\.css|src/[A-Za-z0-9_./-]+\\.js|dashboards/[A-Za-z0-9_.-]+\\.json)$",
         )
@@ -94,10 +95,16 @@ class AssetServer(
             if (path.contains("..") || path.contains('\\') || path.contains('%') || path.contains("//")) {
                 return Route.BadPath
             }
+            STORED.matchEntire(path)?.let { match ->
+                val slot = match.groupValues[1].toInt()
+                return if (match.groupValues[2] == "dashboard") {
+                    Route.StoredDashboard(slot)
+                } else {
+                    Route.StoredMeta(slot)
+                }
+            }
             return when (path) {
                 "", "/" -> Route.Asset("index.html")
-                STORED_DASHBOARD_PATH -> Route.StoredDashboard
-                STORED_META_PATH -> Route.StoredMeta
                 else -> {
                     val assetPath = path.removePrefix("/")
                     if (ALLOWED.matches(assetPath)) Route.Asset(assetPath) else Route.NotFound

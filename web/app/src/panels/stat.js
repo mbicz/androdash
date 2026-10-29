@@ -4,6 +4,8 @@ import { bestCellGrid } from "../fit.js";
 
 const TILE_GAP = 6;
 const TILE_ASPECT = 2.2;
+/** Smallest stat number in the fit layout before the panel scrolls instead. */
+const MIN_VALUE_PX = 18;
 
 /**
  * Fit layout: the tiles fill the panel box. Columns follow the box shape and
@@ -20,9 +22,18 @@ function fitTiles(grid, count, longest, box, single, reserved = 0) {
   const label = (single ? 0 : 15) + reserved;
   const byHeight = (cellH - label) * 0.78;
   const byWidth = (cellW - 14) / Math.max(3, longest * 0.58);
-  const size = Math.max(14, Math.min(single ? 56 : 44, byHeight, byWidth));
+  const fitted = Math.min(single ? 56 : 44, byHeight, byWidth);
   grid.style.gridTemplateColumns = `repeat(${layout.columns}, minmax(0, 1fr))`;
-  grid.style.gridTemplateRows = `repeat(${layout.rows}, minmax(0, 1fr))`;
+  if (fitted >= MIN_VALUE_PX || single) {
+    grid.style.gridTemplateRows = `repeat(${layout.rows}, minmax(0, 1fr))`;
+    grid.style.setProperty("--value-size", `${Math.max(MIN_VALUE_PX, fitted).toFixed(1)}px`);
+    return;
+  }
+  // Too many tiles for the box: keep a legible size and let the panel scroll
+  // (C-005 "Panel scrolling") rather than shrink numbers below the floor.
+  const size = Math.max(MIN_VALUE_PX, Math.min(byWidth, 24));
+  const tileHeight = Math.ceil(size / 0.78 + label + 4);
+  grid.style.gridTemplateRows = `repeat(${layout.rows}, ${tileHeight}px)`;
   grid.style.setProperty("--value-size", `${size.toFixed(1)}px`);
 }
 

@@ -12,16 +12,32 @@ plugins {
 }
 
 // Bundled dashboards: every contracts fixture named *-dashboard.json is served
-// at http://androdash.local/dashboards/<file> (C-001, AssetServer). The
-// generated directory is an extra assets root; preBuild runs the copy, so every
-// variant task (merge assets, lint, assemble) sees it.
+// at http://androdash.local/dashboards/<file> (C-001, AssetServer), listed in the
+// generated dashboards/index.json as {"dashboards":[{"file","title"}]} sorted by
+// file name, title = metadata.name. The generated directory is an extra assets
+// root; preBuild runs the copy, so every variant task (merge assets, lint,
+// assemble) sees it.
 val dashboardAssetsDir = layout.buildDirectory.dir("generated/dashboard-assets")
 val copyDashboardAssets = tasks.register<Copy>("copyDashboardAssets") {
-    from("$rootDir/contracts/fixtures") {
+    val fixturesDir = file("$rootDir/contracts/fixtures")
+    from(fixturesDir) {
         include("*-dashboard.json")
         into("dashboards")
     }
     into(dashboardAssetsDir)
+    doLast {
+        val dashboards = fixturesDir.listFiles { file -> file.name.endsWith("-dashboard.json") }
+            .orEmpty()
+            .sortedBy { it.name }
+            .map { file ->
+                val json = groovy.json.JsonSlurper().parse(file) as Map<*, *>
+                val title = (json["metadata"] as? Map<*, *>)?.get("name") as? String
+                    ?: throw GradleException("${file.name}: metadata.name is required for dashboards/index.json")
+                mapOf("file" to file.name, "title" to title)
+            }
+        val index = File((this as Copy).destinationDir, "dashboards/index.json")
+        index.writeText(groovy.json.JsonOutput.toJson(mapOf("dashboards" to dashboards)) + "\n")
+    }
 }
 tasks.named("preBuild") { dependsOn(copyDashboardAssets) }
 

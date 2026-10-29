@@ -107,3 +107,23 @@ test("C-001 canonical query round-trips", () => {
   const round = parseConfig(buildQuery(config)).config;
   assert.deepEqual(round, config);
 });
+
+test("C-001 dashboard_urls lists dashboards; dashboard_url is the one shown", () => {
+  const a = "http://androdash.local/dashboards/a-dashboard.json";
+  const b = "http://androdash.local/dashboards/b-dashboard.json";
+  const listOnly = parseConfig(`?dashboard_urls=${encodeURIComponent(`${a},${b},${a}`)}`).config;
+  assert.equal(listOnly.dashboardUrl, a);
+  assert.deepEqual(listOnly.dashboardUrls, [a, b]);
+  const current = parseConfig(`?dashboard_url=${encodeURIComponent(b)}&dashboard_urls=${encodeURIComponent(a)}`).config;
+  assert.deepEqual(current.dashboardUrls, [b, a]);
+  assert.equal(current.dashboardUrl, b);
+  const single = parseConfig(base).config;
+  assert.deepEqual(single.dashboardUrls, [single.dashboardUrl]);
+  assert.equal(single.rotateSeconds, 0);
+  const nine = Array.from({ length: 9 }, (_, i) => `http://h/${i}.json`).join(",");
+  assert.throws(() => parseConfig(`?dashboard_urls=${encodeURIComponent(nine)}`), ConfigError);
+  assert.equal(parseConfig(`${base}&rotate_seconds=60`).config.rotateSeconds, 60);
+  assert.throws(() => parseConfig(`${base}&rotate_seconds=5`), ConfigError);
+  const round = parseConfig(buildQuery(current)).config;
+  assert.deepEqual(round.dashboardUrls, current.dashboardUrls);
+});

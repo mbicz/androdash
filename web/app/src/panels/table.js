@@ -20,9 +20,6 @@ function compactLabel(labels, { includeName }) {
   return `${name}${body ? `{${body}}` : ""}`;
 }
 
-/** Fit-mode row height (C-005 "Fit layout"). */
-export const FIT_ROW_HEIGHT = 18;
-
 /**
  * When every row is identified by the same single label (e.g. `collector`),
  * that key becomes the column heading and cells show only its value.
@@ -37,7 +34,7 @@ function sharedKey(rows) {
   return key;
 }
 
-export function renderTable(panel, series, { warn = null, size = null, fit = false } = {}) {
+export function renderTable(panel, series, { warn = null } = {}) {
   const wrapper = document.createElement("div");
   wrapper.className = "table-wrap";
   const format = panel.panelSpec?.format || {};
@@ -67,16 +64,6 @@ export function renderTable(panel, series, { warn = null, size = null, fit = fal
   const names = new Set(rows.map((row) => row.labels.__name__ || ""));
   const includeName = names.size > 1;
   const key = includeName ? null : sharedKey(rows);
-
-  // Fit layout: show the rows the box holds and say how many are not shown.
-  let hidden = 0;
-  if (fit && size?.height > 0) {
-    const capacity = Math.max(1, Math.floor(size.height / FIT_ROW_HEIGHT));
-    if (rows.length > capacity) {
-      hidden = rows.length - (capacity - 1);
-      rows = rows.slice(0, Math.max(1, capacity - 1));
-    }
-  }
 
   const table = document.createElement("table");
   table.className = "data-table";
@@ -108,11 +95,6 @@ export function renderTable(panel, series, { warn = null, size = null, fit = fal
   }
   table.append(thead, tbody);
   wrapper.append(table);
-  if (hidden > 0) {
-    const more = document.createElement("div");
-    more.className = "table-more";
-    more.textContent = `+${hidden} more`;
-    wrapper.append(more);
-  }
+
   return wrapper;
 }
