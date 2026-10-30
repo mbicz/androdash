@@ -16,8 +16,9 @@ If you are new, read [`AGENTS.md`](../AGENTS.md) first.
 | Doing renderer work (W2) | C-001–C-006, C-009 → [`architecture/renderer.md`](architecture/renderer.md) → [`web/AGENTS.md`](../web/AGENTS.md) |
 | Doing demo/tooling work (W3) | C-003 → [`architecture/testing.md`](architecture/testing.md) → [`tools/AGENTS.md`](../tools/AGENTS.md) |
 | Changing contracts/docs (W4) | [`contracts/README.md`](contracts/README.md) → [`changelog.d/README.md`](../changelog.d/README.md) → [`docs/AGENTS.md`](AGENTS.md) |
+| Setting up a phone | [`getting-started.md`](getting-started.md) |
 | Trying to run the demo | [`development.md`](development.md) → [`roadmap.md`](roadmap.md) (current milestone) |
-| Looking for why | [`changelog.d/`](../changelog.d/) |
+| Looking for why | [decision index](../changelog.d/README.md#decision-index) |
 
 ## Architecture
 
@@ -51,6 +52,7 @@ The index is [`contracts/README.md`](contracts/README.md).
 
 | Document | What it answers |
 |---|---|
+| [`getting-started.md`](getting-started.md) | How do I build, install, and configure the app on a phone? |
 | [`development.md`](development.md) | How do I set up, run, test, and debug? What commands are real today? |
 | [`roadmap.md`](roadmap.md) | What is the current milestone? What is next? What are the workstreams? |
 | [`glossary.md`](glossary.md) | What do Perses/Prometheus/Android terms mean here? |

@@ -44,11 +44,11 @@ on-phone collector (decision 0019):
 adb shell am start -n com.mbicz.androdash/.MainActivity \
   --es dashboard_url "http://androdash.local/dashboards/agenticmac-dashboard.json" \
   --ez collector true \
-  --es collector_targets "node:mac=192.168.192.16:9100,agenticmac:mac=192.168.192.16:9106" \
+  --es collector_targets "node:mac=192.168.1.20:9100,agenticmac:mac=192.168.1.20:9106" \
   --es layout_mode fit
 ```
 
-Over Tailscale, replace `192.168.192.16` with the Mac's tailnet address
+Over Tailscale, replace `192.168.1.20` with the Mac's tailnet address
 (`tailscale ip -4`) or MagicDNS name; the phone must be on the same tailnet.
 
 Counters start when the phone first scrapes them, so rates and spend fill in
@@ -70,5 +70,5 @@ exporter supports basic auth if the collector gains it later.
 ```sh
 python3 tools/gen_agenticmac_dashboard.py
 mise exec -- node --test web/tests/        # C-004 agenticmac eligibility
-curl -s http://192.168.192.16:9106/metrics | grep -c '^agent_'
+curl -s http://192.168.1.20:9106/metrics | grep -c '^agent_'
 ```

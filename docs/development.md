@@ -249,7 +249,7 @@ use the Mac's tailnet address (`tailscale ip -4`) as the target host:
 adb shell am start -n com.mbicz.androdash/.MainActivity \
   --es dashboard_url "http://androdash.local/dashboards/macos-node-dashboard.json" \
   --ez collector true \
-  --es collector_targets "node:mac=192.168.192.16:9100" \
+  --es collector_targets "node:mac=192.168.1.20:9100" \
   --es layout_mode fit
 ```
 

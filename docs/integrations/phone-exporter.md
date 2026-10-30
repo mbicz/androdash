@@ -106,6 +106,6 @@ the Mac is reachable. Its datasource is the collector on `127.0.0.1:19090`.
 adb shell am start -n com.mbicz.androdash/.MainActivity \
   --es dashboard_urls "http://androdash.local/dashboards/phone-dashboard.json,http://androdash.local/dashboards/agenticmac-dashboard.json,http://androdash.local/dashboards/macos-node-dashboard.json" \
   --ez collector true \
-  --es collector_targets "node:mac=192.168.192.16:9100,agenticmac:mac=192.168.192.16:9106" \
+  --es collector_targets "node:mac=192.168.1.20:9100,agenticmac:mac=192.168.1.20:9106" \
   --es layout_mode fit
 ```
