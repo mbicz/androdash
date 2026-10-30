@@ -24,10 +24,11 @@ phone itself.
   plain ES modules, with no build step and no runtime dependencies.
 - Layouts: `fit` puts every panel on one screen; `grid` and `stack` scroll.
   Panels scroll internally, and a double tap zooms a panel to full screen.
-- Up to 8 dashboards. Swipe between them or rotate on a timer.
+- Up to 8 dashboards. Swipe between them or rotate on a timer. Add any
+  dashboard by URL, or paste dashboard JSON, from the app's settings sheet.
 - Optional on-phone collector: the APK bundles the upstream Prometheus binary
   (SHA-256 pinned). It runs as a foreground service on `127.0.0.1:19090` and
-  scrapes your exporters.
+  scrapes your exporters, which you add from the settings sheet.
 - Built-in phone exporter: battery, thermal, memory, storage, network, Wi-Fi,
   CPU clocks, and the app's own CPU and memory.
 - Kiosk mode, `amoled` and `monochrome` palettes, and an optional dimmed view
@@ -100,7 +101,8 @@ Served at `http://androdash.local/dashboards/<file>`:
 | `demo-dashboard.json` | Mock Prometheus; covers every supported and unsupported panel kind |
 
 Any Perses dashboard JSON reachable over HTTP(S) also works, provided it stays
-within the [supported subset](docs/contracts/C-005-panel-rendering.md#supported-panels).
+within the [supported subset](docs/contracts/C-005-panel-rendering.md#supported-panels);
+add it from the settings sheet. Pasted JSON is stored on the phone.
 
 ## Documentation
 

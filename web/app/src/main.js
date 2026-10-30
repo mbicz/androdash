@@ -1,10 +1,14 @@
 import { ConfigError, parseConfig } from "./config.js";
 import {
   bundledDashboards,
+  fetchDashboardDocument,
   loadDashboard,
+  localDashboardKind,
+  normalizeFrom,
   shellDashboardStore,
   updateStoredDashboard,
 } from "./dashboard/load.js";
+import { MAX_TARGETS, formatTarget, parseTarget, targetKey } from "./collector-targets.js";
 import {
   DashboardError,
   collectPrometheusBaseUrls,
@@ -655,6 +659,7 @@ function dashboardStore() {
 }
 
 function dashboardLabel(url) {
+  if (localDashboardKind(url) === "inline") return "Pasted dashboard";
   try {
     const name = new URL(url).pathname.split("/").pop() || url;
     return name.replace(/\.json$/i, "").replace(/-dashboard$/i, "").replace(/[-_]+/g, " ");
@@ -762,7 +767,7 @@ function installGestures() {
       const target = origin.target instanceof Element ? origin.target : null;
       if (lastTap && t - lastTap.t < 320 && Math.hypot(x - lastTap.x, y - lastTap.y) < 32) {
         lastTap = null;
-        if (!target?.closest("button, input, select, .app-header")) toggleZoom(target);
+        if (!target?.closest("button, input, select, textarea, .app-header")) toggleZoom(target);
       } else {
         lastTap = { x, y, t };
       }
@@ -772,7 +777,7 @@ function installGestures() {
     if (state.zoomedPanel || (state.config?.dashboardUrls.length ?? 0) < 2) return;
     if (Math.abs(dx) < 56 || Math.abs(dx) < Math.abs(dy) * 1.8 || t - origin.t > 700) return;
     const target = origin.target instanceof Element ? origin.target : null;
-    if (target?.closest(".sheet-overlay, .debug-overlay, input, select")) return;
+    if (target?.closest(".sheet-overlay, .debug-overlay, input, select, textarea")) return;
     if (state.mode !== "fit" && !state.fatal && !target?.closest(".app-header")) return;
     if (target && canScroll(target, "x", dx)) return;
     stepDashboard(dx < 0 ? 1 : -1);
@@ -815,7 +820,7 @@ function installGestures() {
     { passive: true },
   );
   document.addEventListener("keydown", (event) => {
-    if (state.sheet || state.debugOverlay) return;
+    if (state.sheet || state.debugOverlay || isTextField(event.target)) return;
     if (event.key === "Escape" && state.zoomedPanel) setZoom(null);
     if (state.zoomedPanel) return;
     if (event.key === "ArrowRight") stepDashboard(1);
@@ -823,10 +828,20 @@ function installGestures() {
   });
 }
 
+/** Typing in a field never pages dashboards or toggles zoom. */
+function isTextField(target) {
+  return target instanceof Element && Boolean(target.closest("input, textarea, select, [contenteditable]"));
+}
+
+/** Most dashboards in `dashboard_urls` (C-001). */
+const MAX_DASHBOARDS = 8;
+/** Largest pasted dashboard, in characters (C-007 `addInlineDashboard`). */
+const MAX_INLINE_CHARS = 5 * 1024 * 1024;
+
 /**
- * Dashboards to page through: the configured list, plus dashboards built into
- * the app that can be added. Adding or removing persists `dashboard_urls`
- * (C-007 `setOption`), which only ever accepts built-in or already listed URLs.
+ * Dashboards to page through: the configured list, dashboards built into the
+ * app, any http(s) dashboard URL, and (in the shell) pasted dashboard JSON.
+ * Adding or removing persists `dashboard_urls` (C-007 `setOption`).
  */
 async function dashboardsGroup() {
   const wrap = document.createElement("div");
@@ -834,9 +849,13 @@ async function dashboardsGroup() {
   const list = document.createElement("ul");
   list.className = "dashboard-list";
   const urls = state.config.dashboardUrls;
-  const bundled = await bundledDashboards();
+  const [bundled, inlineTitles] = await Promise.all([bundledDashboards(), pastedTitles(urls)]);
   const titleOf = (url) =>
-    state.titles.get(url) || bundled.find((item) => item.url === url)?.title || dashboardLabel(url);
+    state.titles.get(url) ||
+    inlineTitles.get(url) ||
+    bundled.find((item) => item.url === url)?.title ||
+    dashboardLabel(url);
+  const listError = sheetError();
   for (const url of urls) {
     const item = document.createElement("li");
     item.className = "dashboard-item";
@@ -851,16 +870,20 @@ async function dashboardsGroup() {
       const remove = document.createElement("button");
       remove.type = "button";
       remove.className = "dashboard-remove";
-      remove.setAttribute("aria-label", `Remove ${titleOf(url)}`);
+      remove.setAttribute("aria-label", `Remove ${safeText(titleOf(url), 80)}`);
       remove.textContent = "Remove";
-      remove.addEventListener("click", () => setDashboardList(urls.filter((other) => other !== url)));
+      remove.addEventListener("click", () =>
+        setError(listError, setDashboardList(urls.filter((other) => other !== url))),
+      );
       item.append(remove);
     }
     list.append(item);
   }
-  wrap.append(list);
+  wrap.append(list, listError);
+
+  const full = urls.length >= MAX_DASHBOARDS;
   const addable = bundled.filter((item) => !urls.includes(item.url));
-  if (addable.length > 0 && urls.length < 8) {
+  if (addable.length > 0 && !full) {
     const add = document.createElement("div");
     add.className = "dashboard-add";
     for (const item of addable) {
@@ -868,11 +891,58 @@ async function dashboardsGroup() {
       button.type = "button";
       button.className = "sheet-action";
       button.textContent = `+ ${safeText(item.title, 60)}`;
-      button.addEventListener("click", () => setDashboardList([...urls, item.url]));
+      button.addEventListener("click", () => setError(listError, setDashboardList([...urls, item.url])));
       add.append(button);
     }
     wrap.append(add);
   }
+
+  const urlInput = sheetInput({
+    label: "Dashboard URL",
+    placeholder: "https://host/dashboard.json",
+    type: "url",
+    inputMode: "url",
+  });
+  const urlError = sheetError();
+  wrap.append(
+    sheetForm("sheet-form", [urlInput], "Add", async () => {
+      setError(urlError, "");
+      setError(urlError, await addDashboardUrl(urlInput.value, urls));
+    }),
+    urlError,
+  );
+
+  const controls = [urlInput];
+  if (typeof bridge()?.addInlineDashboard === "function") {
+    const textarea = document.createElement("textarea");
+    configureField(textarea, { label: "Dashboard JSON", placeholder: "Paste dashboard JSON" });
+    textarea.rows = 4;
+    const pasteError = sheetError();
+    const form = sheetForm("sheet-form sheet-form-stack", [textarea], "Add", async () => {
+      setError(pasteError, "");
+      setError(pasteError, addPastedDashboard(textarea.value, urls));
+    });
+    // Enter types a newline in pasted JSON; Ctrl/Cmd+Enter adds it.
+    textarea.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+        event.preventDefault();
+        form.requestSubmit();
+      }
+    });
+    wrap.append(form, pasteError);
+    controls.push(textarea);
+  }
+  if (full) {
+    for (const control of controls) {
+      control.disabled = true;
+      control.form?.querySelector("button[type=submit]")?.setAttribute("disabled", "");
+    }
+    const note = document.createElement("p");
+    note.className = "sheet-note";
+    note.textContent = `${MAX_DASHBOARDS} dashboards is the most; remove one to add another`;
+    wrap.append(note);
+  }
+
   if (urls.length > 1) {
     wrap.append(
       segmented(
@@ -896,15 +966,166 @@ async function dashboardsGroup() {
   return settingsGroup(urls.length > 1 ? "Dashboards · swipe to switch" : "Dashboards", wrap);
 }
 
+/** Titles of pasted dashboards in `urls`, read from the shell (they are local). */
+async function pastedTitles(urls) {
+  const titles = new Map();
+  const pasted = urls.filter((url) => localDashboardKind(url) === "inline" && !state.titles.has(url));
+  await Promise.all(
+    pasted.map(async (url) => {
+      try {
+        const { data } = await fetchJson(url, { timeoutMs: 3000, maxBytes: MAX_INLINE_CHARS });
+        const title = data?.spec?.display?.name || data?.metadata?.name;
+        if (typeof title === "string" && title.trim()) titles.set(url, title.trim());
+      } catch {
+        // The list falls back to a generic label.
+      }
+    }),
+  );
+  return titles;
+}
+
+/**
+ * Add a dashboard by URL after checking it loads and normalizes (C-002).
+ * Returns "" on success, otherwise a short reason for the sheet.
+ */
+async function addDashboardUrl(raw, urls) {
+  const text = String(raw ?? "").trim();
+  if (!text) return "Enter a dashboard URL";
+  let parsed;
+  try {
+    parsed = new URL(text);
+  } catch {
+    return "Enter a full http:// or https:// URL";
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return "The URL must use http or https";
+  if (parsed.username || parsed.password) return "The URL must not contain a user name or password";
+  if (text.includes(",")) return "Write a comma in the URL as %2C";
+  if (text.length > 2048) return "The URL is too long";
+  if (urls.includes(text)) return "This dashboard is already in the list";
+  let dashboard;
+  try {
+    const { data, url } = await fetchDashboardDocument(text, { onRequest: recordRequest });
+    dashboard = normalizeFrom(data, url, state.config);
+  } catch (error) {
+    return safeText(error?.message || "The dashboard could not be loaded", 120);
+  }
+  const message = setDashboardList([...urls, text]);
+  if (!message) state.titles.set(text, dashboard.title);
+  return message;
+}
+
+/**
+ * Store pasted dashboard JSON in the shell (C-007 `addInlineDashboard`) after
+ * checking it normalizes, then add its local URL. Returns "" on success.
+ */
+function addPastedDashboard(raw, urls) {
+  const text = String(raw ?? "").trim();
+  if (!text) return "Paste a dashboard JSON document";
+  if (text.length > MAX_INLINE_CHARS) return "The dashboard is larger than 5 MiB";
+  let data;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    return "This is not valid JSON";
+  }
+  if (!data || typeof data !== "object" || Array.isArray(data)) return "Paste a single dashboard object";
+  let dashboard;
+  try {
+    dashboard = normalizeFrom(data, `http://androdash.local/inline/pasted.json`, state.config);
+  } catch (error) {
+    return safeText(error?.message || "This is not a usable dashboard", 120);
+  }
+  let url = "";
+  try {
+    url = bridge()?.addInlineDashboard?.(text);
+  } catch {
+    url = "";
+  }
+  if (typeof url !== "string" || localDashboardKind(url) !== "inline") {
+    return "The dashboard could not be saved on this phone";
+  }
+  if (urls.includes(url)) return "This dashboard is already in the list";
+  const message = setDashboardList([...urls, url]);
+  if (!message) state.titles.set(url, dashboard.title);
+  return message;
+}
+
+/**
+ * Replace `dashboard_urls`, keeping the current dashboard when it stays
+ * listed. Returns "" when applied, otherwise the shell's reason.
+ */
 function setDashboardList(urls) {
-  if (urls.length === 0 || urls.length > 8) return;
+  if (urls.length === 0 || urls.length > MAX_DASHBOARDS) {
+    return `A dashboard list holds 1–${MAX_DASHBOARDS} dashboards`;
+  }
   const current = urls.includes(state.config.dashboardUrl) ? state.config.dashboardUrl : urls[0];
+  // Switch first: `current` is in the old list, and the new list contains it,
+  // so the shell accepts both updates in this order (C-007 `setOption`).
+  if (current !== state.config.dashboardUrl) {
+    const message = persistOption("dashboard_url", current);
+    if (message) return safeText(message, 120);
+  }
+  const message = persistOption("dashboard_urls", urls.join(","));
+  if (message) return safeText(message, 120);
   state.config = { ...state.config, dashboardUrls: Object.freeze([...urls]), dashboardUrl: current };
-  persistOption("dashboard_urls", urls.join(","));
-  persistOption("dashboard_url", current);
   closeSettings();
   scheduleRotation();
   reloadDashboard();
+  return "";
+}
+
+function configureField(field, { label, placeholder = "", inputMode = null }) {
+  field.className = "sheet-input";
+  field.setAttribute("aria-label", label);
+  field.placeholder = placeholder;
+  field.autocomplete = "off";
+  field.setAttribute("autocapitalize", "off");
+  field.setAttribute("autocorrect", "off");
+  field.spellcheck = false;
+  if (inputMode) field.setAttribute("inputmode", inputMode);
+  return field;
+}
+
+function sheetInput({ label, placeholder = "", type = "text", inputMode = null }) {
+  const input = document.createElement("input");
+  input.type = type;
+  return configureField(input, { label, placeholder, inputMode });
+}
+
+/** A form whose submit button (and the keyboard's Enter) runs `onSubmit` once at a time. */
+function sheetForm(className, fields, label, onSubmit) {
+  const form = document.createElement("form");
+  form.className = className;
+  form.noValidate = true;
+  const submit = document.createElement("button");
+  submit.type = "submit";
+  submit.className = "sheet-action";
+  submit.textContent = label;
+  form.append(...fields, submit);
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (submit.disabled) return;
+    submit.disabled = true;
+    try {
+      await onSubmit();
+    } finally {
+      submit.disabled = false;
+    }
+  });
+  return form;
+}
+
+function sheetError() {
+  const error = document.createElement("p");
+  error.className = "sheet-error";
+  error.setAttribute("role", "alert");
+  error.hidden = true;
+  return error;
+}
+
+function setError(element, message) {
+  element.textContent = message ? safeText(message, 160) : "";
+  element.hidden = !message;
 }
 
 /** A segmented control: one choice of several, applied on tap. */
@@ -1029,7 +1250,7 @@ async function openSettings() {
   sheet.append(await dashboardsGroup());
   if (dashboardStore()) sheet.append(dashboardGroup());
   const collector = collectorStatus();
-  if (collector?.enabled) sheet.append(collectorGroup(collector));
+  if (collector) sheet.append(collectorGroup(collector));
   if (lockSupport()) {
     sheet.append(
       settingsGroup(
@@ -1060,13 +1281,13 @@ async function openSettings() {
  * on every load. "Update" re-fetches the URL into the store.
  */
 function dashboardGroup() {
-  const bundled = state.dashboard?.source?.kind === "bundled";
+  const kind = state.dashboard?.source?.kind;
   const wrap = document.createElement("div");
   wrap.className = "sheet-stack";
-  if (bundled) {
+  if (kind === "bundled" || kind === "inline") {
     const note = document.createElement("p");
     note.className = "sheet-note";
-    note.textContent = "Built into the app";
+    note.textContent = kind === "bundled" ? "Built into the app" : "Pasted on this phone";
     wrap.append(note);
     return settingsGroup("Dashboard", wrap);
   }
@@ -1129,24 +1350,69 @@ function collectorStatus() {
   }
 }
 
+/** The phone's own exporter job, which `collector_phone` controls (C-008). */
+function isPhoneTarget(target) {
+  return target.job === "phone" && target.instance === "phone";
+}
+
 /**
- * Read-only collector status: whether the on-phone Prometheus runs and, per
- * scrape target, whether its last scrape succeeded (`up`).
+ * The on-phone Prometheus (C-007 `collectorStatus`, `setOption`): on/off,
+ * scrape targets with whether their last scrape succeeded (`up`), and adding
+ * or removing user targets (`collector_targets`). The shell restarts the
+ * collector, and reloads the page when the data source changes.
  */
 function collectorGroup(status) {
   const wrap = document.createElement("div");
   wrap.className = "sheet-stack";
-  const summary = document.createElement("p");
-  summary.className = "sheet-note";
-  const restarts = Number(status.restarts) || 0;
-  summary.textContent = status.running
-    ? `Running on this phone${restarts > 0 ? ` · restarted ${restarts}×` : ""}`
-    : `Not running${status.lastExit ? ` · ${safeText(status.lastExit, 80)}` : ""}`;
-  wrap.append(summary);
+  const error = sheetError();
+  const enabled = status.enabled === true;
+  const apply = (name, value, toast) => {
+    const message = persistOption(name, value);
+    if (message !== "") {
+      setError(error, message ?? "This app cannot change the collector");
+      return false;
+    }
+    closeSettings();
+    showToast(toast);
+    return true;
+  };
+  wrap.append(
+    segmented(
+      "Collector",
+      [
+        { value: true, label: "On" },
+        { value: false, label: "Off" },
+      ],
+      enabled,
+      (on) => on === enabled || apply("collector", String(on), on ? "Collector on" : "Collector off"),
+    ),
+  );
+  if (enabled) {
+    const summary = document.createElement("p");
+    summary.className = "sheet-note";
+    const restarts = Number(status.restarts) || 0;
+    summary.textContent = status.running
+      ? `Running on this phone${restarts > 0 ? ` · restarted ${restarts}×` : ""}`
+      : `Not running${status.lastExit ? ` · ${safeText(status.lastExit, 80)}` : ""}`;
+    wrap.append(summary);
+  }
+
+  const targets = (Array.isArray(status.targets) ? status.targets : [])
+    .filter(
+      (target) =>
+        typeof target?.job === "string" &&
+        typeof target.instance === "string" &&
+        typeof target.address === "string",
+    )
+    .slice(0, MAX_TARGETS + 1);
+  const userTargets = targets.filter((target) => !isPhoneTarget(target));
+  const saveTargets = (next) =>
+    apply("collector_targets", next.map(formatTarget).join(","), "Collector updated");
+
   const list = document.createElement("ul");
   list.className = "target-list";
   const rows = new Map();
-  for (const target of Array.isArray(status.targets) ? status.targets.slice(0, 32) : []) {
+  for (const target of targets) {
     const item = document.createElement("li");
     item.className = "target";
     item.dataset.up = "unknown";
@@ -1160,15 +1426,50 @@ function collectorGroup(status) {
     address.className = "target-address";
     address.textContent = safeText(target.address, 80);
     item.append(dot, name, address);
+    if (!isPhoneTarget(target)) {
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "dashboard-remove";
+      remove.setAttribute("aria-label", `Remove ${safeText(target.instance, 64)}`);
+      remove.textContent = "Remove";
+      remove.addEventListener("click", () => saveTargets(userTargets.filter((other) => other !== target)));
+      item.classList.add("target-editable");
+      item.append(remove);
+    }
     list.append(item);
-    rows.set(`${target.job}\u0000${target.instance}`, item);
+    rows.set(targetKey(target), item);
   }
-  wrap.append(list);
+  if (targets.length > 0) wrap.append(list);
+
+  const addressInput = sheetInput({ label: "Target address", placeholder: "host:port", inputMode: "url" });
+  addressInput.classList.add("target-form-address");
+  const jobInput = sheetInput({ label: "Job", placeholder: "node" });
+  const nameInput = sheetInput({ label: "Name", placeholder: "Name" });
+  const form = sheetForm("target-form", [addressInput, jobInput, nameInput], "Add", () => {
+    setError(error, "");
+    let target;
+    try {
+      target = parseTarget(targetEntry(addressInput.value, jobInput.value, nameInput.value));
+    } catch (problem) {
+      setError(error, problem.message);
+      return;
+    }
+    if (targets.some((other) => targetKey(other) === targetKey(target))) {
+      setError(error, `${target.job} · ${target.instance} is already listed`);
+      return;
+    }
+    saveTargets([...userTargets, target]);
+  });
+  if (userTargets.length >= MAX_TARGETS) {
+    for (const field of form.elements) field.disabled = true;
+  }
+  wrap.append(form, error);
+
   if (status.running && typeof status.url === "string") {
     queryInstant(status.url, "up", { timeMs: Date.now(), onRequest: recordRequest, maxSeries: 64 })
       .then((result) => {
         for (const series of result.series) {
-          const row = rows.get(`${series.labels.job}\u0000${series.labels.instance}`);
+          const row = rows.get(targetKey(series.labels));
           const value = series.points.at(-1)?.v;
           if (row) row.dataset.up = value === 1 ? "up" : "down";
         }
@@ -1178,6 +1479,21 @@ function collectorGroup(status) {
       });
   }
   return settingsGroup("Collector", wrap);
+}
+
+/**
+ * The `collector_targets` entry for the add form: just the address for the
+ * default job, otherwise `job:name=address` (a non-default job needs a name,
+ * since an address is not a valid instance label there).
+ */
+function targetEntry(address, job, name) {
+  const host = address.trim();
+  const jobName = job.trim();
+  const instance = name.trim();
+  if (!host) throw new Error("Enter the exporter's host:port");
+  if (!instance && (!jobName || jobName === "node")) return host;
+  if (!instance) throw new Error(`Enter a name for job ${safeText(jobName, 64)}`);
+  return `${jobName || "node"}:${instance}=${host}`;
 }
 
 function setDashboardSource(source) {
@@ -1200,12 +1516,19 @@ function closeSettings() {
   document.removeEventListener("keydown", settingsKeydown);
 }
 
-/** Ask the shell to persist one launch option (C-007 `setOption`). */
+/**
+ * Ask the shell to persist one launch option (C-007 `setOption`). Returns ""
+ * when accepted, the shell's reason when rejected, or null without a shell
+ * (the choice then applies for this session only).
+ */
 function persistOption(name, value) {
+  const shell = bridge();
+  if (typeof shell?.setOption !== "function") return null;
   try {
-    bridge()?.setOption?.(name, String(value));
+    const result = shell.setOption(name, String(value));
+    return typeof result === "string" ? safeText(result, 120) : "";
   } catch {
-    // The browser has no shell; the choice still applies for this session.
+    return "The app could not save this setting";
   }
 }
 

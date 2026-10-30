@@ -177,10 +177,15 @@ before it existed) decodes as `monochrome`; one without `dashboardUrls` /
 `rotateSeconds` decodes as `[dashboardUrl]` / `0`. The renderer's
 `AndroDash.setOption(name, value)` (`time_range`, `refresh_seconds`,
 `layout_mode`, `lock_style`, `dashboard_source`, `dashboard_url`,
-`dashboard_urls`, `rotate_seconds`) is validated with the same rules as the
-launch extra, saved into this config, and folded into the renderer URL
-(C-007). `dashboard_url` must be in the current list, and `dashboard_urls` may
-only add bundled `androdash.local/dashboards/` URLs, never a remote one. Do not
+`dashboard_urls`, `rotate_seconds`, `collector`, `collector_targets`) is
+validated on the bridge thread with the same rules as the launch extra, and
+returns `""` or the reason it was refused. An accepted value is saved into
+this config on the UI thread and folded into the renderer URL (C-007).
+`dashboard_url` must be in the current list. A collector change re-syncs
+`CollectorService`, and a changed renderer Prometheus URL (collector on/off)
+reloads the WebView. Pasted dashboards are kept by `InlineDashboards` in
+`<filesDir>/inline/<sha256-prefix>.json` and pruned when they leave
+`dashboard_urls` (decision 0023). Do not
 persist secrets if auth is added later; record the storage decision first.
 
 ### New intents
@@ -268,7 +273,8 @@ C-008 is normative. The shell applies at least:
 The bridge (`window.AndroDash`) is added only for the virtual app origin and
 exposes only the methods in C-007/C-008 (`platform`, `appVersion`, `reload`,
 `exitKiosk`, `log`, `setOption`, `lockScreenEnabled`, `setLockScreen`,
-`storeDashboard`, `clearStoredDashboard`). Keep
+`storeDashboard`, `clearStoredDashboard`, `addInlineDashboard`,
+`collectorStatus`). Keep
 `@JavascriptInterface` methods small, synchronous, and incapable of arbitrary
 file/network/Intent access.
 
@@ -281,7 +287,8 @@ file/network/Intent access.
 - Routes (pure `AssetServer.route`, unit-tested): `/index.html`, `/styles.css`,
   `/src/**.js`, `/dashboards/<[A-Za-z0-9_.-]+>.json` (including the generated
   `index.json`) from assets, and `/stored/<0-7>/dashboard.json` and
-  `/stored/<0-7>/meta.json` from `DashboardStore` (404 when the slot is empty).
+  `/stored/<0-7>/meta.json` from `DashboardStore` (404 when the slot is empty),
+  and `/inline/<16 hex>.json` from `InlineDashboards` (404 when absent).
   Everything else is 404; `..`, `\`, `%`, `//` → 400.
 - Normalize the URL path, decode once, reject `..`/backslashes/absolute paths;
   never serve outside the asset root.

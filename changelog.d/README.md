@@ -36,6 +36,7 @@ shape; older ones remain binding unless marked superseded.
 | [0020](0020-multiple-dashboards-and-panel-scrolling.md) | Multiple dashboards, panel scrolling, and gestures that never leave the app | accepted |
 | [0021](0021-phone-exporter-zoom-and-stable-header.md) | Phone exporter in the app, panel zoom, and a stable header | accepted |
 | [0022](0022-status-dot-only.md) | Header status: the dot only | accepted |
+| [0023](0023-in-app-dashboards-and-collector.md) | Dashboards and collector targets are edited in the app | accepted |
 
 ## File naming
 

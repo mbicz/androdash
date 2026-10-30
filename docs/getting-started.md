@@ -121,22 +121,35 @@ only on a trusted LAN or tailnet
 
 ## 5. Dashboards and display options
 
+Everything below can also be changed on the phone. The settings sheet (sliders
+icon) has:
+
+- **Time range**, **Refresh**, **Layout**.
+- **Dashboards**: tap to show, Remove, add a bundled one, **Add from URL** (the
+  dashboard is fetched and checked first, and the reason is shown if it cannot
+  be added), **Paste dashboard JSON** (kept on the phone), and Rotate.
+- **Collector**: On/Off, the scrape targets with Remove, and **Add target**
+  (address `host:port`, optional job and name). The phone target is fixed.
+- **On the lock screen**.
+
+Changes apply at once and persist. Typing is only needed for URLs, JSON, and
+target addresses; launch extras still work.
+
+
 | Option | Example | Effect |
 |---|---|---|
-| `dashboard_urls` | `--es dashboard_urls "<url>,<url>"` | Up to 8 dashboards; swipe between them |
+| `dashboard_urls` | `--es dashboard_urls "<url>,<url>"` | Up to 8 dashboards; swipe between them; also editable in the sheet |
 | `rotate_seconds` | `--ei rotate_seconds 60` | Advance automatically; `0` = off, else 10–3600 |
 | `layout_mode` | `--es layout_mode fit` | `fit` (one screen), `auto`, `grid`, `stack` |
 | `display_mode` | `--es display_mode amoled` | `standard`, `amoled` (true black), `monochrome` |
 | `show_when_locked` | `--ez show_when_locked true` | Dimmed dashboard above the keyguard; `lock_style` `monochrome` or `color` |
 | `time_range`, `refresh_seconds` | `--es time_range 1h --ei refresh_seconds 30` | Override dashboard defaults |
 | `dashboard_source` | `--es dashboard_source url` | `stored` (default) keeps a copy of a remote dashboard; `url` fetches on every load |
+| `collector`, `collector_targets` | `--ez collector true --es collector_targets "node:mac=192.168.1.20:9100"` | On-phone Prometheus and its scrape targets; also editable in the sheet |
 
-The settings sheet (sliders icon) changes time range, refresh, layout,
-dashboards (show, add bundled, remove, rotate), the stored copy, and the
-lock-screen view. It also shows the collector status. Changes persist.
-
-The sheet can add bundled dashboards only. Remote dashboard URLs come only from
-launch extras.
+The sheet adds remote dashboard URLs and pasted dashboards on your behalf. It
+never takes them from dashboard or Prometheus content, so a dashboard cannot
+point the kiosk somewhere else by itself.
 
 ## 6. Gestures and status
 
@@ -169,8 +182,26 @@ Requirements for a Perses dashboard JSON:
 - served with CORS that allows `http://androdash.local` (or `*`).
   `tools/serve_demo.py --host <lan-ip>` serves this repository that way.
 
-After the first successful load the phone keeps a copy, so the server is no
-longer needed.
+Add it in the settings sheet (**Add from URL**) or in `dashboard_urls`. After
+the first successful load the phone keeps a copy, so the server is no longer
+needed. **Paste dashboard JSON** stores the definition on the phone and needs
+no server at all.
+
+### The demo dashboard
+
+`demo-dashboard.json` uses the mock metrics in `tools/mock_prometheus.py`. To
+show it on a phone, run the mock on a computer and add it as a collector
+target, then add the dashboard by URL (or paste it):
+
+```sh
+python3 tools/mock_prometheus.py --host 0.0.0.0 --port 9091
+python3 tools/serve_demo.py --host 0.0.0.0 --port 8099
+```
+
+In the settings sheet, add the target `demo:demo=<computer>:9091` (the mock
+serves `/metrics` for scraping) and the dashboard
+`http://<computer>:8099/contracts/fixtures/demo-dashboard.json`. The bundled
+`demo-dashboard.json` shows the same panels once the target is added.
 
 To bundle a dashboard, add `contracts/fixtures/<name>-dashboard.json` and
 rebuild. It is then served at

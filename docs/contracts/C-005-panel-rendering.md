@@ -7,7 +7,9 @@
   layout, settings sheet, box-shaped gauges and stat tiles, shared table label
   heading, height-aware axes, `lock_style` palette for the locked view;
   decision 0017); amended 2026-10-29 (v7: panel scrolling, Markdown in fit,
-  multiple dashboards with swipe and rotation; decision 0020)
+  multiple dashboards with swipe and rotation; decision 0020); amended
+  2026-10-29 (settings sheet adds dashboards by URL or pasted JSON and edits
+  the collector; decision 0023)
 - **Consumers:** Web renderer (W2)
 - **Fixtures:** [`demo-dashboard.json`](../../contracts/fixtures/demo-dashboard.json),
   [`spark-dashboard.json`](../../contracts/fixtures/spark-dashboard.json)
@@ -229,9 +231,13 @@ shown. Only the shown dashboard is loaded and queried.
   at least 2 minutes after the last touch.
 - **Settings sheet:** "Dashboards" lists the dashboards (tap to show, Remove),
   offers the dashboards built into the app (`/dashboards/index.json`) as
-  `+ <title>` to add, and a Rotate control (Stay, 30s, 1m, 5m). Changes persist
-  with `setOption("dashboard_urls")`, which accepts only built-in or already
-  listed URLs (C-007).
+  `+ <title>` to add, an **Add from URL** field (any `http`/`https` dashboard
+  URL; it is fetched and normalized first and added only if that succeeds,
+  otherwise the reason is shown in the sheet), a **Paste dashboard JSON** field
+  (only when the bridge has `addInlineDashboard`; the text is parsed and
+  normalized first, then stored by the shell and added by its returned URL),
+  and a Rotate control (Stay, 30s, 1m, 5m). Changes persist with
+  `setOption("dashboard_urls")` (C-007); a refused change shows its reason.
 
 ### Rows
 
@@ -282,7 +288,7 @@ session.
 | Refresh | `Off` `5s` `10s` `30s` `1m` `5m` (+ the effective interval) | `refresh_seconds`; reschedule (C-006) |
 | Layout | Scroll \| Fit to screen | `layout_mode`: `fit`, or back to the scroll mode used before (`auto` if none); the page is rebuilt at once |
 | Dashboard | Saved on phone \| Live from URL; "Update from URL" | Only when the bridge exposes `storeDashboard` (C-002 "Dashboard sources"). `dashboard_source` `stored`/`url`, then reload; the update re-fetches `dashboard_url` and replaces the stored copy only if it normalizes. A bundled dashboard shows "Built into the app". |
-| Collector | read-only | Only when C-007 `collectorStatus()` reports `enabled`. Shows whether the on-phone Prometheus runs (and restart count or last exit), and one row per scrape target coloured by its `up` value from an instant query to the collector (`unknown` until it answers). |
+| Collector | On \| Off; targets with Remove; Add target (address `host:port`, optional job and name) | Whenever the bridge has `collectorStatus()` (C-007). On/Off is `setOption("collector")`; the shell reloads the page when the data source changes. Shows whether the on-phone Prometheus runs (and restart count or last exit) and one row per scrape target, coloured by its `up` value from an instant query to the collector while it runs (`unknown` until it answers). The phone job (`phone`/`phone`) has no Remove. Adding or removing sends every user target as `setOption("collector_targets", …)` in the C-001 grammar (empty = none); the target is checked in the page first, and a refused change shows the shell's reason. |
 | On the lock screen | Off \| Grayscale \| Color | Only when the bridge exposes `lockScreenEnabled` and `setLockScreen` (C-007). Off → `setLockScreen(false)`; Grayscale/Color → `lock_style` `monochrome`/`color`, then `setLockScreen(true)`. Shows Off while `lockScreenEnabled()` is false, else the current `lock_style`. |
 
 ## Common data semantics

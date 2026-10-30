@@ -131,9 +131,14 @@ ignored, not copied into the DOM.
 - The page has no toolbar. View settings open a modal sheet (`openSettings`)
   with segmented controls for time range, refresh, layout (Scroll | Fit to
   screen), and — only when the shell bridge exposes `lockScreenEnabled` and
-  `setLockScreen` — "On the lock screen" (Off | Grayscale | Color). Choices
-  apply at once and are persisted through `AndroDash.setOption(name, value)`
-  (C-006, C-007).
+  `setLockScreen` — "On the lock screen" (Off | Grayscale | Color). The
+  "Dashboards" group adds bundled dashboards, any URL (fetched and normalized
+  before it is added), or pasted JSON (`addInlineDashboard`); the "Collector"
+  group turns the on-phone collector on or off and adds or removes scrape
+  targets (grammar mirrored in `collector-targets.js`). Choices apply at once
+  and are persisted through `AndroDash.setOption(name, value)`, whose returned
+  reason is shown when the shell refuses a value (C-005, C-006, C-007,
+  decision 0023).
 - `renderDashboard()` builds the page for the current layout. It is cheap and
   idempotent: it recreates the panel shells and repaints every panel's retained
   data or error (`restorePanels`), so layout switches, rotation, and

@@ -157,7 +157,8 @@ class DashboardStore(
             false
         }
 
-        private fun isJsonObject(json: String): Boolean = try {
+        /** True when [json] is exactly one JSON object (C-007 dashboard payloads). */
+        internal fun isJsonObject(json: String): Boolean = try {
             val tokener = JSONTokener(json)
             tokener.nextValue() is JSONObject && tokener.nextClean() == 0.toChar()
         } catch (_: Exception) {

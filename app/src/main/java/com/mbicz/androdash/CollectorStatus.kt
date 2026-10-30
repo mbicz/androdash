@@ -63,8 +63,9 @@ data class CollectorStatus(
         const val MAX_LAST_EXIT = 200
 
         /**
-         * Status for the current [config] and supervisor [runtime]. Targets and
-         * `url` come from the config only while the collector is enabled.
+         * Status for the current [config] and supervisor [runtime]. `targets`
+         * lists the configured targets even while the collector is disabled;
+         * `url` is set only while it is enabled.
          */
         fun of(config: AppConfig?, runtime: CollectorRuntime): CollectorStatus {
             val collector = config?.let { CollectorConfig.from(it) }
@@ -72,7 +73,7 @@ data class CollectorStatus(
                 enabled = collector != null,
                 running = runtime.running,
                 url = if (collector != null) CollectorConfig.URL else null,
-                targets = collector?.scrapeTargets.orEmpty(),
+                targets = config?.let(CollectorConfig::configuredTargets).orEmpty(),
                 restarts = runtime.restarts,
                 startedAt = if (runtime.running) runtime.startedAt else null,
                 lastExit = runtime.lastExit?.let(::sanitizeExit),

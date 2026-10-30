@@ -4,7 +4,9 @@
 - **Status:** Accepted, 2026-10-29 (v4: `dashboard_source`, bundled and stored
   dashboards, decision 0018; v5: on-phone collector fields, decision 0019; v6:
   `dashboard_urls`, `rotate_seconds`, stored slots, decision 0020; v7:
-  `collector_phone`, phone exporter job, targets optional, decision 0021)
+  `collector_phone`, phone exporter job, targets optional, decision 0021;
+  amended 2026-10-29: `dashboard_urls`, `collector`, and `collector_targets`
+  editable in the app, inline dashboards, decision 0023)
 - **Consumers:** Android shell (W1), web renderer config (W2)
 - **Machine-readable:** [`contracts/app-config.schema.json`](../../contracts/app-config.schema.json)
 - **Fixtures:** [`app-config.example.json`](../../contracts/fixtures/app-config.example.json)
@@ -246,6 +248,12 @@ virtual origin (C-008):
   `GET /stored/<i>/dashboard.json`, with `GET /stored/<i>/meta.json` =
   `{"sourceUrl": "<dashboard URL it came from>", "storedAt": <unix ms>, "bytes": <UTF-8 size>}`,
   for `i` = `0…7`. Both answer 404 when slot `i` holds nothing.
+- **Inline:** a dashboard document pasted in the settings sheet, stored by
+  `AndroDash.addInlineDashboard(json)` (C-007, decision 0023) and served at
+  `http://androdash.local/inline/<id>.json` (`id` = 16 hex characters of its
+  SHA-256). Such a URL is a valid `dashboard_url`/`dashboard_urls` entry while
+  the file exists; it is always local, never stored in a slot, and deleted
+  when it leaves `dashboard_urls`.
 
 Renderer semantics (the shell does not fetch dashboards); `i` is the position
 of `dashboard_url` in `dashboard_urls`:
@@ -353,14 +361,16 @@ The native shell shows `E_CONFIG` on its fatal screen. The renderer shows an
   erase persisted values unless the operator explicitly clears it (a future
   settings UI may add `--ez reset_config true`, not in v1).
 - The renderer may change `timeRange`, `refreshSeconds`, `layoutMode`,
-  `lockStyle`, `dashboardSource`, `dashboardUrl`, `dashboardUrls`, and
-  `rotateSeconds` at runtime through `AndroDash.setOption(name, value)`
-  (C-007). The shell validates the value with the same rules as the launch
-  extra of that name, plus: `dashboard_url` must be an entry of the current
-  `dashboard_urls`; every `dashboard_urls` entry must be a bundled
-  `http://androdash.local/dashboards/<name>.json` (not `index.json`) or already
-  in the current list, and the current `dashboard_url` is inserted first when
-  missing. It persists the updated `AppConfig` and rebuilds the local URL.
+  `lockStyle`, `dashboardSource`, `dashboardUrl`, `dashboardUrls`,
+  `rotateSeconds`, `collector`, and `collectorTargets` at runtime through
+  `AndroDash.setOption(name, value)` (C-007), from the settings sheet. The
+  shell validates the value with the same rules as the launch extra of that
+  name, plus: `dashboard_url` must be an entry of the current
+  `dashboard_urls`; the current `dashboard_url` is inserted first in a new
+  `dashboard_urls` when missing; an empty `collector_targets` clears the user
+  targets; and the whole config, collector included, must stay valid. Any
+  absolute `http`/`https` dashboard URL may be added (decision 0023). The
+  shell persists the updated `AppConfig` and rebuilds the local URL.
 - Log the result with redacted URLs only.
 - With `collector=true`, build the local URL with
   `prometheus_url=http://127.0.0.1:19090`, log that substitution, and start the
@@ -409,8 +419,9 @@ The native shell shows `E_CONFIG` on its fatal screen. The renderer shows an
   valid;
 - local URL encoding and parameter names match the renderer parser;
 - `setOption` for every allowed name, invalid values, and unknown names,
-  including a rejected new remote `dashboard_urls` entry and a `dashboard_url`
-  outside the list;
+  including an accepted remote `dashboard_urls` entry, `collector` and
+  `collector_targets` (empty clears; invalid leaves the config unchanged), and
+  a rejected `dashboard_url` outside the list;
 - `dashboard_urls` parsing, defaults, insertion of `dashboard_url`,
   deduplication, the 8-entry limit, `%2C` entries, persistence; and the
   `rotate_seconds` range;

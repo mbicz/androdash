@@ -1,6 +1,6 @@
 # C-007 — Kiosk and lifecycle
 
-- **Version:** 8
+- **Version:** 9
 - **Status:** Accepted, 2026-10-29 (v3: lock-screen grayscale, re-light, view
   and lock-screen bridge methods, decision 0016; v4: generic `setOption`
   bridge method, `lock_style`, decision 0017; v5: stored dashboard bridge
@@ -8,7 +8,10 @@
   `collectorStatus`, decision 0019; v7: multiple dashboards — `setOption`
   `dashboard_url`/`dashboard_urls`/`rotate_seconds`, stored slots, API 33+
   back callback, new intents without reload, decision 0020; v8: phone exporter
-  under the collector service, decision 0021)
+  under the collector service, decision 0021; v9: `setOption` returns a
+  reason, accepts remote and inline dashboard URLs, `collector`, and
+  `collector_targets`; `addInlineDashboard`; `collectorStatus` always lists
+  targets, decision 0023)
 - **Consumers:** Android shell (W1), renderer debug affordance (W2)
 - **Related:** C-001 (config), C-008 (WebView security), C-009 (diagnostics)
 
@@ -158,8 +161,10 @@ A kiosk must be serviceable:
   extra overrides and replaces it; `AndroDash.setLockScreen()` updates it. The
   effective value is still gated by `kiosk`. `lock_task` is never persisted.
 - `AndroDash.setOption()` updates `timeRange`, `refreshSeconds`, `layoutMode`,
-  `lockStyle`, `dashboardSource`, `dashboardUrl`, `dashboardUrls`, or
-  `rotateSeconds` in the persisted `AppConfig` and the current renderer URL. A
+  `lockStyle`, `dashboardSource`, `dashboardUrl`, `dashboardUrls`,
+  `rotateSeconds`, `collector`, or `collectorTargets` in the persisted
+  `AppConfig` and the current renderer URL. Inline dashboards live in
+  `<filesDir>/inline/<id>.json`. A
   relaunch therefore shows the last viewed dashboard.
 - The stored dashboard copies (C-001 `dashboard_source=stored`, decision 0018,
   slots decision 0020) live in app-private storage as 8 fixed slots, one per
@@ -305,11 +310,12 @@ Optional `window.AndroDash` (present only in the Android shell):
 | `reload()` | none | Reload the local renderer page (with the latest `setOption` choices) |
 | `exitKiosk()` | none | Stop the collector service (if running), then finish the Activity; renderer may prompt/confirm in debug |
 | `log(level, message)` | strings | Log a redacted, length-limited message |
-| `setOption(name, value)` | strings; `name` ≤ 64 chars; `value` ≤ 2048 chars for `dashboard_url`/`dashboard_urls`, else ≤ 64 | The user changed one renderer option. `name` is one of `time_range`, `refresh_seconds`, `layout_mode`, `lock_style`, `dashboard_source`, `dashboard_url`, `dashboard_urls`, `rotate_seconds`; `value` is validated with the C-001 rules for the launch extra of that name: durations `1s…30d`; refresh `0` = manual, `5–3600`, `1–4` clamps to `5` with `W_REFRESH_CLAMPED`; `layout_mode` `auto`/`grid`/`stack`/`fit`; `lock_style` `monochrome`/`color`; `dashboard_source` `stored`/`url` (enum values are trimmed and lowercased); `rotate_seconds` `0` or `10–3600`. `dashboard_url` must be an entry of the current `dashboard_urls`. `dashboard_urls` is a comma list of 1–8 entries, each either a bundled `http://androdash.local/dashboards/<[A-Za-z0-9_.-]+>.json` (not `index.json`) or already in the current `dashboard_urls` — the page can reorder, drop, and add bundled dashboards but never introduce a remote URL; when the current `dashboard_url` is not in the new list it is inserted first. Runs on the UI thread, then the in-memory config, persisted `AppConfig`, and renderer URL are updated; the page is not reloaded. An unknown name, a `null`/blank value, or an invalid value logs a warning and is ignored. Returns nothing. |
+| `setOption(name, value)` | strings; `name` ≤ 64 chars; `value` ≤ 2048 chars for `dashboard_url`/`dashboard_urls`/`collector_targets`, else ≤ 64 | The user changed one option in the settings sheet. `name` is one of `time_range`, `refresh_seconds`, `layout_mode`, `lock_style`, `dashboard_source`, `dashboard_url`, `dashboard_urls`, `rotate_seconds`, `collector`, `collector_targets`; `value` is validated with the C-001 rules for the launch extra of that name: durations `1s…30d`; refresh `0` = manual, `5–3600`, `1–4` clamps to `5` with `W_REFRESH_CLAMPED`; `layout_mode` `auto`/`grid`/`stack`/`fit`; `lock_style` `monochrome`/`color`; `dashboard_source` `stored`/`url` (enum values are trimmed and lowercased); `rotate_seconds` `0` or `10–3600`; `collector` `true`/`false`; `collector_targets` the C-001 target list, where the empty string (allowed for this name only) means no user targets. `dashboard_url` must be an entry of the current `dashboard_urls`. `dashboard_urls` is a comma list of 1–8 absolute `http`/`https` URLs: remote dashboards, bundled `http://androdash.local/dashboards/<name>.json`, or inline `http://androdash.local/inline/<id>.json` (decision 0023); when the current `dashboard_url` is not in the new list it is inserted first. The resulting config must be valid as a whole, including the collector (`collector=true` needs targets or `collector_phone=true`; a user target may not repeat `phone`/`phone`). Validation runs on the calling bridge thread; the accepted change is applied on the UI thread: the in-memory config, persisted `AppConfig`, and renderer URL are updated. A changed `collector` or `collector_targets` re-syncs the [collector service](#collector-service); when the Prometheus URL the renderer receives changes (collector on ↔ off) the shell reloads the renderer with the new URL; otherwise the page is not reloaded. A changed `dashboard_urls` deletes inline dashboards no longer listed. **Returns** `""` when accepted, else a short reason (≤ 120 chars) for an unknown name, a blank value, or an invalid value; the config is then unchanged. |
 | `lockScreenEnabled()` | none | Returns the effective `show_when_locked` boolean |
 | `setLockScreen(enabled)` | boolean | Toggle `show_when_locked` at runtime: persist it, apply/clear the keyguard window flags and screen receiver immediately, and push `setLocked(false)` and undim when disabling. Enabling is ignored (warning) when `kiosk=false`. |
 | `storeDashboard(sourceUrl, json)` | strings; `json` ≤ 5 MiB UTF-8 | Store the dashboard JSON the renderer fetched (C-001 [Dashboard source](C-001-launch-config.md#dashboard-source)) in slot `i`, the position of `sourceUrl` in the current `dashboard_urls`. Accepted only when `sourceUrl` equals a `dashboard_urls` entry exactly, `dashboard_source` is `stored`, and `sourceUrl` is not an `http://androdash.local/` URL; `json` must parse as one JSON object (nothing after it) and be at most 5 MiB (5 242 880 bytes) as UTF-8. Replaces that slot's previous copy (see [Persistence](#persistence-and-relaunch)). Runs the file IO on the calling bridge thread. Returns `true` when stored, `false` on any rejection or IO failure (with a warning); never throws. Logs sizes and the slot only, never contents or URLs. |
 | `clearStoredDashboard()` | none | Delete every stored slot; `/stored/*` answers 404 afterwards. Never throws. Returns nothing. |
+| `addInlineDashboard(json)` | string ≤ 5 MiB UTF-8 | Store a dashboard document the user pasted in the settings sheet (decision 0023). `json` must parse as one JSON object (nothing after it) and be at most 5 MiB as UTF-8. The exact text is written atomically to app-private `inline/<id>.json`, where `id` is the first 16 lowercase hex characters of its SHA-256 (the same text gives the same id). Returns `http://androdash.local/inline/<id>.json`, or `""` when rejected or on IO failure; never throws. It does not change `dashboard_urls`: the renderer adds the URL with `setOption("dashboard_urls", …)`. Inline files no longer listed in `dashboard_urls` are deleted whenever `dashboard_urls` changes (by `setOption` or a launch); at most 8 are kept. Logs size and id, never contents. |
 | `collectorStatus()` | none | Returns the [collector](#collector-service) state as a JSON string of at most 4 KiB (UTF-8): `{"enabled": bool, "running": bool, "url": "http://127.0.0.1:19090" \| null, "targets": [{"job", "instance", "address"}], "restarts": n, "startedAt": unix ms \| null, "lastExit": string \| null}`. `enabled` is the current `collector` value; `url` and `targets` are set only when enabled; `targets` lists the phone exporter job (`phone`/`phone`/`127.0.0.1:19100`) first when `collector_phone=true`, then `collector_targets` (trailing targets are dropped if the list would exceed 4 KiB); `running` is true while the Prometheus process is alive; `restarts` counts supervisor restarts of the current configuration; `startedAt` is the current process's start (null when not running); `lastExit` is printable ASCII ≤ 200 characters such as `exited with code 1 after 3s`, `start failed: IOException`, or `stopped`. Never throws (falls back to the disabled shape). |
 
 Native → renderer (not a bridge method): with `show_when_locked`, the shell
@@ -321,13 +327,15 @@ same value, and must not assume the call happens at all (browser dev, or
 
 Rules:
 
-- Methods are synchronous and side-effect-minimal; `setOption` and
-  `setLockScreen` post their work to the UI thread; `storeDashboard` and
-  `clearStoredDashboard` do bounded file IO on the bridge thread;
+- Methods are synchronous and side-effect-minimal; `setOption` validates on
+  the bridge thread and posts the change to the UI thread, `setLockScreen`
+  posts its work to the UI thread; `storeDashboard`, `clearStoredDashboard`,
+  and `addInlineDashboard` do bounded file IO on the bridge thread;
   `collectorStatus` reads in-memory state only. None throws to JS.
 - Inputs are length-limited and never injected into shell/Intent/file APIs.
   The stored dashboards use fixed file names per slot; the slot is the bounded
-  position in `dashboard_urls`, and no input becomes a path.
+  position in `dashboard_urls`. An inline dashboard's file name is a hash the
+  shell computes; no input becomes a path.
 - No arbitrary URL loading, file access, clipboard, Intent launching, or
   network calls.
 - If the bridge is absent (browser dev), the renderer must degrade gracefully.

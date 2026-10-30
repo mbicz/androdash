@@ -45,12 +45,16 @@ class MainActivity : Activity() {
     private lateinit var configStore: ConfigStore
     private lateinit var assetServer: AssetServer
     private lateinit var dashboardStore: DashboardStore
+    private lateinit var inlineDashboards: InlineDashboards
 
-    /** Current canonical config; read by the bridge thread (`storeDashboard`). */
+    /** Current canonical config; read by the bridge thread (`setOption`, `storeDashboard`, `addInlineDashboard`). */
     @Volatile
     private var config: AppConfig? = null
     private var rendererUrl: String? = null
     private var webView: WebView? = null
+
+    /** True while the fatal screen is shown; read by the bridge thread. */
+    @Volatile
     private var fatal = false
 
     /** Effective `show_when_locked` (C-007); read by the bridge thread. */
@@ -76,7 +80,8 @@ class MainActivity : Activity() {
         configStore = ConfigStore(this)
         dashboardStore = DashboardStore(filesDir)
         dashboardStore.removeLegacy()
-        assetServer = AssetServer(assets, dashboardStore)
+        inlineDashboards = InlineDashboards(filesDir)
+        assetServer = AssetServer(assets, dashboardStore, inlineDashboards)
         applyIntent(intent)
     }
 
@@ -90,7 +95,8 @@ class MainActivity : Activity() {
      * Parse and apply a launch. A new intent without launch extras (launcher
      * tap, SystemUI re-start) or one that resolves to the renderer URL already
      * loaded keeps the live WebView (C-007); only the native postures are
-     * re-applied.
+     * re-applied. A changed `dashboard_urls` prunes unreferenced inline
+     * dashboards.
      */
     private fun applyIntent(intent: Intent?) {
         val extras = readExtras(intent)
@@ -103,6 +109,7 @@ class MainActivity : Activity() {
             config = parsed.config
             rendererUrl = nextUrl
             configStore.save(parsed.config)
+            if (persisted?.dashboardUrls != parsed.config.dashboardUrls) pruneInline(parsed.config)
             configStore.saveShowWhenLocked(parsed.showWhenLockedPreference)
             logConfig(parsed.config, parsed.warnings)
             syncCollector(parsed.config)
@@ -144,6 +151,16 @@ class MainActivity : Activity() {
             Log.i(TAG, "collector service requested")
         } catch (error: Exception) {
             Log.w(TAG, "collector start refused: ${error.javaClass.simpleName}")
+        }
+    }
+
+    /** Drop inline dashboards [config] no longer lists in `dashboard_urls` (C-007). */
+    private fun pruneInline(config: AppConfig) {
+        try {
+            val removed = inlineDashboards.prune(config.dashboardUrls)
+            if (removed > 0) Log.i(TAG, "inline dashboards pruned: $removed")
+        } catch (error: Exception) {
+            Log.w(TAG, "inline prune failed: ${error.javaClass.simpleName}")
         }
     }
 
@@ -796,19 +813,73 @@ class MainActivity : Activity() {
         /**
          * Renderer option choice (C-007): one of `time_range`, `refresh_seconds`,
          * `layout_mode`, `lock_style`, `dashboard_source`, `dashboard_url`,
-         * `dashboard_urls`, `rotate_seconds`, validated with the C-001 launch
-         * rules (and the C-007 list rules), persisted, and folded into the
-         * renderer URL so `reload()` keeps it.
+         * `dashboard_urls`, `rotate_seconds`, `collector`, `collector_targets`,
+         * validated with the C-001 launch rules (and the C-007 list rules) on
+         * this bridge thread against the current config. Returns `""` when the
+         * option is accepted, else a short error (at most 120 characters). An
+         * accepted option is applied on the UI thread: persisted, folded into
+         * the renderer URL so `reload()` keeps it, and, when it changes the
+         * collector, the collector service and (for a changed Prometheus URL)
+         * the renderer are restarted.
          */
         @JavascriptInterface
-        fun setOption(name: String?, value: String?) {
+        fun setOption(name: String?, value: String?): String {
             if ((name?.length ?: 0) > ConfigParser.MAX_OPTION_INPUT ||
                 (value?.length ?: 0) > ConfigParser.maxOptionValue(name)
             ) {
                 Log.w(TAG, "setOption rejected: input too long")
-                return
+                return "setOption input is too long"
             }
-            runOnUiThread { updateOption(name, value) }
+            val current = config
+            if (fatal || current == null) {
+                Log.w(TAG, "setOption rejected: no live config")
+                return "setOption is unavailable"
+            }
+            return try {
+                ConfigParser.applyOption(current, name, value)
+                runOnUiThread { updateOption(name, value) }
+                ""
+            } catch (error: ConfigException) {
+                val message = sanitize(error.message.orEmpty(), MAX_ERROR)
+                Log.w(TAG, "setOption rejected: $message")
+                message
+            } catch (error: RuntimeException) {
+                Log.w(TAG, "setOption failed: ${error.javaClass.simpleName}")
+                "setOption failed"
+            }
+        }
+
+        /**
+         * Store a dashboard document pasted in the settings sheet (C-007): a
+         * single JSON object of at most [DashboardStore.MAX_BYTES] characters,
+         * kept verbatim in [InlineDashboards]. Returns its
+         * `http://androdash.local/inline/<id>.json` URL, or `""` when rejected;
+         * `dashboard_urls` is unchanged (the renderer adds the URL with
+         * `setOption`). File IO runs on this bridge thread. Logs size and id,
+         * never contents.
+         */
+        @JavascriptInterface
+        fun addInlineDashboard(json: String?): String {
+            return try {
+                val current = config
+                if (fatal || current == null) {
+                    Log.w(TAG, "addInlineDashboard rejected: no live config")
+                    return ""
+                }
+                if (json == null || json.length > DashboardStore.MAX_BYTES) {
+                    Log.w(TAG, "addInlineDashboard rejected: ${json?.length ?: 0} chars")
+                    return ""
+                }
+                val url = inlineDashboards.write(json, current.dashboardUrls)
+                Log.i(TAG, "inline dashboard stored (${InlineDashboards.idOf(url)}, ${json.length} chars)")
+                url
+            } catch (error: IllegalArgumentException) {
+                Log.w(TAG, "addInlineDashboard rejected: ${sanitize(error.message.orEmpty(), MAX_ERROR)}")
+                ""
+            } catch (error: Exception) {
+                Log.w(TAG, "addInlineDashboard failed: ${error.javaClass.simpleName}")
+                ""
+            }
         }
 
         @JavascriptInterface
@@ -877,26 +948,43 @@ class MainActivity : Activity() {
         }
     }
 
+    /**
+     * UI-thread half of `setOption`: re-apply the option to the config current
+     * now (it was validated on the bridge thread), persist it, and fold it into
+     * [rendererUrl]. A changed `dashboard_urls` prunes inline dashboards; a
+     * changed `collector`/`collector_targets` re-syncs the collector service;
+     * a changed renderer Prometheus URL reloads the renderer with the new URL.
+     */
     private fun updateOption(name: String?, value: String?) {
         val current = config ?: return
         if (fatal) return
         try {
             val update = ConfigParser.applyOption(current, name, value)
-            config = update.config
-            rendererUrl = ConfigParser.launchUrl(update.config)
-            configStore.save(update.config)
+            val next = update.config
+            config = next
+            rendererUrl = ConfigParser.launchUrl(next)
+            configStore.save(next)
             update.warnings.forEach { Log.w(TAG, it) }
             Log.i(
                 TAG,
-                "option set time_range=${update.config.timeRange ?: "default"} " +
-                    "refresh_seconds=${update.config.refreshSeconds ?: "default"} " +
-                    "layout_mode=${update.config.layoutMode} lock_style=${update.config.lockStyle} " +
-                    "dashboard_source=${update.config.dashboardSource} " +
-                    "dashboard=${update.config.dashboardUrls.indexOf(update.config.dashboardUrl) + 1}/" +
-                    "${update.config.dashboardUrls.size} rotate_seconds=${update.config.rotateSeconds}",
+                "option set time_range=${next.timeRange ?: "default"} " +
+                    "refresh_seconds=${next.refreshSeconds ?: "default"} " +
+                    "layout_mode=${next.layoutMode} lock_style=${next.lockStyle} " +
+                    "dashboard_source=${next.dashboardSource} " +
+                    "dashboard=${next.dashboardUrls.indexOf(next.dashboardUrl) + 1}/" +
+                    "${next.dashboardUrls.size} rotate_seconds=${next.rotateSeconds} " +
+                    "collector=${next.collector} scrape_targets=${CollectorConfig.configuredTargets(next).size}",
             )
+            if (next.dashboardUrls != current.dashboardUrls) pruneInline(next)
+            if (next.collector != current.collector || next.collectorTargets != current.collectorTargets) {
+                syncCollector(next)
+            }
+            if (ConfigParser.rendererPrometheusUrl(next) != ConfigParser.rendererPrometheusUrl(current)) {
+                Log.i(TAG, "prometheus source changed; reloading renderer")
+                setupWebView()
+            }
         } catch (error: ConfigException) {
-            Log.w(TAG, "setOption rejected: ${sanitize(error.message.orEmpty(), 120)}")
+            Log.w(TAG, "setOption rejected: ${sanitize(error.message.orEmpty(), MAX_ERROR)}")
         }
     }
 
@@ -913,6 +1001,8 @@ class MainActivity : Activity() {
 
     companion object {
         private const val TAG = "AndroDash"
+        /** Longest error text returned to (or logged for) the renderer. */
+        private const val MAX_ERROR = 120
         private const val LOCKED_BRIGHTNESS = 0.12f
         private const val RELIGHT_SETTLE_MILLIS = 300L
         private const val RELIGHT_WAKE_LOCK_TAG = "androdash:relight"

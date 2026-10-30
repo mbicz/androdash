@@ -37,6 +37,10 @@ the mock remains deterministic and dependency-free.
   - `GET /api/v1/query` → deterministic vector/scalar for demo metrics.
   - `GET /api/v1/query_range` → matrix; use `start`, `end`, `step`.
   - `GET /api/v1/label/<name>/values` → e.g. `["demo"]` for `job`.
+  - `GET /metrics` → the demo metric families in the Prometheus text format
+    (counters are integrals of the rates the query API returns), so a real
+    Prometheus such as the phone collector can scrape the mock with the target
+    `demo:demo=<host>:9091` and serve the demo dashboard (decision 0023).
 - Demo metrics (see `contracts/fixtures/demo-dashboard.json`):
   - `demo_cpu_seconds_total{mode="user"|"system"}` (rate query returns 2 series)
   - `demo_load1`, `demo_load5`

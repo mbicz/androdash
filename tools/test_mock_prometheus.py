@@ -15,7 +15,9 @@ import json
 import unittest
 from pathlib import Path
 
-from mock_prometheus import _instant_result, _range_result
+import re
+
+from mock_prometheus import _instant_result, _range_result, metrics_text
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -104,6 +106,44 @@ class SparkDashboardMockTest(unittest.TestCase):
 
     def test_unknown_query_still_fails(self) -> None:
         self.assertIsNone(_range_result("sum(not_a_metric)", NOW - 10, NOW, 1))
+
+
+def _scrape(timestamp: float) -> dict[str, float]:
+    samples = {}
+    for line in metrics_text(timestamp).splitlines():
+        if line and not line.startswith("#"):
+            name, value = line.rsplit(" ", 1)
+            samples[name] = float(value)
+    return samples
+
+
+class DemoScrapeTest(unittest.TestCase):
+    """/metrics lets a real Prometheus (the phone collector) serve the demo."""
+
+    def test_exposes_every_demo_dashboard_metric(self) -> None:
+        demo = json.loads((ROOT / "contracts" / "fixtures" / "demo-dashboard.json").read_text())
+        queries = [
+            query["spec"]["plugin"]["spec"]["query"]
+            for panel in demo["spec"]["panels"].values()
+            for query in panel["spec"].get("queries", [])
+            if query["spec"]["plugin"]["kind"] == "PrometheusTimeSeriesQuery"
+        ]
+        wanted = {name for query in queries for name in re.findall(r"\bdemo_[a-z0-9_]+", query)}
+        exposed = {name.split("{")[0] for name in _scrape(NOW)}
+        self.assertTrue(wanted)
+        self.assertLessEqual(wanted, exposed)
+
+    def test_cpu_counter_rate_matches_the_query_api(self) -> None:
+        before, after = _scrape(NOW - 60), _scrape(NOW)
+        expected = {
+            series["metric"]["mode"]: float(series["value"][1])
+            for series in _instant_result("rate(demo_cpu_seconds_total{job=\"demo\"}[1m]) * 100", NOW - 30)
+        }
+        for mode in ("system", "user"):
+            key = f'demo_cpu_seconds_total{{mode="{mode}"}}'
+            rate = (after[key] - before[key]) / 60 * 100
+            self.assertGreater(after[key], before[key])
+            self.assertAlmostEqual(rate, expected[mode], delta=0.3)
 
 
 if __name__ == "__main__":

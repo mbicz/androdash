@@ -104,6 +104,16 @@ data class CollectorConfig(
         }
 
         /**
+         * The targets [config] configures, whether or not `collector=true`:
+         * [PHONE_TARGET] first when `collector_phone=true`, then the parsed
+         * `collector_targets`.
+         */
+        fun configuredTargets(config: AppConfig): List<CollectorTarget> {
+            val targets = config.collectorTargets?.let(::parseTargets).orEmpty()
+            return if (config.collectorPhone) listOf(PHONE_TARGET) + targets else targets
+        }
+
+        /**
          * Parse `collector_targets`: comma-separated `[job:]instance=host:port`
          * or `host:port`. `job` defaults to `node`, `instance` to `host:port`.
          * Blank entries are skipped. Invalid input is `E_CONFIG`.

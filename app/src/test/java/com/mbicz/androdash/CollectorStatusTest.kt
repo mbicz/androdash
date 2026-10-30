@@ -10,12 +10,15 @@ class CollectorStatusTest {
     private val base = AppConfig(dashboardUrl = "http://androdash.local/dashboards/macos-node-dashboard.json")
 
     @Test
-    fun `disabled collector reports no url or targets`() {
+    fun `disabled collector reports no url but its configured targets`() {
         val json = JSONObject(CollectorStatus.of(base, CollectorRuntime()).toJson())
         assertFalse(json.getBoolean("enabled"))
         assertFalse(json.getBoolean("running"))
         assertTrue(json.isNull("url"))
-        assertEquals(0, json.getJSONArray("targets").length())
+        val phoneOnly = json.getJSONArray("targets")
+        assertEquals(1, phoneOnly.length())
+        assertEquals("phone", phoneOnly.getJSONObject(0).getString("job"))
+        assertEquals("127.0.0.1:19100", phoneOnly.getJSONObject(0).getString("address"))
         assertEquals(0, json.getInt("restarts"))
         assertTrue(json.isNull("startedAt"))
         assertTrue(json.isNull("lastExit"))
@@ -26,8 +29,28 @@ class CollectorStatusTest {
     }
 
     @Test
+    fun `disabled collector lists the phone job first, then collector_targets`() {
+        val config = base.copy(collectorTargets = "node:mac=192.168.1.20:9100,gpu:spark=192.168.1.21:9400")
+        val targets = JSONObject(CollectorStatus.of(config, CollectorRuntime()).toJson()).getJSONArray("targets")
+        assertEquals(
+            listOf("phone/phone/127.0.0.1:19100", "node/mac/192.168.1.20:9100", "gpu/spark/192.168.1.21:9400"),
+            (0 until targets.length()).map { index ->
+                targets.getJSONObject(index).let { "${it.getString("job")}/${it.getString("instance")}/${it.getString("address")}" }
+            },
+        )
+        val noPhone = JSONObject(CollectorStatus.of(config.copy(collectorPhone = false), CollectorRuntime()).toJson())
+        assertFalse(noPhone.getBoolean("enabled"))
+        assertTrue(noPhone.isNull("url"))
+        assertEquals(2, noPhone.getJSONArray("targets").length())
+        assertEquals(0, JSONObject(CollectorStatus.of(base.copy(collectorPhone = false), CollectorRuntime()).toJson())
+            .getJSONArray("targets").length())
+    }
+
+    @Test
     fun `null config is disabled`() {
-        assertFalse(JSONObject(CollectorStatus.of(null, CollectorRuntime()).toJson()).getBoolean("enabled"))
+        val json = JSONObject(CollectorStatus.of(null, CollectorRuntime()).toJson())
+        assertFalse(json.getBoolean("enabled"))
+        assertEquals(0, json.getJSONArray("targets").length())
     }
 
     @Test
