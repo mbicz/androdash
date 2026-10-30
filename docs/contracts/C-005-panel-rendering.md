@@ -203,7 +203,8 @@ stat tiles measure their box again). Other panels, section headers, and page
 dots are hidden but keep refreshing. A double tap anywhere, or `Escape`,
 returns. Zoomed content grows to fill the panel: stat numbers up to 160 px
 with proportional labels, and tables and Markdown take the largest type that
-still fits (12–44 px, `--zoom-font`). While zoomed, horizontal swipes do not
+still fits with no cell cut off (12–44 px, `--zoom-font`; table labels wrap
+instead of truncating). While zoomed, horizontal swipes do not
 switch dashboards and rotation
 waits. Switching dashboards clears the zoom; a relayout keeps it. Taps on
 buttons and the header never zoom.
