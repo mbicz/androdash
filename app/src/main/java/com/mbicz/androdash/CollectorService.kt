@@ -20,12 +20,15 @@ import java.util.concurrent.TimeUnit
 
 /**
  * Foreground service that runs the bundled Prometheus (`libprometheus.so`) as a
- * child process on loopback (C-007 "Collector service", decision 0019). It
- * reads the persisted [AppConfig]; MainActivity saves the config before
- * starting it, and a sticky restart after a process kill reads it again.
+ * child process on loopback (C-007 "Collector service", decision 0019), plus
+ * the in-app [PhoneExporter] it scrapes when `collector_phone=true`
+ * (decision 0021). It reads the persisted [AppConfig]; MainActivity saves the
+ * config before starting it, and a sticky restart after a process kill reads
+ * it again.
  */
 class CollectorService : Service() {
     private var supervisor: Supervisor? = null
+    private var exporter: PhoneExporter? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -36,19 +39,21 @@ class CollectorService : Service() {
             null
         }
         // startForegroundService() requires startForeground() even when stopping.
-        startInForeground(collector?.targets?.size ?: 0)
+        startInForeground(collector?.scrapeTargets?.size ?: 0)
         if (collector == null) {
             Log.w(TAG, "collector not configured; stopping service")
             stopSelf()
             return START_NOT_STICKY
         }
+        syncExporter(collector.phone)
         val current = supervisor
         if (current == null || current.config != collector) {
             current?.shutdown()
             supervisor = Supervisor(collector, current).also { it.start() }
             Log.i(
                 TAG,
-                "collector starting: ${collector.targets.size} targets, scrape ${collector.scrapeSeconds}s, " +
+                "collector starting: ${collector.scrapeTargets.size} targets (phone ${collector.phone}), " +
+                    "scrape ${collector.scrapeSeconds}s, " +
                     "retention ${CollectorConfig.prometheusDuration(collector.retentionMillis)}",
             )
         }
@@ -56,10 +61,25 @@ class CollectorService : Service() {
     }
 
     override fun onDestroy() {
+        syncExporter(false)
         supervisor?.shutdown()
         supervisor = null
         Log.i(TAG, "collector service stopped")
         super.onDestroy()
+    }
+
+    /** Run the phone exporter exactly while the collector scrapes it (C-007). */
+    private fun syncExporter(enabled: Boolean) {
+        try {
+            if (enabled && exporter == null) {
+                exporter = PhoneExporter(this) { runtime }.also { it.start() }
+            } else if (!enabled) {
+                exporter?.stop()
+                exporter = null
+            }
+        } catch (error: Exception) {
+            Log.w(TAG, "phone exporter ${if (enabled) "start" else "stop"} failed: ${error.javaClass.simpleName}")
+        }
     }
 
     private fun startInForeground(targetCount: Int) {

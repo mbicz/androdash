@@ -1442,16 +1442,27 @@ html[data-layout="fit"] body {
   padding-bottom: 0;
 }
 
+/*
+ * One stable line: title (takes the rest, ellipsised) · status · dots ·
+ * actions. Everything right of the title has a fixed width, so paging between
+ * dashboards with different titles moves nothing but the title text.
+ */
 [data-layout-mode="fit"] .app-header {
   position: static;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
   align-items: center;
+  gap: 10px;
   padding: max(8px, env(safe-area-inset-top)) var(--gutter) 8px;
 }
 
 [data-layout-mode="fit"] .app-heading {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
+  display: contents;
+}
+
+[data-layout-mode="fit"] .app-status .status-text {
+  display: inline-block;
+  min-width: 9.5ch;
 }
 
 [data-layout-mode="fit"] .app-title {
@@ -1592,12 +1603,57 @@ html[data-layout="fit"] body {
   font-size: calc(13px * var(--fit-scale, 1));
 }
 
+/* Panel zoom ------------------------------------------------------------- */
+/* A double-tapped panel fills the screen below the header (C-005). */
+
+.panel.is-zoomed {
+  position: fixed;
+  top: calc(var(--header-h, 56px) + 4px);
+  right: var(--gutter);
+  bottom: max(12px, env(safe-area-inset-bottom));
+  left: var(--gutter);
+  z-index: 25;
+  height: auto;
+  animation: zoom-in 180ms ease-out;
+}
+
+html[data-zoom="true"] .panel:not(.is-zoomed),
+html[data-zoom="true"] .row-header,
+html[data-zoom="true"] .strip-dots,
+html[data-zoom="true"] .dashboard-dots {
+  visibility: hidden;
+}
+
+html[data-zoom="true"],
+html[data-zoom="true"] body {
+  overflow: hidden;
+}
+
+.panel.is-zoomed .panel-title {
+  font-size: 17px;
+}
+
+.panel.is-zoomed .panel-description {
+  display: block;
+  margin-top: 2px;
+  color: var(--label-2);
+  font-size: 13px;
+}
+
+@keyframes zoom-in {
+  from {
+    opacity: 0.4;
+    transform: scale(0.97);
+  }
+}
+
 /* Dashboards -------------------------------------------------------------- */
 
 .dashboard-dots {
   display: flex;
   align-items: center;
-  margin-left: 2px;
+  flex: none;
+  margin-left: auto;
 }
 
 .dashboard-dot {
@@ -1620,10 +1676,6 @@ html[data-layout="fit"] body {
 
 .dashboard-dot[aria-current="true"]::after {
   background: var(--label);
-}
-
-[data-layout-mode="fit"] .app-heading {
-  align-items: center;
 }
 
 .app-shell[data-enter="next"] main {

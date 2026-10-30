@@ -18,6 +18,7 @@
   "collectorTargets": null,
   "collectorScrapeSeconds": 15,
   "collectorRetention": "24h",
+  "collectorPhone": true,
   "dashboardUrls": [
     "http://10.0.2.2:8099/contracts/fixtures/demo-dashboard.json",
     "http://androdash.local/dashboards/macos-node-dashboard.json"

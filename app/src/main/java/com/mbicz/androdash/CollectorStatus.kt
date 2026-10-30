@@ -72,7 +72,7 @@ data class CollectorStatus(
                 enabled = collector != null,
                 running = runtime.running,
                 url = if (collector != null) CollectorConfig.URL else null,
-                targets = collector?.targets.orEmpty(),
+                targets = collector?.scrapeTargets.orEmpty(),
                 restarts = runtime.restarts,
                 startedAt = if (runtime.running) runtime.startedAt else null,
                 lastExit = runtime.lastExit?.let(::sanitizeExit),

@@ -1,13 +1,14 @@
 # C-007 — Kiosk and lifecycle
 
-- **Version:** 7
+- **Version:** 8
 - **Status:** Accepted, 2026-10-29 (v3: lock-screen grayscale, re-light, view
   and lock-screen bridge methods, decision 0016; v4: generic `setOption`
   bridge method, `lock_style`, decision 0017; v5: stored dashboard bridge
   methods, `dashboard_source` option, decision 0018; v6: collector service and
   `collectorStatus`, decision 0019; v7: multiple dashboards — `setOption`
   `dashboard_url`/`dashboard_urls`/`rotate_seconds`, stored slots, API 33+
-  back callback, new intents without reload, decision 0020)
+  back callback, new intents without reload, decision 0020; v8: phone exporter
+  under the collector service, decision 0021)
 - **Consumers:** Android shell (W1), renderer debug affordance (W2)
 - **Related:** C-001 (config), C-008 (WebView security), C-009 (diagnostics)
 
@@ -194,7 +195,8 @@ Decision 0019; configuration in C-001
   `POST_NOTIFICATIONS`; on Android 13+ the notification is then hidden from
   the shade but the service still runs (and is listed in the task manager).
 - Notification channel `collector` ("Collector", `IMPORTANCE_LOW`); text
-  "Collecting N targets"; tapping it opens the dashboard.
+  "Collecting N targets" (N includes the phone exporter job); tapping it opens
+  the dashboard.
 - **Start.** `MainActivity` persists the launch config, then, when
   `collector=true`, calls `startForegroundService` before loading the
   renderer. The service reads the persisted `AppConfig` (so a sticky restart
@@ -229,6 +231,38 @@ Decision 0019; configuration in C-001
   (Home, screen off, finishing with Back) does not stop it.
 - A `startForegroundService` refusal is logged; the renderer still loads (its
   queries then fail against the loopback URL, which the dashboard shows).
+
+### Phone exporter
+
+Decision 0021; configuration in C-001
+[Phone exporter job](C-001-launch-config.md#phone-exporter-job); metrics in
+[`docs/integrations/phone-exporter.md`](../integrations/phone-exporter.md);
+listener rules in C-008.
+
+- **Same lifecycle as the collector.** With `collector_phone=true`,
+  `CollectorService` starts `PhoneExporter` on every start command before
+  (re)starting the supervisor, and stops it in `onDestroy` and when a start
+  command resolves `collector_phone=false`. A collector reconfiguration that
+  keeps `collector_phone=true` leaves the exporter running. With
+  `collector=false` neither runs.
+- **Listener.** One daemon thread (`androdash-phone-exporter`) binds
+  `127.0.0.1:19100` (`SO_REUSEADDR`, backlog 8) and serves one connection at a
+  time. A failed bind is logged and retried every 5 s until stopped. Stop
+  closes the listener; the thread ends without being joined.
+- **Sampling at scrape time.** Each `GET /metrics` samples the phone with
+  cheap framework calls and small `/proc`/`/sys` reads; nothing runs between
+  scrapes, so the exporter costs no CPU while idle. Each source (`device`,
+  `battery`, `thermal`, `memory`, `storage`, `network`, `wifi`, `cpu`,
+  `screen`, `time`, `process`, `collector`) runs in its own try/catch: a
+  failure drops only its metrics and increments
+  `android_exporter_source_errors_total{source}`.
+- **Never crashes the service.** Request, sampling, and listener failures are
+  caught and logged (per-request failures at debug level); start/stop
+  failures in `CollectorService` are logged.
+- **Collector process.** `androdash_collector_up` and
+  `androdash_collector_restarts_total` come from the supervisor state also used
+  by `collectorStatus`; the Prometheus child's `/proc` entry is found by parent
+  pid and command name (`libprometheus.s…`) once per process start.
 
 ## Lifecycle
 
@@ -276,7 +310,7 @@ Optional `window.AndroDash` (present only in the Android shell):
 | `setLockScreen(enabled)` | boolean | Toggle `show_when_locked` at runtime: persist it, apply/clear the keyguard window flags and screen receiver immediately, and push `setLocked(false)` and undim when disabling. Enabling is ignored (warning) when `kiosk=false`. |
 | `storeDashboard(sourceUrl, json)` | strings; `json` ≤ 5 MiB UTF-8 | Store the dashboard JSON the renderer fetched (C-001 [Dashboard source](C-001-launch-config.md#dashboard-source)) in slot `i`, the position of `sourceUrl` in the current `dashboard_urls`. Accepted only when `sourceUrl` equals a `dashboard_urls` entry exactly, `dashboard_source` is `stored`, and `sourceUrl` is not an `http://androdash.local/` URL; `json` must parse as one JSON object (nothing after it) and be at most 5 MiB (5 242 880 bytes) as UTF-8. Replaces that slot's previous copy (see [Persistence](#persistence-and-relaunch)). Runs the file IO on the calling bridge thread. Returns `true` when stored, `false` on any rejection or IO failure (with a warning); never throws. Logs sizes and the slot only, never contents or URLs. |
 | `clearStoredDashboard()` | none | Delete every stored slot; `/stored/*` answers 404 afterwards. Never throws. Returns nothing. |
-| `collectorStatus()` | none | Returns the [collector](#collector-service) state as a JSON string of at most 4 KiB (UTF-8): `{"enabled": bool, "running": bool, "url": "http://127.0.0.1:19090" \| null, "targets": [{"job", "instance", "address"}], "restarts": n, "startedAt": unix ms \| null, "lastExit": string \| null}`. `enabled` is the current `collector` value; `url` and `targets` are set only when enabled (trailing targets are dropped if the list would exceed 4 KiB); `running` is true while the Prometheus process is alive; `restarts` counts supervisor restarts of the current configuration; `startedAt` is the current process's start (null when not running); `lastExit` is printable ASCII ≤ 200 characters such as `exited with code 1 after 3s`, `start failed: IOException`, or `stopped`. Never throws (falls back to the disabled shape). |
+| `collectorStatus()` | none | Returns the [collector](#collector-service) state as a JSON string of at most 4 KiB (UTF-8): `{"enabled": bool, "running": bool, "url": "http://127.0.0.1:19090" \| null, "targets": [{"job", "instance", "address"}], "restarts": n, "startedAt": unix ms \| null, "lastExit": string \| null}`. `enabled` is the current `collector` value; `url` and `targets` are set only when enabled; `targets` lists the phone exporter job (`phone`/`phone`/`127.0.0.1:19100`) first when `collector_phone=true`, then `collector_targets` (trailing targets are dropped if the list would exceed 4 KiB); `running` is true while the Prometheus process is alive; `restarts` counts supervisor restarts of the current configuration; `startedAt` is the current process's start (null when not running); `lastExit` is printable ASCII ≤ 200 characters such as `exited with code 1 after 3s`, `start failed: IOException`, or `stopped`. Never throws (falls back to the disabled shape). |
 
 Native → renderer (not a bridge method): with `show_when_locked`, the shell
 calls `window.androdash.setLocked(true|false)` through the two constant scripts
@@ -361,7 +395,7 @@ Contents:
     `--ez collector true --es collector_targets "node:mac=<mac-lan-ip>:9100"`
     and the bundled `macos-node-dashboard.json`. Logcat shows
     `collector=true: renderer uses prometheus_url=http://127.0.0.1:19090` and
-    `collector starting: 1 targets`; the Collector notification appears in
+    `collector starting: 2 targets (phone true)`; the Collector notification appears in
     the task manager; `run-as com.mbicz.androdash ls files/collector` lists
     `prometheus.yml`, `data`, `prometheus.log`; the dashboard renders from the
     phone's Prometheus. `AndroDash.collectorStatus()` reports `running: true`.
@@ -383,6 +417,15 @@ Contents:
     the first dashboard shows; the renderer switches (swipe, or every 60 s)
     with `setOption("dashboard_url", …)` (logcat `option set … dashboard=2/2`);
     force-stop and relaunch from the launcher shows the last viewed one.
+15. Phone exporter: launch with only `--ez collector true` (no
+    `collector_targets`, Mac unreachable is fine). Logcat shows
+    `phone exporter listening on 127.0.0.1:19100` and
+    `collector starting: 1 targets (phone true)`; within one scrape interval
+    `up{job="phone"}` is `1` on `127.0.0.1:19090` and
+    `android_battery_level_ratio` has a sample. Relaunch with
+    `--ez collector_phone false --es collector_targets "node:mac=<mac-lan-ip>:9100"`:
+    the log shows `phone exporter stopped` and port 19100 refuses connections;
+    `--ez collector false` stops both.
 
 ## Test obligations
 
@@ -399,7 +442,9 @@ Contents:
   (`AssetServerRouteTest`), and the collector (`CollectorConfigTest`:
   target grammar, `prometheus.yml`, arguments; `RestartPolicyTest`: backoff
   sequence, cap, healthy reset; `CollectorStatusTest`: payload shape, 4 KiB
-  bound).
+  bound, phone target), and the phone exporter (`PhoneMetricsTest`: exposition
+  text, omission, escaping, unit conversions, `/proc` parsing; `MiniHttpTest`:
+  bounded request head, request line, routing, response framing).
 - Manual emulator checklist above; record commands/results in the handoff.
 - Logcat: no uncaught exceptions; no secrets.
 - If `lock_task` is promoted to C-001, add a unit/manual matrix for device-owner

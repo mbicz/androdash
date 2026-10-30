@@ -28,6 +28,8 @@ data class AppConfig(
     val collectorTargets: String? = null,
     val collectorScrapeSeconds: Int = DEFAULT_COLLECTOR_SCRAPE_SECONDS,
     val collectorRetention: String = DEFAULT_COLLECTOR_RETENTION,
+    /** C-001 `collector_phone`: scrape the in-app phone exporter while the collector runs. */
+    val collectorPhone: Boolean = true,
     /**
      * C-001 `dashboard_urls`: 1–8 distinct dashboard URLs, always containing
      * [dashboardUrl] (the one currently shown). Each index is also the stored
@@ -63,6 +65,7 @@ data class AppConfig(
         json.put("collectorTargets", collectorTargets ?: JSONObject.NULL)
         json.put("collectorScrapeSeconds", collectorScrapeSeconds)
         json.put("collectorRetention", collectorRetention)
+        json.put("collectorPhone", collectorPhone)
         json.put("dashboardUrls", JSONArray().apply { dashboardUrls.forEach { put(it) } })
         json.put("rotateSeconds", rotateSeconds)
         return json.toString()
@@ -120,6 +123,7 @@ data class AppConfig(
                         "collectorRetention",
                         DEFAULT_COLLECTOR_RETENTION,
                     ),
+                    collectorPhone = json.optBoolean("collectorPhone", true),
                     dashboardUrls = dashboardUrls,
                     rotateSeconds = json.optInt("rotateSeconds", 0),
                 )

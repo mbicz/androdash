@@ -8,15 +8,22 @@ data class CollectorTarget(
 )
 
 /**
- * Pure model of the on-phone Prometheus collector (decision 0019): validated
- * targets, scrape interval and retention, the `prometheus.yml` text, and the
- * command line. Everything Prometheus sees is built from validated fields only.
+ * Pure model of the on-phone Prometheus collector (decisions 0019, 0021):
+ * validated targets, the in-app phone exporter job, scrape interval and
+ * retention, the `prometheus.yml` text, and the command line. Everything
+ * Prometheus sees is built from validated fields only.
  */
 data class CollectorConfig(
     val targets: List<CollectorTarget>,
     val scrapeSeconds: Int,
     val retentionMillis: Long,
+    /** C-001 `collector_phone`: run [PhoneExporter] and scrape it as [PHONE_TARGET]. */
+    val phone: Boolean = false,
 ) {
+    /** Every scrape target: [PHONE_TARGET] first when [phone], then [targets]. */
+    val scrapeTargets: List<CollectorTarget>
+        get() = if (phone) listOf(PHONE_TARGET) + targets else targets
+
     /**
      * Deterministic `prometheus.yml`: a global scrape interval and one scrape
      * job per distinct `job` (first-appearance order) whose static configs set
@@ -27,7 +34,7 @@ data class CollectorConfig(
         append("global:\n")
         append("  scrape_interval: ").append(quote("${scrapeSeconds}s")).append('\n')
         append("scrape_configs:\n")
-        targets.groupBy { it.job }.forEach { (job, members) ->
+        scrapeTargets.groupBy { it.job }.forEach { (job, members) ->
             append("  - job_name: ").append(quote(job)).append('\n')
             append("    static_configs:\n")
             members.forEach { target ->
@@ -57,6 +64,10 @@ data class CollectorConfig(
         const val URL = "http://$LISTEN_ADDRESS"
         const val MAX_TARGETS = 32
         const val DEFAULT_JOB = "node"
+
+        /** The in-app phone exporter's loopback listener ([PhoneExporter], C-008). */
+        const val PHONE_PORT = 19100
+        val PHONE_TARGET = CollectorTarget("phone", "phone", "127.0.0.1:$PHONE_PORT")
         private const val MAX_CONNECTIONS = 32
         private const val MAX_HOST = 253
         private val NAME = Regex("^[A-Za-z0-9_.-]{1,64}$")
@@ -65,15 +76,30 @@ data class CollectorConfig(
         private val PORT = Regex("^[1-9][0-9]{0,4}$")
         private val HEX_GROUP = Regex("^[0-9A-Fa-f]{1,4}$")
 
-        /** The collector for [config], or null when `collector=false`. Assumes a validated config. */
+        /**
+         * The collector for [config], or null when `collector=false`. It needs
+         * `collector_targets`, `collector_phone=true`, or both; a user target
+         * may not repeat the phone job's `phone`/`phone` job and instance.
+         */
         fun from(config: AppConfig): CollectorConfig? {
             if (!config.collector) return null
-            val raw = config.collectorTargets
-                ?: throw ConfigException("E_CONFIG", "collector_targets is required when collector=true")
+            val targets = config.collectorTargets?.let(::parseTargets).orEmpty()
+            if (targets.isEmpty() && !config.collectorPhone) {
+                throw ConfigException(
+                    "E_CONFIG",
+                    "collector=true needs collector_targets or collector_phone=true",
+                )
+            }
+            if (config.collectorPhone &&
+                targets.any { it.job == PHONE_TARGET.job && it.instance == PHONE_TARGET.instance }
+            ) {
+                throw ConfigException("E_CONFIG", "collector_targets repeats the phone job and instance")
+            }
             return CollectorConfig(
-                targets = parseTargets(raw),
+                targets = targets,
                 scrapeSeconds = config.collectorScrapeSeconds,
                 retentionMillis = ConfigParser.collectorRetentionMillis(config.collectorRetention),
+                phone = config.collectorPhone,
             )
         }
 

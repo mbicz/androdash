@@ -62,6 +62,7 @@ const state = {
   rangeText: null,
   panelWindows: new Map(),
   locked: false,
+  zoomedPanel: null,
   titles: new Map(),
   rotateTimer: null,
   lastTouchAt: 0,
@@ -415,13 +416,14 @@ function renderDashboard() {
     main.append(renderRows(state.filtered.rows, { createPanel }));
     if (state.filtered.rows.length === 0) main.append(createNoPanels());
     app.replaceChildren(header, main);
-    // Sections snap under the sticky header; keep the snap offset equal to it.
-    if (typeof ResizeObserver === "function") {
-      new ResizeObserver(([entry]) => {
-        const height = Math.round(entry.target.getBoundingClientRect().height);
-        document.documentElement.style.setProperty("--header-h", `${height}px`);
-      }).observe(header);
-    }
+  }
+  // Sections snap under the header and a zoomed panel starts below it; keep
+  // the offset equal to the header's height.
+  if (typeof ResizeObserver === "function") {
+    new ResizeObserver(([entry]) => {
+      const height = Math.round(entry.target.getBoundingClientRect().height);
+      document.documentElement.style.setProperty("--header-h", `${height}px`);
+    }).observe(header);
   }
   app.setAttribute("aria-busy", "false");
   document.title = `${state.dashboard.title} · AndroDash`;
@@ -430,7 +432,40 @@ function renderDashboard() {
     if (entry.panel.panelKind === "Markdown") renderMarkdownPanel(entry.panel.id);
   }
   restorePanels();
+  setZoom(state.zoomedPanel);
   updateStatus();
+}
+
+/**
+ * Panel zoom (C-005 "Panel zoom"): a double tap on a panel makes it fill the
+ * screen below the header; a double tap (or Escape) returns it. The panel is
+ * redrawn at its new size; other panels keep refreshing underneath.
+ */
+function setZoom(panelId) {
+  const previous = document.querySelector(".panel.is-zoomed");
+  previous?.classList.remove("is-zoomed");
+  previous?.removeAttribute("aria-expanded");
+  const section = panelId ? panelElements(panelId)[0] : null;
+  state.zoomedPanel = section ? panelId : null;
+  document.documentElement.dataset.zoom = String(Boolean(section));
+  if (section) {
+    section.classList.add("is-zoomed");
+    section.setAttribute("aria-expanded", "true");
+  }
+  const redraw = [previous?.dataset.panelId, state.zoomedPanel].filter(Boolean);
+  requestAnimationFrame(() => {
+    for (const id of new Set(redraw)) {
+      const series = state.lastSeries.get(id);
+      if (series) applyDataPanel(id, series, state.panelErrors.get(id) || null);
+    }
+  });
+  scheduleRotation();
+}
+
+function toggleZoom(target) {
+  const section = target instanceof Element ? target.closest(".panel[data-panel-id]") : null;
+  if (state.zoomedPanel) setZoom(null);
+  else if (section) setZoom(section.dataset.panelId);
 }
 
 /** Repaint every panel from retained data after a rebuild. */
@@ -579,9 +614,11 @@ function createHeader() {
   const heading = document.createElement("div");
   heading.className = "app-heading";
   heading.append(title, status);
+  // The dots sit in a fixed slot left of the actions, so switching between
+  // dashboards with titles of different widths moves only the title text.
   const pager = dashboardDots();
-  if (pager) heading.append(pager);
-  header.append(heading, actions);
+  if (pager) header.append(heading, pager, actions);
+  else header.append(heading, actions);
   return header;
 }
 
@@ -629,6 +666,7 @@ async function showDashboard(index, { direction = 0 } = {}) {
   const next = urls[((index % urls.length) + urls.length) % urls.length];
   if (next === state.config.dashboardUrl && state.dashboard) return;
   state.switching = true;
+  state.zoomedPanel = null;
   closeSettings();
   closeDebug();
   state.config = { ...state.config, dashboardUrl: next };
@@ -663,7 +701,7 @@ function scheduleRotation() {
   const delay = Math.max(seconds * 1000, 120_000 - idleFor);
   state.rotateTimer = setTimeout(() => {
     state.rotateTimer = null;
-    if (document.hidden || state.sheet || state.debugOverlay) {
+    if (document.hidden || state.sheet || state.debugOverlay || state.zoomedPanel) {
       scheduleRotation();
       return;
     }
@@ -703,14 +741,27 @@ function installGestures() {
     state.lastTouchAt = Date.now();
     start = { x, y, t, target };
   };
+  let lastTap = null;
   const finish = (x, y, t) => {
     const origin = start;
     start = null;
     scheduleRotation();
-    if (!origin || (state.config?.dashboardUrls.length ?? 0) < 2) return;
-    if (state.sheet || state.debugOverlay) return;
+    if (!origin || state.sheet || state.debugOverlay) return;
     const dx = x - origin.x;
     const dy = y - origin.y;
+    // Double tap: two short taps within 320 ms and 32 px toggle panel zoom.
+    if (Math.abs(dx) < 12 && Math.abs(dy) < 12 && t - origin.t < 250) {
+      const target = origin.target instanceof Element ? origin.target : null;
+      if (lastTap && t - lastTap.t < 320 && Math.hypot(x - lastTap.x, y - lastTap.y) < 32) {
+        lastTap = null;
+        if (!target?.closest("button, input, select, .app-header")) toggleZoom(target);
+      } else {
+        lastTap = { x, y, t };
+      }
+      return;
+    }
+    lastTap = null;
+    if (state.zoomedPanel || (state.config?.dashboardUrls.length ?? 0) < 2) return;
     if (Math.abs(dx) < 56 || Math.abs(dx) < Math.abs(dy) * 1.8 || t - origin.t > 700) return;
     const target = origin.target instanceof Element ? origin.target : null;
     if (target?.closest(".sheet-overlay, .debug-overlay, input, select")) return;
@@ -757,6 +808,8 @@ function installGestures() {
   );
   document.addEventListener("keydown", (event) => {
     if (state.sheet || state.debugOverlay) return;
+    if (event.key === "Escape" && state.zoomedPanel) setZoom(null);
+    if (state.zoomedPanel) return;
     if (event.key === "ArrowRight") stepDashboard(1);
     if (event.key === "ArrowLeft") stepDashboard(-1);
   });

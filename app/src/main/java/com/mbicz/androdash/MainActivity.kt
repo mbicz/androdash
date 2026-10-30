@@ -725,6 +725,7 @@ class MainActivity : Activity() {
                 "kiosk=${config.kiosk} debug=${config.debug} display=${config.displayMode} " +
                 "layout=${config.layoutMode} lock_style=${config.lockStyle} " +
                 "dashboard_source=${config.dashboardSource} collector=${config.collector} " +
+                "collector_phone=${config.collectorPhone} " +
                 "dashboards=${config.dashboardUrls.size} rotate_seconds=${config.rotateSeconds}",
         )
         if (config.collector) {

@@ -134,7 +134,7 @@
       "type": ["string", "null"],
       "minLength": 1,
       "pattern": "^[^\\s,]+(,[^\\s,]+)*$",
-      "description": "Canonical collector_targets: 1-32 comma-separated entries [job:]instance=host:port or host:port; job and instance match [A-Za-z0-9_.-]{1,64}; host is a DNS name, IPv4, or bracketed IPv6; port 1-65535; job defaults to node, instance to host:port. Required when collector is true. Native-only."
+      "description": "Canonical collector_targets: 1-32 comma-separated entries [job:]instance=host:port or host:port; job and instance match [A-Za-z0-9_.-]{1,64}; host is a DNS name, IPv4, or bracketed IPv6; port 1-65535; job defaults to node, instance to host:port. Required when collector is true and collectorPhone is false; with collectorPhone true no entry may be job phone with instance phone. Native-only."
     },
     "collectorScrapeSeconds": {
       "type": "integer",
@@ -148,11 +148,19 @@
       "pattern": "^([0-9]+(ms|s|m|h|d|w))+$",
       "default": "24h",
       "description": "Collector TSDB retention, C-001 duration grammar, 1h..30d at runtime. Native-only."
+    },
+    "collectorPhone": {
+      "type": "boolean",
+      "default": true,
+      "description": "While the collector runs, also run the in-app phone exporter on 127.0.0.1:19100 and scrape it as job phone, instance phone (C-001, C-007, decision 0021). Native-only. Additive; persisted objects without it default to true."
     }
   },
   "allOf": [
     {
-      "if": { "properties": { "collector": { "const": true } }, "required": ["collector"] },
+      "if": {
+        "properties": { "collector": { "const": true }, "collectorPhone": { "const": false } },
+        "required": ["collector", "collectorPhone"]
+      },
       "then": { "required": ["collectorTargets"], "properties": { "collectorTargets": { "type": "string" } } }
     }
   ]

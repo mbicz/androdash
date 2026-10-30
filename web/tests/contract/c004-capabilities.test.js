@@ -17,6 +17,9 @@ const macosFixture = JSON.parse(
 const agenticFixture = JSON.parse(
   await fs.readFile(new URL("../../../contracts/fixtures/agenticmac-dashboard.json", import.meta.url)),
 );
+const phoneFixture = JSON.parse(
+  await fs.readFile(new URL("../../../contracts/fixtures/phone-dashboard.json", import.meta.url)),
+);
 const url = "http://localhost:8099/contracts/fixtures/demo-dashboard.json";
 const baseConfig = parseConfig(
   `?dashboard_url=${encodeURIComponent(url)}&prometheus_url=http%3A%2F%2Flocalhost%3A9091`,
@@ -72,9 +75,12 @@ test("C-004 Spark dashboard is fully eligible with Prometheus", async () => {
   assert.equal(filtered.visible.get("about").panel.panelKind, "Markdown");
 });
 
-test("C-004 agenticmac-exporter dashboard is fully eligible without warnings", async () => {
+for (const [name, doc] of [
+  ["agenticmac-exporter", agenticFixture],
+  ["phone exporter", phoneFixture],
+]) test(`C-004 ${name} dashboard is fully eligible without warnings`, async () => {
   const warnings = [];
-  const dashboard = normalizeDashboard(structuredClone(agenticFixture), url, null, (code) =>
+  const dashboard = normalizeDashboard(structuredClone(doc), url, null, (code) =>
     warnings.push(code),
   );
   const variables = await resolveVariables(dashboard, {

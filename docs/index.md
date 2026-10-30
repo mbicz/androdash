@@ -29,6 +29,7 @@ If you are new, read [`AGENTS.md`](../AGENTS.md) first.
 | [`architecture/security.md`](architecture/security.md) | What is the threat model? What must never be weakened? |
 | [`architecture/testing.md`](architecture/testing.md) | What is tested at which layer? What is the emulator demo recipe? |
 | [`integrations/spark-exporter.md`](integrations/spark-exporter.md) | How are Spark Exporter metrics queried, formatted, and demonstrated? |
+| [`integrations/phone-exporter.md`](integrations/phone-exporter.md) | Which phone metrics does the in-app exporter serve to the on-phone collector? |
 
 ## Contracts
 
