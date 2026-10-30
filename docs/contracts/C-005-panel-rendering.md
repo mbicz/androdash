@@ -158,9 +158,12 @@ is `web/app/src/fit.js` (pure functions, no DOM); `main.js` builds the DOM.
 - **DOM.** `<main class="fit-grid">` is as tall as the visual viewport below
   the header (minus the bottom safe-area margin), with `--fit-scale` set to the
   scale and one `grid-template-rows` track per planned row:
-  `minmax(<min × scale>px, <weight>fr)`, or `minmax(<min × scale>px,
-  <max × scale>px)` for a capped row. Left-over height therefore goes to charts
-  first, then gauges, never past a table's rows. Each row is a `.fit-row` grid
+  `minmax(<row min>px, <weight>fr)`, or `minmax(<row min>px, <max>px)` for a
+  capped row. Only charts give up height when space is short: a row's minimum
+  never drops below the minimum of the stat, gauge, table, or text panels in it
+  (`rigidHeight`), and its chart share shrinks to at most half; past that the
+  grid scrolls rather than clip numbers. Left-over height goes to charts first,
+  then gauges, never past a table's rows. Each row is a `.fit-row` grid
   with one `minmax(0, <span>fr)` column per panel, each panel in a
   `.panel-slot`. Panel titles, tile and gauge labels, state words, legends,
   axis labels, and table cells scale with `--fit-scale`. `html[data-layout="fit"]`
@@ -198,7 +201,10 @@ click works the same) zooms it: the panel fills the screen below the header,
 shows its description, and is redrawn at the new size (charts, gauges, and
 stat tiles measure their box again). Other panels, section headers, and page
 dots are hidden but keep refreshing. A double tap anywhere, or `Escape`,
-returns. While zoomed, horizontal swipes do not switch dashboards and rotation
+returns. Zoomed content grows to fill the panel: stat numbers up to 160 px
+with proportional labels, and tables and Markdown take the largest type that
+still fits (12–44 px, `--zoom-font`). While zoomed, horizontal swipes do not
+switch dashboards and rotation
 waits. Switching dashboards clears the zoom; a relayout keeps it. Taps on
 buttons and the header never zoom.
 
