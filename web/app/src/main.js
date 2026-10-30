@@ -1372,7 +1372,8 @@ function panelElements(panelId) {
 
 /**
  * A zoomed table or text panel sets its type as large as still fits the panel
- * (12–44 px, binary search on `--zoom-font`), so zooming makes text bigger
+ * with nothing cut off (12–44 px, binary search on `--zoom-font`; table labels
+ * wrap), so zooming makes text bigger
  * rather than leaving it small in a large empty panel (C-005 "Panel zoom").
  */
 function fillText(section) {
@@ -1385,7 +1386,10 @@ function fillText(section) {
   }
   const fits = (size) => {
     body.style.setProperty("--zoom-font", `${size}px`);
-    return body.scrollHeight <= body.clientHeight + 1 && target.scrollWidth <= target.clientWidth + 1;
+    if (body.scrollHeight > body.clientHeight + 1 || target.scrollWidth > target.clientWidth + 1) return false;
+    // No cell may be cut off: labels wrap, so a clipped cell means a value
+    // or a single long word is wider than its column.
+    return [...target.querySelectorAll("td, th")].every((cell) => cell.scrollWidth <= cell.clientWidth + 1);
   };
   let low = 12;
   let high = 44;

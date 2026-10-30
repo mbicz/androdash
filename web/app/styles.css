@@ -1660,6 +1660,17 @@ html[data-zoom="true"] body {
   line-height: 1.3;
 }
 
+/* Zoomed labels wrap instead of truncating; values stay on one line. */
+.panel.is-zoomed .series-cell {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-overflow: clip;
+}
+
+.panel.is-zoomed .value-cell {
+  white-space: nowrap;
+}
+
 .panel.is-zoomed .data-table th {
   font-size: 0.75em;
 }
