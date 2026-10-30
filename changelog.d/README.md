@@ -37,6 +37,7 @@ shape; older ones remain binding unless marked superseded.
 | [0021](0021-phone-exporter-zoom-and-stable-header.md) | Phone exporter in the app, panel zoom, and a stable header | accepted |
 | [0022](0022-status-dot-only.md) | Header status: the dot only | accepted |
 | [0023](0023-in-app-dashboards-and-collector.md) | Dashboards and collector targets are edited in the app | accepted |
+| [0024](0024-ignition-seeding.md) | Ignition: one document seeds dashboards and collector targets | accepted |
 
 ## File naming
 

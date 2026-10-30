@@ -5,18 +5,14 @@ the phone and queries Prometheus directly. It can also run Prometheus on the
 phone itself.
 
 <p align="center">
-  <img src="docs/images/phone.png" width="230" alt="Bundled phone dashboard on a phone, fed by the on-phone collector">
-  <img src="docs/images/fit.png" width="230" alt="Spark Exporter dashboard, fit-to-screen layout">
-  <img src="docs/images/zoom.png" width="230" alt="A panel zoomed to full screen">
-</p>
-<p align="center">
-  <img src="docs/images/locked.png" width="230" alt="Grayscale lock-screen view">
-  <img src="docs/images/settings.png" width="230" alt="Settings sheet">
-  <img src="docs/images/scroll.png" width="230" alt="Scroll layout">
+  <img src="docs/images/hero.png" width="300" alt="The Spark Exporter dashboard in fit-to-screen layout">
 </p>
 
-<sub>Phone dashboard on a device; the others use the mock Prometheus in
-`tools/`.</sub>
+<sub>Spark Exporter dashboard in `fit` layout, rendered from the repository's mock
+Prometheus. More screenshots: [lock screen](docs/images/locked.png),
+[settings](docs/images/settings.png), [zoom](docs/images/zoom.png),
+[scroll layout](docs/images/scroll.png), [desktop](docs/images/desktop.png),
+[phone dashboard](docs/images/phone.png).</sub>
 
 ## Features
 
@@ -26,6 +22,8 @@ phone itself.
   Panels scroll internally, and a double tap zooms a panel to full screen.
 - Up to 8 dashboards. Swipe between them or rotate on a timer. Add any
   dashboard by URL, or paste dashboard JSON, from the app's settings sheet.
+- Ignition: one JSON document seeds the dashboards and collector targets at
+  launch, then removes itself, so a device can be provisioned from a file.
 - Optional on-phone collector: the APK bundles the upstream Prometheus binary
   (SHA-256 pinned). It runs as a foreground service on `127.0.0.1:19090` and
   scrapes your exporters, which you add from the settings sheet.

@@ -52,7 +52,7 @@ The index is [`contracts/README.md`](contracts/README.md).
 
 | Document | What it answers |
 |---|---|
-| [`getting-started.md`](getting-started.md) | How do I build, install, and configure the app on a phone? |
+| [`getting-started.md`](getting-started.md) | How do I build, install, and configure the app on a phone? Includes Ignition seeding |
 | [`development.md`](development.md) | How do I set up, run, test, and debug? What commands are real today? |
 | [`roadmap.md`](roadmap.md) | What is the current milestone? What is next? What are the workstreams? |
 | [`glossary.md`](glossary.md) | What do Perses/Prometheus/Android terms mean here? |

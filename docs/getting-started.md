@@ -10,7 +10,8 @@ All development commands: [`development.md`](development.md).
 5. [Dashboards and display options](#5-dashboards-and-display-options)
 6. [Gestures and status](#6-gestures-and-status)
 7. [Custom dashboards](#7-custom-dashboards)
-8. [Troubleshooting](#8-troubleshooting)
+8. [Seed a device with Ignition](#8-seed-a-device-with-ignition)
+9. [Troubleshooting](#9-troubleshooting)
 
 ## 1. Browser
 
@@ -209,11 +210,55 @@ rebuild. It is then served at
 settings sheet. The bundled dashboards come from generators such as
 [`tools/gen_phone_dashboard.py`](../tools/gen_phone_dashboard.py).
 
-## 8. Troubleshooting
+## 8. Seed a device with Ignition
+
+One JSON document can set the dashboards, the collector, and its targets at
+launch, then remove itself ([C-001 Ignition](contracts/C-001-launch-config.md#ignition)).
+Every key is optional and an absent key keeps the current value:
+
+```json
+{
+  "schemaVersion": 1,
+  "dashboards": {
+    "urls": [
+      "http://androdash.local/dashboards/phone-dashboard.json",
+      "http://192.168.1.20:8099/contracts/fixtures/spark-dashboard.json"
+    ]
+  },
+  "collector": {
+    "enabled": true,
+    "targets": "node:mac=192.168.1.20:9100,demo:demo=192.168.1.20:9091"
+  },
+  "layoutMode": "fit"
+}
+```
+
+Two sources:
+
+```sh
+# A. from a URL on the LAN or tailnet
+adb shell am start -n com.mbicz.androdash/.MainActivity \
+  --es ignition_url "http://192.168.1.20:8099/ignition.json"
+
+# B. a file on the device (debug build; applied on the next launch)
+adb push ignition.json /data/local/tmp/ignition.json
+adb shell run-as com.mbicz.androdash sh -c 'cat /data/local/tmp/ignition.json > files/ignition.json'
+adb shell am start -n com.mbicz.androdash/.MainActivity
+```
+
+`dashboards.inline` carries dashboard objects instead of URLs, so a device can be
+seeded with no dashboard server at all. After a successful apply the file is
+deleted and the `ignition_url` extra is dropped, so the device keeps whatever is
+changed in the app afterwards. An invalid document shows `E_IGNITION` (or
+`E_IGNITION_FETCH` for a failed fetch) instead of the dashboard.
+
+## 9. Troubleshooting
 
 | Symptom | Check |
 |---|---|
 | Native `E_CONFIG` screen | No extras on first launch, or an invalid value; the screen names the field |
+| Native `E_IGNITION` screen | The Ignition document is invalid; the screen names the key. Fix the file/URL and tap Retry |
+| Native `E_IGNITION_FETCH` screen | The phone cannot fetch `ignition_url` (scheme, status, size, timeout) |
 | `E_DASHBOARD_FETCH` | The phone cannot reach the URL, or the server lacks CORS. Try a bundled dashboard |
 | Panel shows "No data" | Check the query's job in `up`, or in the "Collector targets" panel. The exporter must listen on `0.0.0.0` |
 | Collector target is `0` | The phone cannot reach `host:port`: firewall, Wi-Fi isolation, or VLAN |

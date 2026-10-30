@@ -190,6 +190,13 @@ listed in `detail`; the reason ID is stable.
   `data-panel-state="unsupported"`.
 - Rows with only placeholders remain visible when `show_unsupported=true`; with
   the default they are omitted.
+- When no panel is visible at all (every panel hidden, or the dashboard has no
+  data panels), the layout shows one empty-state card instead of a blank page:
+  it names the dominant hidden reason in plain words (for example
+  `Prometheus is not reachable` for `probe_failed`, otherwise
+  `No supported panels`), counts the hidden panels, and says what to check.
+  With `debug=true` it also points at the diagnostics overlay. It is not a
+  panel: no refresh, no zoom, no state.
 - Hidden counts include both removed and placeholder panels; diagnostics
   distinguish them.
 - Never show a blank panel without a state; never fabricate sample data.

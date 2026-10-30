@@ -6,7 +6,8 @@
   (`W_FIT_OVERFLOW`, settings action replaces the lock-screen toggle; decision
   0017); amended 2026-10-28 (dashboard `source`/`storedAt`,
   `W_STORED_DASHBOARD_INVALID`, `W_DASHBOARD_NOT_STORED`; decision 0018);
-  amended 2026-10-29 (header status is the dot only; decision 0022)
+  amended 2026-10-29 (header status is the dot only; decision 0022);
+  amended 2026-10-30 (`E_IGNITION`, `E_IGNITION_FETCH`; decision 0024)
 - **Consumers:** Web renderer (W2), Android shell (W1)
 - **Machine-readable:** [`contracts/diagnostics.schema.json`](../../contracts/diagnostics.schema.json)
 - **Fixture:** [`diagnostics.example.json`](../../contracts/fixtures/diagnostics.example.json)
@@ -25,6 +26,8 @@ the snapshot must explain what is happening without leaking secrets.
 | Code | Meaning |
 |---|---|
 | `E_CONFIG` | Invalid/missing launch configuration (C-001) |
+| `E_IGNITION` | An Ignition document is invalid or would not merge into a valid config (C-001 [Ignition](C-001-launch-config.md#ignition)) |
+| `E_IGNITION_FETCH` | The `ignition_url` document could not be fetched (scheme, status, size, timeout) |
 | `E_ASSET_LOAD` | The local renderer asset failed to load (native) |
 | `E_DASHBOARD_FETCH` | Dashboard request failed (C-002) |
 | `E_DASHBOARD_PARSE` | Response is not an accepted Perses dashboard shape |

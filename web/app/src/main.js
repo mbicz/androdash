@@ -413,11 +413,12 @@ function renderDashboard() {
   if (fit) {
     main.className = "fit-grid";
     app.replaceChildren(header, main);
-    buildFit(main);
+    if (state.filtered.visible.size === 0) main.append(createNoPanels());
+    else buildFit(main);
   } else {
     main.className = "rows";
     main.append(renderRows(state.filtered.rows, { createPanel }));
-    if (state.filtered.rows.length === 0) main.append(createNoPanels());
+    if (state.filtered.visible.size === 0) main.append(createNoPanels());
     app.replaceChildren(header, main);
   }
   // Sections snap under the header and a zoomed panel starts below it; keep
@@ -1674,13 +1675,39 @@ function createUnsupportedPanel(item) {
   return section;
 }
 
+/**
+ * Shown when every panel was filtered out. Names the dominant reason and,
+ * without `debug`, says what to check instead of pointing at a diagnostics
+ * overlay that does not exist then (C-004, C-009).
+ */
 function createNoPanels() {
+  const reasons = state.filtered?.hiddenReasons || [];
+  const counts = new Map();
+  for (const entry of reasons) counts.set(entry.reason, (counts.get(entry.reason) || 0) + 1);
+  const ranked = [...counts.entries()].sort((a, b) => b[1] - a[1]);
+  const [top] = ranked[0] || [null];
   const empty = document.createElement("div");
   empty.className = "empty-dashboard";
   const title = document.createElement("h2");
-  title.textContent = "No supported panels";
+  title.textContent = top === "probe_failed" ? "Prometheus is not reachable" : "No supported panels";
   const text = document.createElement("p");
-  text.textContent = "Every panel was filtered out by capability or datasource checks. Open diagnostics for the reasons.";
+  const advice = {
+    probe_failed: "Check that the dashboard's Prometheus URL is reachable from this device and allows CORS.",
+    missing_datasource: "The dashboard's datasource URL is missing or unusable.",
+    capability_unavailable: "The panels need a capability this client does not serve.",
+    unsupported_query: "The panels use a query type this client does not support.",
+    unsupported_panel: "The panels use a panel type this client does not support.",
+    invalid_panel: "The dashboard definition is malformed.",
+    no_queries: "The panels have no queries.",
+  }[top] || "Every panel was filtered out by capability or datasource checks.";
+  text.textContent = `${reasons.length} of ${state.filtered?.counts?.total ?? reasons.length} panels hidden. ${advice}`;
+  if (state.config.debug) {
+    const hint = document.createElement("p");
+    hint.className = "empty-dashboard-hint";
+    hint.textContent = "Open diagnostics for every reason.";
+    empty.append(title, text, hint);
+    return empty;
+  }
   empty.append(title, text);
   return empty;
 }

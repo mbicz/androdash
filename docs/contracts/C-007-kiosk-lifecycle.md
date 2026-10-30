@@ -1,6 +1,6 @@
 # C-007 — Kiosk and lifecycle
 
-- **Version:** 9
+- **Version:** 10
 - **Status:** Accepted, 2026-10-29 (v3: lock-screen grayscale, re-light, view
   and lock-screen bridge methods, decision 0016; v4: generic `setOption`
   bridge method, `lock_style`, decision 0017; v5: stored dashboard bridge
@@ -11,7 +11,8 @@
   under the collector service, decision 0021; v9: `setOption` returns a
   reason, accepts remote and inline dashboard URLs, `collector`, and
   `collector_targets`; `addInlineDashboard`; `collectorStatus` always lists
-  targets, decision 0023)
+  targets, decision 0023; v10: Ignition documents seed dashboards and
+  collector targets once at launch, decision 0024)
 - **Consumers:** Android shell (W1), renderer debug affordance (W2)
 - **Related:** C-001 (config), C-008 (WebView security), C-009 (diagnostics)
 
@@ -272,7 +273,14 @@ listener rules in C-008.
 ## Lifecycle
 
 - `onCreate`: delete the legacy stored copy, parse config, configure WebView,
-  load local URL, apply kiosk.
+  load local URL, apply kiosk. When the launch carries `ignition_url`, or
+  `<filesDir>/ignition.json` exists and no such extra is given, the shell first
+  fetches/reads and applies the Ignition document off the UI thread (C-001
+  [Ignition](C-001-launch-config.md#ignition)): store its inline dashboards,
+  merge it over the persisted config, persist, prune, sync the collector, then
+  load the renderer. The source is consumed once (file deleted, extra removed)
+  only after a successful apply; a failure shows `E_IGNITION` or
+  `E_IGNITION_FETCH` and persists nothing.
 - `onNewIntent` (`launchMode=singleTask`: launcher tap, `adb am start`, a
   SystemUI re-start right after launch): parse the intent like a launch. When
   a renderer is live (WebView present, no fatal screen) and the intent either
