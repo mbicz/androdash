@@ -57,7 +57,6 @@ object ConfigParser {
     private const val MIN_ROTATE = 10
     private const val MAX_ROTATE = 3600
     private const val ROTATE_MESSAGE = "rotate_seconds must be 0 or between $MIN_ROTATE and $MAX_ROTATE"
-    private val BUNDLED_DASHBOARD = Regex("^http://androdash\\.local/dashboards/([A-Za-z0-9_.-]+)\\.json$")
 
     /** Every extra C-001/C-007 defines; any other extra does not change the launch. */
     private val LAUNCH_EXTRAS = setOf(
@@ -72,11 +71,12 @@ object ConfigParser {
     const val MAX_OPTION_INPUT = 64
 
     /**
-     * Maximum length of a `setOption` `dashboard_url` / `dashboard_urls` value
-     * (C-007): dashboard URLs are longer than [MAX_OPTION_INPUT].
+     * Maximum length of a `setOption` `dashboard_url`, `dashboard_urls`, or
+     * `collector_targets` value (C-007): URL and target lists are longer than
+     * [MAX_OPTION_INPUT].
      */
-    const val MAX_OPTION_URLS_INPUT = 2048
-    private val URL_OPTIONS = setOf("dashboard_url", "dashboard_urls")
+    const val MAX_OPTION_LONG_INPUT = 2048
+    private val LONG_OPTIONS = setOf("dashboard_url", "dashboard_urls", "collector_targets")
     private val INTEGER = Regex("^-?\\d+$")
     private val DURATION_PART = Regex("(\\d+)(ms|s|m|h|d|w)")
 
@@ -284,15 +284,18 @@ object ConfigParser {
 
     /** Maximum `setOption` value length for [name] (C-007). */
     fun maxOptionValue(name: String?): Int =
-        if (name?.trim() in URL_OPTIONS) MAX_OPTION_URLS_INPUT else MAX_OPTION_INPUT
+        if (name?.trim() in LONG_OPTIONS) MAX_OPTION_LONG_INPUT else MAX_OPTION_INPUT
 
     /**
      * Apply one renderer option (C-007 `AndroDash.setOption`) to the current
      * config with the same rules as the launch extra of that name. Unknown
-     * names, blank or over-long values, and invalid values are `E_CONFIG`.
-     * `dashboard_url` must be one of the current `dashboard_urls`, and
-     * `dashboard_urls` may only add bundled dashboards: the page never
-     * introduces a remote URL.
+     * names, over-long values, blank values (except `collector_targets`, where
+     * blank clears the user targets), and invalid values are `E_CONFIG`, as is
+     * a result that is no longer a valid config (including its collector, e.g.
+     * `collector=true` with no targets while `collector_phone=false`).
+     * `dashboard_url` must be one of the current `dashboard_urls`;
+     * `dashboard_urls` takes any URL valid for the `dashboard_url` extra.
+     * `collector_targets` is stored in canonical form.
      */
     fun applyOption(config: AppConfig, name: String?, value: String?): OptionUpdate {
         val option = name?.trim().orEmpty()
@@ -304,7 +307,7 @@ object ConfigParser {
         if (raw.length > limit) {
             throw ConfigException("E_CONFIG", "setOption $option values must be at most $limit characters")
         }
-        if (raw.isEmpty()) {
+        if (raw.isEmpty() && option != "collector_targets") {
             throw ConfigException("E_CONFIG", "setOption needs a value")
         }
         val warnings = ArrayList<String>()
@@ -325,14 +328,15 @@ object ConfigParser {
                 }
                 config.copy(dashboardUrl = raw)
             }
-            "dashboard_urls" -> {
-                val urls = parseDashboardUrls(raw)
-                if (urls.any { it !in config.dashboardUrls && !isBundledDashboard(it) }) {
-                    throw ConfigException("E_CONFIG", "dashboard_urls may only add bundled dashboards")
-                }
-                config.copy(dashboardUrls = withCurrent(config.dashboardUrl, urls))
-            }
+            "dashboard_urls" -> config.copy(
+                dashboardUrls = withCurrent(config.dashboardUrl, parseDashboardUrls(raw)),
+            )
             "rotate_seconds" -> config.copy(rotateSeconds = parseRotate(raw))
+            "collector" -> config.copy(collector = parseBoolean(mapOf(option to raw), option, config.collector))
+            "collector_targets" -> config.copy(
+                collectorTargets = raw.takeIf { it.isNotEmpty() }
+                    ?.let { CollectorConfig.canonicalTargets(CollectorConfig.parseTargets(it)) },
+            )
             else -> throw ConfigException("E_CONFIG", "setOption does not accept this option name")
         }
         validateConfig(updated)
@@ -450,15 +454,6 @@ object ConfigParser {
 
     /** Milliseconds of a C-001 duration given as `collector_retention`. */
     fun collectorRetentionMillis(value: String): Long = durationMillis(value, "collector_retention")
-
-    /**
-     * A bundled `http://androdash.local/dashboards/<name>.json` URL other than
-     * the generated index (and without `..`, which the asset server refuses).
-     */
-    fun isBundledDashboard(url: String): Boolean {
-        val name = BUNDLED_DASHBOARD.matchEntire(url)?.groupValues?.get(1) ?: return false
-        return name != "index" && !url.contains("..")
-    }
 
     /**
      * C-001 `dashboard_urls` list: comma-separated (a comma inside a URL is

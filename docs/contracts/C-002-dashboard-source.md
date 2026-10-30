@@ -3,7 +3,8 @@
 - **Version:** 2 (AndroDash Perses subset v1)
 - **Status:** Accepted, 2026-10-26; amended 2026-10-27 (variables in titles;
   decision 0015); v2 2026-10-28 (dashboard sources: stored, live, bundled;
-  decision 0018)
+  decision 0018); amended 2026-10-29 (inline dashboards pasted in the app;
+  decision 0023)
 - **Consumers:** Web renderer (W2)
 - **Fixtures:** [`demo-dashboard.json`](../../contracts/fixtures/demo-dashboard.json),
   [`spark-dashboard.json`](../../contracts/fixtures/spark-dashboard.json),
@@ -52,6 +53,7 @@ fetches; the definition is normalized as untrusted input whatever its source.
 | Source | When | Behaviour |
 |---|---|---|
 | `bundled` | `dashboard_url` is `http://androdash.local/dashboards/<file>.json` | A dashboard built into the APK (C-007). Always local; never stored. |
+| `inline` | `dashboard_url` is `http://androdash.local/inline/<id>.json` | A document the user pasted in the settings sheet, kept by the shell (C-007 `addInlineDashboard`). Always local; never stored in a slot. |
 | `stored` | `dashboard_source=stored` (default) and the Android shell's store is present | Read `http://androdash.local/stored/<i>/meta.json`, where `<i>` is the position of `dashboard_url` in `dashboard_urls` (slots 0–7). If its `sourceUrl` equals `dashboard_url`, load `/stored/<i>/dashboard.json` and **do not contact the dashboard server**. Otherwise fetch `dashboard_url`, normalize it, and store it with `AndroDash.storeDashboard(dashboard_url, json)`; a new `dashboard_url` therefore replaces the stored copy on its first successful load. |
 | `url` | `dashboard_source=url`, or no shell store (browser) | Fetch `dashboard_url` on every load; store nothing. |
 

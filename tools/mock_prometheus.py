@@ -6,6 +6,11 @@ contracts/fixtures/demo-dashboard.json and the Spark Exporter queries in
 contracts/fixtures/spark-dashboard.json, then returns stable, plausible data.
 Unknown queries return a Prometheus-style error envelope.
 
+It also serves the demo metrics in the Prometheus text format on /metrics, so
+a real Prometheus (for example the AndroDash on-phone collector, with the
+target `demo:demo=<host>:9091`) can scrape them and the demo dashboard works
+against it.
+
 Usage:
     python3 tools/mock_prometheus.py --port 9091
     python3 tools/mock_prometheus.py --host 0.0.0.0 --port 9091 --latency-ms 40
@@ -592,6 +597,41 @@ def _instant_result(query: str, timestamp: float) -> list[dict[str, Any]] | None
     return None
 
 
+def metrics_text(timestamp: float) -> str:
+    """The demo metric families at [timestamp] in the Prometheus text format.
+
+    Counters are integrals of the rates the query API returns, so
+    `rate(demo_cpu_seconds_total[1m]) * 100` over scraped samples matches the
+    mock's own answer for that query.
+    """
+    t = timestamp
+    system = (6.4 * t - 2.1 * 190.0 * math.cos(t / 190.0)) / 100.0
+    user = (20.0 * t - 4.2 * 240.0 * math.cos(t / 240.0 + 1.2)) / 100.0
+    lines = [
+        "# HELP demo_cpu_seconds_total Demo CPU time.",
+        "# TYPE demo_cpu_seconds_total counter",
+        f'demo_cpu_seconds_total{{mode="system"}} {system:.3f}',
+        f'demo_cpu_seconds_total{{mode="user"}} {user:.3f}',
+        "# HELP demo_load1 Demo 1-minute load average.",
+        "# TYPE demo_load1 gauge",
+        f"demo_load1 {0.56 + 0.18 * math.sin(t / 210.0) + 0.05 * math.sin(t / 37.0):.4f}",
+        "# HELP demo_load5 Demo 5-minute load average.",
+        "# TYPE demo_load5 gauge",
+        f"demo_load5 {0.58 + 0.10 * math.sin(t / 260.0 + 0.7):.4f}",
+        "# HELP demo_memory_used_percent Demo memory used.",
+        "# TYPE demo_memory_used_percent gauge",
+        f"demo_memory_used_percent {62.4 + 1.9 * math.sin(t / 420.0) + 0.4 * math.sin(t / 53.0):.4f}",
+        "# HELP demo_disk_used_percent Demo disk used.",
+        "# TYPE demo_disk_used_percent gauge",
+        f"demo_disk_used_percent {78.0 + 4.2 * math.sin(t / 600.0 + 0.9):.4f}",
+        "# HELP demo_requests_total Demo requests by status code.",
+        "# TYPE demo_requests_total counter",
+        f'demo_requests_total{{code="200"}} {18432 + 45 * math.sin(t / 300.0):.0f}',
+        f'demo_requests_total{{code="500"}} {17 + 4 * math.sin(t / 240.0 + 2.0):.0f}',
+    ]
+    return "\n".join(lines) + "\n"
+
+
 def _parse_float(params: dict[str, list[str]], key: str, fallback: float) -> float:
     raw = params.get(key, [""])[0]
     try:
@@ -644,6 +684,16 @@ class Handler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         path = parsed.path
         params = parse_qs(parsed.query, keep_blank_values=True)
+
+        if path == "/metrics":
+            body = metrics_text(time.time()).encode("utf-8")
+            self.send_response(200)
+            self._cors()
+            self.send_header("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
 
         if path == "/api/v1/status/buildinfo":
             self._send_json({"status": "success", "data": BUILDINFO})
@@ -763,6 +813,7 @@ def main() -> None:
     print("  GET /api/v1/query")
     print("  GET /api/v1/query_range")
     print("  GET /api/v1/label/<name>/values")
+    print("  GET /metrics (demo metrics for a real Prometheus to scrape)")
     try:
         server.serve_forever()
     except KeyboardInterrupt:

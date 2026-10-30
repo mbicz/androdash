@@ -794,7 +794,7 @@ class ConfigParserTest {
     }
 
     @Test
-    fun `setOption dashboard_urls may add bundled dashboards but never a new remote URL`() {
+    fun `setOption dashboard_urls accepts any dashboard URL valid as a launch extra`() {
         val base = AppConfig(dashboardUrl = lan, dashboardUrls = listOf(lan, agents))
 
         val added = ConfigParser.applyOption(base, "dashboard_urls", "$lan,$agents,$spark")
@@ -804,28 +804,122 @@ class ConfigParserTest {
         // Reorder and drop; the current dashboard is put back first when left out.
         val reordered = ConfigParser.applyOption(base, "dashboard_urls", "$spark,$agents")
         assertEquals(listOf(lan, spark, agents), reordered.config.dashboardUrls)
-        val remoteKept = ConfigParser.applyOption(base.copy(dashboardUrl = agents), "dashboard_urls", "$agents,$lan")
-        assertEquals(listOf(agents, lan), remoteKept.config.dashboardUrls)
         val remoteDropped = ConfigParser.applyOption(base.copy(dashboardUrl = agents), "dashboard_urls", agents)
         assertEquals(listOf(agents), remoteDropped.config.dashboardUrls)
 
-        assertFails { ConfigParser.applyOption(base, "dashboard_urls", "$lan,http://evil.example/d.json") }
-        assertFails { ConfigParser.applyOption(base, "dashboard_urls", "http://192.168.192.16:8099/other.json") }
-        assertFails { ConfigParser.applyOption(base, "dashboard_urls", "http://androdash.local/dashboards/index.json") }
-        assertFails { ConfigParser.applyOption(base, "dashboard_urls", "http://androdashXlocal/dashboards/x.json") }
-        assertFails { ConfigParser.applyOption(base, "dashboard_urls", "https://androdash.local/dashboards/x.json") }
-        assertFails { ConfigParser.applyOption(base, "dashboard_urls", "http://androdash.local/dashboards/sub/x.json") }
-        assertFails { ConfigParser.applyOption(base, "dashboard_urls", "http://androdash.local/dashboards/..json") }
-        assertFails { ConfigParser.applyOption(base, "dashboard_urls", "http://androdash.local/stored/0/dashboard.json") }
+        // A new remote URL and an inline URL are accepted.
+        val remote = "https://dashboards.example.com/team/node.json?v=2"
+        val inline = "http://androdash.local/inline/0123456789abcdef.json"
+        val withRemote = ConfigParser.applyOption(base, "dashboard_urls", "$lan,$agents,$remote,$inline")
+        assertEquals(listOf(lan, agents, remote, inline), withRemote.config.dashboardUrls)
+        assertEquals(lan, withRemote.config.dashboardUrl)
+        assertTrue(ConfigParser.launchUrl(withRemote.config).contains("dashboards.example.com"))
+
+        // The launch-extra URL rules still apply.
+        assertFails { ConfigParser.applyOption(base, "dashboard_urls", "$lan,file:///sdcard/d.json") }
+        assertFails { ConfigParser.applyOption(base, "dashboard_urls", "$lan,http://user:pw@example.com/d.json") }
+        assertFails { ConfigParser.applyOption(base, "dashboard_urls", "$lan,javascript:alert(1)") }
+        assertFails { ConfigParser.applyOption(base, "dashboard_urls", "$lan,not a url") }
         assertFails { ConfigParser.applyOption(base, "dashboard_urls", " , ") }
         val eight = (1..8).map { "http://androdash.local/dashboards/d$it.json" }
-        // Eight bundled entries plus the current remote dashboard is nine.
+        // Eight entries plus the current dashboard is nine.
         assertFails { ConfigParser.applyOption(base, "dashboard_urls", eight.joinToString(",")) }
         assertEquals(
             eight,
             ConfigParser.applyOption(base.copy(dashboardUrl = eight[0], dashboardUrls = listOf(eight[0])), "dashboard_urls", eight.joinToString(","))
                 .config.dashboardUrls,
         )
+    }
+
+    @Test
+    fun `setOption collector turns the collector on and off`() {
+        val base = AppConfig(dashboardUrl = dashboard, prometheusUrl = "http://192.168.1.20:9090")
+        val on = ConfigParser.applyOption(base, "collector", " TRUE ").config
+        assertTrue(on.collector)
+        assertEquals(CollectorConfig.URL, ConfigParser.rendererPrometheusUrl(on))
+        assertEquals(CollectorConfig.URL, queryParameters(on)["prometheus_url"])
+
+        val off = ConfigParser.applyOption(on, "collector", "false").config
+        assertFalse(off.collector)
+        assertEquals("http://192.168.1.20:9090", ConfigParser.rendererPrometheusUrl(off))
+        assertEquals(base, off)
+
+        assertFails { ConfigParser.applyOption(base, "collector", "yes") }
+        assertFails { ConfigParser.applyOption(base, "collector", "") }
+    }
+
+    @Test
+    fun `setOption collector_targets adds canonical targets and empty clears them`() {
+        val base = AppConfig(dashboardUrl = dashboard, collector = true)
+        val added = ConfigParser.applyOption(
+            base,
+            "collector_targets",
+            " node:mac=192.168.1.20:9100 , gpu:spark=[fe80::1]:9400,192.168.1.21:9100 ",
+        ).config
+        assertEquals("node:mac=192.168.1.20:9100,gpu:spark=[fe80::1]:9400,192.168.1.21:9100", added.collectorTargets)
+        assertEquals(4, CollectorConfig.from(added)!!.scrapeTargets.size)
+
+        val cleared = ConfigParser.applyOption(added, "collector_targets", "  ").config
+        assertNull(cleared.collectorTargets)
+        assertEquals(base, cleared)
+        assertNull(ConfigParser.applyOption(added, "collector_targets", null).config.collectorTargets)
+
+        // Targets may be edited while the collector is off.
+        val off = base.copy(collector = false)
+        assertEquals("a.lan:9100", ConfigParser.applyOption(off, "collector_targets", "a.lan:9100").config.collectorTargets)
+    }
+
+    @Test
+    fun `setOption collector_targets rejects invalid targets and leaves the config unchanged`() {
+        val base = AppConfig(dashboardUrl = dashboard, collector = true, collectorTargets = "a.lan:9100")
+        val snapshot = base.copy()
+        listOf(
+            "a.lan",
+            "a.lan:0",
+            "a.lan:65536",
+            "bad host:9100",
+            "job with space:x=a.lan:9100",
+            "[fe80::zz]:9100",
+            "a.lan:9100,a.lan:9100",
+            " , ",
+            (1..33).joinToString(",") { "h$it.lan:9100" },
+        ).forEach { raw ->
+            assertFails { ConfigParser.applyOption(base, "collector_targets", raw) }
+        }
+        assertEquals(snapshot, base)
+        assertEquals(2048, ConfigParser.maxOptionValue("collector_targets"))
+        assertFails { ConfigParser.applyOption(base, "collector_targets", "a".repeat(2049)) }
+    }
+
+    @Test
+    fun `setOption keeps the collector config valid`() {
+        val noPhone = AppConfig(dashboardUrl = dashboard, collectorPhone = false, collectorTargets = "a.lan:9100")
+        // collector=true needs targets or the phone exporter.
+        val empty = noPhone.copy(collectorTargets = null)
+        assertFails { ConfigParser.applyOption(empty, "collector", "true") }
+        val running = noPhone.copy(collector = true)
+        assertFails { ConfigParser.applyOption(running, "collector_targets", "") }
+        // Clearing is fine while the phone exporter is scraped.
+        assertNull(ConfigParser.applyOption(running.copy(collectorPhone = true), "collector_targets", "").config.collectorTargets)
+
+        // A user target may not repeat the phone job's phone/phone while collector_phone=true.
+        val phone = AppConfig(dashboardUrl = dashboard, collector = true)
+        assertFails { ConfigParser.applyOption(phone, "collector_targets", "phone:phone=a.lan:9100") }
+        assertEquals(
+            "phone:phone=a.lan:9100",
+            ConfigParser.applyOption(noPhone.copy(collector = true), "collector_targets", "phone:phone=a.lan:9100")
+                .config.collectorTargets,
+        )
+    }
+
+    @Test
+    fun `only collector_targets accepts a blank setOption value`() {
+        val base = AppConfig(dashboardUrl = dashboard)
+        listOf("time_range", "refresh_seconds", "layout_mode", "dashboard_url", "dashboard_urls", "collector").forEach {
+            assertFails { ConfigParser.applyOption(base, it, " ") }
+        }
+        assertFails { ConfigParser.applyOption(base, "collector_phone", "false") }
+        assertFails { ConfigParser.applyOption(base, "prometheus_url", "http://192.168.1.20:9090") }
     }
 
     @Test

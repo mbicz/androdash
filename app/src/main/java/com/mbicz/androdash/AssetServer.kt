@@ -10,14 +10,16 @@ import java.io.InputStream
 
 /**
  * Serves the trusted renderer, the bundled dashboards (and their generated
- * `dashboards/index.json`), and the stored dashboard slots from the virtual
- * origin. No file:// access and no directory traversal: only the explicit
- * routes in [route] are reachable, and the stored copies live under fixed file
- * names in [DashboardStore].
+ * `dashboards/index.json`), the stored dashboard slots, and the pasted inline
+ * dashboards from the virtual origin. No file:// access and no directory
+ * traversal: only the explicit routes in [route] are reachable, the stored
+ * copies live under fixed file names in [DashboardStore], and inline files
+ * under content-hash names in [InlineDashboards].
  */
 class AssetServer(
     private val assets: AssetManager,
     private val store: DashboardStore,
+    private val inline: InlineDashboards,
 ) {
     fun intercept(request: WebResourceRequest): WebResourceResponse? {
         val uri = request.url
@@ -31,6 +33,7 @@ class AssetServer(
             Route.NotFound -> textResponse(404, "Not found")
             is Route.StoredDashboard -> stored(store.readDashboard(route.slot))
             is Route.StoredMeta -> stored(store.readMeta(route.slot))
+            is Route.Inline -> stored(inline.read(route.id))
             is Route.Asset -> try {
                 ok(mimeType(route.path), assets.open(route.path, AssetManager.ACCESS_STREAMING))
             } catch (_: IOException) {
@@ -73,6 +76,9 @@ class AssetServer(
         data class StoredDashboard(val slot: Int) : Route
         data class StoredMeta(val slot: Int) : Route
 
+        /** A pasted dashboard in [InlineDashboards]; [id] is 16 lowercase hex characters. */
+        data class Inline(val id: String) : Route
+
         /** A bundled asset, relative to the APK assets root. */
         data class Asset(val path: String) : Route
     }
@@ -81,6 +87,8 @@ class AssetServer(
         const val HOST = ConfigParser.HOST
         /** `/stored/<slot>/dashboard.json` and `/stored/<slot>/meta.json`, slot `0..7`. */
         private val STORED = Regex("^/stored/([0-7])/(dashboard|meta)\\.json$")
+        /** `/inline/<id>.json`, id = 16 lowercase hex characters. */
+        private val INLINE = Regex("^/inline/([0-9a-f]{16})\\.json$")
         private val ALLOWED = Regex(
             "^(index\\.html|styles\\.css|src/[A-Za-z0-9_./-]+\\.js|dashboards/[A-Za-z0-9_.-]+\\.json)$",
         )
@@ -103,6 +111,7 @@ class AssetServer(
                     Route.StoredMeta(slot)
                 }
             }
+            INLINE.matchEntire(path)?.let { return Route.Inline(it.groupValues[1]) }
             return when (path) {
                 "", "/" -> Route.Asset("index.html")
                 else -> {

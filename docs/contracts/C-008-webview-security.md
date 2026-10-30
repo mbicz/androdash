@@ -1,12 +1,13 @@
 # C-008 — WebView security
 
-- **Version:** 5
+- **Version:** 6
 - **Status:** Accepted, 2026-10-29 (v2: bundled and stored dashboards on the
   virtual origin, decision 0018; v3: bundled Prometheus executable on
   loopback, decision 0019; v4: stored-dashboard slots, generated
   `dashboards/index.json`, `setOption("dashboard_urls")` cannot add remote
   URLs, decision 0020; v5: in-app phone exporter, second loopback listener,
-  decision 0021)
+  decision 0021; v6: the settings sheet can add remote and inline dashboards
+  and edit collector targets, `/inline/<id>.json` route, decision 0023)
 - **Consumers:** Android shell (W1), web renderer (W2)
 - **Related:** C-001 (URL validation), C-003 (CORS/cleartext), C-007 (bridge), C-009 (redaction)
 
@@ -68,7 +69,9 @@ If a setting needs to change, update this table and the security doc.
   host. Only an explicit route list is reachable: `/`, `/index.html`,
   `/styles.css`, `/src/**.js`, `/dashboards/<name>.json` (bundled dashboards
   and the build-generated `dashboards/index.json` listing them,
-  `[A-Za-z0-9_.-]+`), and the stored-dashboard slot paths below. Paths with
+  `[A-Za-z0-9_.-]+`), the stored-dashboard slot paths below, and inline
+  dashboards at `/inline/<id>.json` (`^/inline/([0-9a-f]{16})\.json$`, served
+  like the stored slots; 404 when absent). Paths with
   `..`, `\`, `%`, or `//` are rejected (400); anything else is 404.
 - `WebViewClient.shouldOverrideUrlLoading` returns `true` (block) for every URL
   outside `http://androdash.local/`. Do not open an external browser from kiosk
@@ -105,11 +108,16 @@ If a setting needs to change, update this table and the security doc.
 - `storeDashboard` accepts only a current `dashboard_urls` entry in
   `dashboard_source=stored` mode and never a virtual-origin URL, so a page cannot
   plant a dashboard for a different URL or overwrite a bundled one.
-- The page cannot widen that set: `setOption("dashboard_urls", …)` (C-007)
-  accepts only bundled `http://androdash.local/dashboards/<name>.json` URLs
-  (not `index.json`) and entries already in the list, and
-  `setOption("dashboard_url", …)` only an entry of the list. Remote dashboard
-  URLs come from launch extras alone.
+- The settings sheet adds dashboards on the user's behalf (decision 0023):
+  `setOption("dashboard_urls", …)` (C-007) accepts any absolute `http`/`https`
+  URL, and `setOption("collector_targets", …)` any valid `host:port`. Both are
+  user input typed into the sheet; the renderer never derives them from
+  dashboard or Prometheus content, which it renders as text only. Dashboard
+  fetches stay `fetch` requests under C-003, never navigations, and collector
+  targets are scraped by Prometheus, not by the WebView.
+- Inline dashboards (`addInlineDashboard`) are untrusted JSON like any
+  fetched dashboard. The file name is the shell-computed SHA-256 prefix;
+  at most 8 exist, and those no longer in `dashboard_urls` are deleted.
 - The shell never logs stored contents or source URLs; it logs byte counts and
   slot numbers.
 

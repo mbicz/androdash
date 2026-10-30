@@ -215,9 +215,9 @@ adb shell am start -n com.mbicz.androdash/.MainActivity \
 - Without `dashboard_url` the first entry is shown; an explicit
   `dashboard_url` missing from the list is inserted first.
 - A comma inside a URL must be written `%2C`.
-- The page can reorder the list and add bundled dashboards (listed in
-  `http://androdash.local/dashboards/index.json`), but remote URLs come only
-  from the launch extras.
+- The settings sheet can reorder the list and add bundled dashboards (listed
+  in `http://androdash.local/dashboards/index.json`), any `http`/`https`
+  dashboard URL, or pasted dashboard JSON (decision 0023).
 - Each remote entry gets its own stored copy (`dashboard_source=stored`).
 - Re-running `am start` with the same values, or tapping the launcher icon,
   keeps the running page (logcat `intent without changes; keeping renderer`).
@@ -240,7 +240,8 @@ adb shell am start -n com.mbicz.androdash/.MainActivity \
   --ez collector true
 ```
 
-Add LAN exporters with `collector_targets`. Each exporter must listen on the
+Add LAN exporters in the app (Settings → Collector → Add target) or with
+`collector_targets`. Each exporter must listen on the
 LAN, or on every interface so it is also reachable over Tailscale, e.g.
 `--web.listen-address=0.0.0.0:9100` in `node_exporter.args`; away from the LAN
 use the Mac's tailnet address (`tailscale ip -4`) as the target host:

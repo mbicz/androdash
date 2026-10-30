@@ -4,14 +4,26 @@ import { DashboardError, normalizeDashboard } from "./normalize.js";
 export const LOCAL_HOST = "androdash.local";
 const MAX_BYTES = 5 * 1024 * 1024;
 
-/** A dashboard bundled in the APK (`http://androdash.local/dashboards/…`). */
-export function isBundledDashboard(url) {
+/**
+ * Where a local dashboard URL is served from: `"bundled"` for a dashboard in
+ * the APK (`http://androdash.local/dashboards/…`), `"inline"` for one pasted on
+ * the phone (`http://androdash.local/inline/…`), otherwise null.
+ */
+export function localDashboardKind(url) {
   try {
     const parsed = new URL(url);
-    return parsed.host === LOCAL_HOST && parsed.pathname.startsWith("/dashboards/");
+    if (parsed.protocol !== "http:" || parsed.host !== LOCAL_HOST) return null;
+    if (parsed.pathname.startsWith("/dashboards/")) return "bundled";
+    if (parsed.pathname.startsWith("/inline/")) return "inline";
+    return null;
   } catch {
-    return false;
+    return null;
   }
+}
+
+/** A dashboard served by the shell itself; never stored, always fetched locally. */
+export function isLocalDashboard(url) {
+  return localDashboardKind(url) !== null;
 }
 
 /**
@@ -92,7 +104,8 @@ export function shellDashboardStore(shell, { slot = 0, fetch = fetchJson } = {})
   };
 }
 
-function normalizeFrom(data, url, config, warn) {
+/** Normalize a fetched dashboard document and record its URL (C-002). */
+export function normalizeFrom(data, url, config, warn = () => {}) {
   const dashboard = normalizeDashboard(data, url, config.dashboardName, warn);
   dashboard.url = url;
   return dashboard;
@@ -105,7 +118,9 @@ function normalizeFrom(data, url, config, warn) {
  * - `dashboard_source=stored` with a store: use the stored copy when it came
  *   from this `dashboard_url`; otherwise fetch once and store it. The phone
  *   then starts without the dashboard server.
- * - A bundled `http://androdash.local/dashboards/…` URL is always local.
+ * - A local `http://androdash.local/dashboards/…` (bundled) or
+ *   `http://androdash.local/inline/…` (pasted) URL is always fetched from the
+ *   shell and never stored.
  *
  * `dashboard.source` records where the definition came from.
  */
@@ -113,8 +128,8 @@ export async function loadDashboard(
   config,
   { signal = null, onRequest = null, warn = () => {}, store = null, now = () => Date.now() } = {},
 ) {
-  const bundled = isBundledDashboard(config.dashboardUrl);
-  const useStore = config.dashboardSource === "stored" && store && !bundled;
+  const local = localDashboardKind(config.dashboardUrl);
+  const useStore = config.dashboardSource === "stored" && store && !local;
 
   if (useStore) {
     let stored = null;
@@ -141,7 +156,7 @@ export async function loadDashboard(
     if (!saved) warn("W_DASHBOARD_NOT_STORED", "Dashboard could not be stored on the device", null, null);
     dashboard.source = { kind: saved ? "stored" : "url", storedAt: saved ? now() : null };
   } else {
-    dashboard.source = { kind: bundled ? "bundled" : "url", storedAt: null };
+    dashboard.source = { kind: local || "url", storedAt: null };
   }
   return dashboard;
 }
@@ -151,7 +166,7 @@ export async function loadDashboard(
  * definition normalizes. Returns true when the store was updated.
  */
 export async function updateStoredDashboard(config, { store, onRequest = null, warn = () => {} }) {
-  if (!store || isBundledDashboard(config.dashboardUrl)) return false;
+  if (!store || isLocalDashboard(config.dashboardUrl)) return false;
   const { data, url } = await fetchDashboardDocument(config.dashboardUrl, { onRequest });
   normalizeFrom(data, url, config, warn);
   return store.write(config.dashboardUrl, JSON.stringify(data));

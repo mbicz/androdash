@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
-import { isBundledDashboard, loadDashboard, updateStoredDashboard } from "../../app/src/dashboard/load.js";
+import { isLocalDashboard, loadDashboard, updateStoredDashboard } from "../../app/src/dashboard/load.js";
 
 const fixture = JSON.parse(
   await fs.readFile(new URL("../../../contracts/fixtures/demo-dashboard.json", import.meta.url)),
@@ -102,14 +102,37 @@ test("C-002 an unusable stored copy warns and falls back to the URL", async () =
   assert.ok(warnings.includes("W_STORED_DASHBOARD_INVALID"));
 });
 
+test("C-002 local dashboard URLs are bundled or inline on androdash.local", () => {
+  assert.equal(isLocalDashboard("http://androdash.local/dashboards/demo-dashboard.json"), true);
+  assert.equal(isLocalDashboard("http://androdash.local/inline/0123456789abcdef.json"), true);
+  assert.equal(isLocalDashboard(URL_A), false);
+  assert.equal(isLocalDashboard("http://androdash.local/stored/0/dashboard.json"), false);
+  assert.equal(isLocalDashboard("http://androdash.local/index.html"), false);
+  assert.equal(isLocalDashboard("https://androdash.local/dashboards/demo-dashboard.json"), false);
+  assert.equal(isLocalDashboard("http://example.com/dashboards/demo-dashboard.json"), false);
+  assert.equal(isLocalDashboard("http://example.com/inline/0123456789abcdef.json"), false);
+  assert.equal(isLocalDashboard("not a url"), false);
+});
+
 test("C-002 bundled dashboards are local and never stored", async () => {
   const bundled = "http://androdash.local/dashboards/demo-dashboard.json";
-  assert.equal(isBundledDashboard(bundled), true);
-  assert.equal(isBundledDashboard(URL_A), false);
   const store = memoryStore();
   await withFetch(async (url) => ok(url, fixture), async () => {
     const dashboard = await loadDashboard(config({ dashboardUrl: bundled }), { store });
     assert.equal(dashboard.source.kind, "bundled");
+    assert.equal(store.writes, 0);
+  });
+});
+
+test("C-002 inline dashboards are local and never stored", async () => {
+  const inline = "http://androdash.local/inline/0123456789abcdef.json";
+  const store = memoryStore({ meta: { sourceUrl: inline, storedAt: 1 }, data: fixture });
+  await withFetch(async (url) => ok(url, fixture), async (calls) => {
+    const dashboard = await loadDashboard(config({ dashboardUrl: inline }), { store });
+    assert.equal(calls(), 1);
+    assert.equal(dashboard.source.kind, "inline");
+    assert.equal(store.writes, 0);
+    assert.equal(await updateStoredDashboard(config({ dashboardUrl: inline }), { store }), false);
     assert.equal(store.writes, 0);
   });
 });

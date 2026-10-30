@@ -58,6 +58,24 @@ class AssetServerRouteTest {
     }
 
     @Test
+    fun `inline dashboard routes take a 16 hex character id only`() {
+        assertEquals(Route.Inline("0123456789abcdef"), AssetServer.route("/inline/0123456789abcdef.json"))
+        listOf(
+            "/inline/0123456789ABCDEF.json",
+            "/inline/0123456789abcde.json",
+            "/inline/0123456789abcdef0.json",
+            "/inline/0123456789abcdeg.json",
+            "/inline/0123456789abcdef.js",
+            "/inline/0123456789abcdef.json/",
+            "/inline/sub/0123456789abcdef.json",
+            "/inline/",
+            "/inline",
+        ).forEach { assertEquals(it, Route.NotFound, AssetServer.route(it)) }
+        assertEquals(Route.BadPath, AssetServer.route("/inline/../stored/0/dashboard.json"))
+        assertEquals(Route.BadPath, AssetServer.route("/inline/%30123456789abcdef.json"))
+    }
+
+    @Test
     fun `traversal and encoded paths are rejected`() {
         assertEquals(Route.BadPath, AssetServer.route("/dashboards/../index.html"))
         assertEquals(Route.BadPath, AssetServer.route("/dashboards/..json"))
