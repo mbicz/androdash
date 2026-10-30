@@ -168,8 +168,8 @@ is `web/app/src/fit.js` (pure functions, no DOM); `main.js` builds the DOM.
   `.panel-slot`. Panel titles, tile and gauge labels, state words, legends,
   axis labels, and table cells scale with `--fit-scale`. `html[data-layout="fit"]`
   and the body do not scroll; `.fit-grid.overflow` does.
-- **Header.** One compact line: title (20 px), the status beside it, and 30 px
-  icon buttons; it is not sticky.
+- **Header.** One compact line: the status dot, the title (20 px), the page
+  dots, and 30 px icon buttons; it is not sticky.
 - **Rebuild instead of waiting.** `renderDashboard()` rebuilds the page and
   repaints every panel's retained data or error, so a layout switch, rotation,
   and lock/unlock never wait for the next refresh. In fit, a window resize
@@ -214,7 +214,7 @@ buttons and the header never zoom.
 C-001 `dashboard_urls` lists up to 8 dashboards; `dashboard_url` is the one
 shown. Only the shown dashboard is loaded and queried.
 
-- **Header:** one dot per dashboard after the status, the current one filled;
+- **Header:** one dot per dashboard after the title, the current one filled;
   tapping a dot shows that dashboard.
 - **Gestures:** a horizontal swipe (≥ 56 px, mostly horizontal, ≤ 700 ms)
   shows the next (swipe left) or previous dashboard, wrapping. In fit it works

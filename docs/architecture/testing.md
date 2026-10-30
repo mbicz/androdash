@@ -210,7 +210,7 @@ Expected:
 - 6 panels visible: CPU, load, RAM stat, disk gauge, requests table, notes;
 - 3 panels hidden: Tempo traces, Loki logs, unknown chart;
 - debug overlay lists hidden reasons;
-- the header status shows the last successful update time with a green dot
+- the header status dot is green (its label holds the last successful update time)
   (no countdown); panel headers show no `Live` badge;
 - waiting one interval updates values without a full page reload;
 - stopping the mock marks panels stale/error while keeping last data;
@@ -227,7 +227,7 @@ http://localhost:8099/web/app/index.html?dashboard_url=http://localhost:8099/con
 Expected: 14 panels in 5 rows; `gpu` and `engine` variables resolve from label
 values; units render as `°C`, `W`, `%`, `tok/s`, `ms`, `Gb/s`, and `GHz`;
 stopping the mock leaves last-good data with `Stale` badges and an amber
-`Stale since …` header status. See
+header status dot (label `Stale since …`). See
 [`integrations/spark-exporter.md`](../integrations/spark-exporter.md) for the
 query semantics.
 

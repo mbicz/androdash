@@ -4,7 +4,8 @@
 - **Status:** Accepted, 2026-10-27 (v2: in-app time range and refresh controls,
   runtime interval change, header status without a countdown; decision 0015);
   amended 2026-10-28 (v3: controls move to the settings sheet, persisted one
-  option at a time with `setOption`; decision 0017)
+  option at a time with `setOption`; decision 0017); amended 2026-10-29 (the
+  header status shows only its dot; decision 0022)
 - **Consumers:** Web renderer (W2)
 - **Related:** C-001 (refresh/time params), C-002 (dashboard duration/refresh), C-003 (range queries), C-005 (time axis, settings sheet), C-007 (`setOption` bridge), C-009 (status)
 
@@ -159,8 +160,9 @@ Rules:
 - Stale = last data exists but the latest cycle failed for that panel.
 - The panel shows a `Stale` badge and the stale explanation line (C-005).
 - One dashboard-wide status lives in the sticky header under the title
-  (C-009): a state dot and one line of text — the last successful update time,
-  `Stale since …`, `N of M failing · …`, `Offline [since …]`, or `Loading`.
+  (C-009): a state dot only. The last successful update time, `Stale since …`,
+  `N of M failing · …`, `Offline [since …]`, or `Loading` is its accessible
+  label and tooltip, not drawn text.
 - There is no next-refresh countdown and no per-second ticker. The status is
   recomputed only when a cycle settles or the scheduler state changes, so
   nothing runs while the dashboard is idle between refreshes. The next refresh

@@ -263,11 +263,11 @@ network prerequisites, not renderer bugs. Error messages must say so.
 
 ## 9. Diagnostics and status
 
-- One dashboard-wide status in the header (release and debug): a state
-  dot and the last successful update time, `Stale since …`,
-  `N of M failing · …`, `Offline [since …]`, or `Loading` (C-009). No
-  countdown; it updates only when a cycle settles or the scheduler state
-  changes.
+- One dashboard-wide status in the header (release and debug): a state dot
+  only — green fresh, amber stale/degraded, red offline, gray loading. The
+  last update time, `Stale since …`, and the like are its `aria-label` and
+  `title` (C-009). No countdown; it updates only when a cycle settles or the
+  scheduler state changes.
 - Panel badges appear only for `Stale`, `Error`, and `Hidden` (C-005).
 - `debug=true` enables an overlay with config (redacted), capabilities, probe
   results, hidden panels and reasons, request timings, and errors.

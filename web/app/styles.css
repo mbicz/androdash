@@ -180,6 +180,9 @@ p {
 }
 
 .app-heading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   min-width: 0;
 }
 
@@ -193,18 +196,17 @@ p {
   letter-spacing: -0.02em;
 }
 
+/* The status dot leads the title, so it is never read as a page dot. */
 .app-status {
   display: flex;
+  flex: none;
   align-items: center;
-  gap: 6px;
-  margin-top: 3px;
-  color: var(--label-2);
-  font-size: 13px;
+  order: -1;
 }
 
 .status-dot {
-  width: 7px;
-  height: 7px;
+  width: 8px;
+  height: 8px;
   flex: none;
   border-radius: 50%;
   background: var(--label-3);
@@ -1443,14 +1445,15 @@ html[data-layout="fit"] body {
 }
 
 /*
- * One stable line: title (takes the rest, ellipsised) · status · dots ·
- * actions. Everything right of the title has a fixed width, so paging between
- * dashboards with different titles moves nothing but the title text.
+ * One stable line: status dot · title (takes the rest, ellipsised) · page
+ * dots · actions. Everything but the title has a fixed width and position, so
+ * paging between dashboards with different titles moves nothing but the title
+ * text. The status dot leads the title so it is not read as a page dot.
  */
 [data-layout-mode="fit"] .app-header {
   position: static;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto auto;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
   align-items: center;
   gap: 10px;
   padding: max(8px, env(safe-area-inset-top)) var(--gutter) 8px;
@@ -1460,18 +1463,12 @@ html[data-layout="fit"] body {
   display: contents;
 }
 
-[data-layout-mode="fit"] .app-status .status-text {
-  display: inline-block;
-  min-width: 9.5ch;
-}
-
 [data-layout-mode="fit"] .app-title {
   font-size: 20px;
 }
 
 [data-layout-mode="fit"] .app-status {
-  margin-top: 0;
-  font-size: 12px;
+  margin-right: -2px;
 }
 
 [data-layout-mode="fit"] .icon-button {
