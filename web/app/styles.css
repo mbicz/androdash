@@ -1268,6 +1268,16 @@ html[data-display-mode="monochrome"] .legend-dot[data-series="6"] {
   font-weight: 600;
 }
 
+.empty-dashboard p {
+  max-width: 34ch;
+  margin: 0 auto;
+}
+
+.empty-dashboard-hint {
+  color: var(--label-3);
+  font-size: 13px;
+}
+
 /* Fatal ------------------------------------------------------------------ */
 
 .fatal-screen {
@@ -1738,6 +1748,11 @@ html[data-zoom="true"] body {
 
 .panel.is-zoomed .value-cell {
   white-space: nowrap;
+}
+
+/* Zoom has room for the column headings the fit layout hides. */
+.panel.is-zoomed .data-table thead {
+  display: table-header-group;
 }
 
 .panel.is-zoomed .data-table th {

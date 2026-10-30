@@ -964,7 +964,7 @@ class ConfigParserTest {
 
         assertFalse(ConfigParser.hasConfigExtras(emptyMap()))
         assertFalse(ConfigParser.hasConfigExtras(extras("android.intent.extra.REFERRER_NAME" to "x", "profile" to "0")))
-        listOf("dashboard_url", "dashboard_urls", "rotate_seconds", "collector_targets", "collector_phone", "lock_task", "show_when_locked")
+        listOf("dashboard_url", "dashboard_urls", "rotate_seconds", "collector_targets", "collector_phone", "lock_task", "show_when_locked", "ignition_url")
             .forEach { assertTrue(it, ConfigParser.hasConfigExtras(extras(it to "x"))) }
 
         // Launcher tap or system re-start: no extras.
@@ -976,6 +976,14 @@ class ConfigParserTest {
         assertFalse(ConfigParser.keepsRenderer(extras("dashboard_url" to agents), current, changed))
         // Nothing live (first launch, fatal screen): always load.
         assertFalse(ConfigParser.keepsRenderer(emptyMap(), null, current))
+
+        // An ignition document seeds the config, so its extra must reload.
+        val ignition = extras("ignition_url" to "http://192.168.1.20:8099/ignition.json")
+        assertTrue(ConfigParser.hasConfigExtras(ignition))
+        assertFalse(ConfigParser.keepsRenderer(ignition, current, current))
+        // The extra itself never reaches the renderer URL.
+        val parsed = ConfigParser.parse(extras("dashboard_url" to dashboard) + ignition)
+        assertFalse(ConfigParser.launchUrl(parsed.config).contains("ignition"))
     }
 
     private fun queryParameters(config: AppConfig): Map<String, String> =

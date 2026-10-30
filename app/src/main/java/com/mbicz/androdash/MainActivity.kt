@@ -40,6 +40,11 @@ import android.widget.ScrollView
 import android.widget.TextView
 import android.window.OnBackInvokedCallback
 import android.window.OnBackInvokedDispatcher
+import java.io.ByteArrayOutputStream
+import java.io.File
+import java.io.IOException
+import java.net.HttpURLConnection
+import java.net.URI
 
 class MainActivity : Activity() {
     private lateinit var configStore: ConfigStore
@@ -70,6 +75,9 @@ class MainActivity : Activity() {
     private var dashboardForeground = false
     private var lockedDim = false
 
+    /** True while an ignition document is being fetched/parsed off the UI thread. */
+    private var ignitionPending = false
+
     /** The API 33+ kiosk back consumer (an `OnBackInvokedCallback`) while registered. */
     private var backCallback: Any? = null
 
@@ -92,14 +100,199 @@ class MainActivity : Activity() {
     }
 
     /**
-     * Parse and apply a launch. A new intent without launch extras (launcher
-     * tap, SystemUI re-start) or one that resolves to the renderer URL already
-     * loaded keeps the live WebView (C-007); only the native postures are
-     * re-applied. A changed `dashboard_urls` prunes unreferenced inline
-     * dashboards.
+     * Parse and apply a launch. An `ignition_url` extra (or, without it, a
+     * `<filesDir>/ignition.json`) seeds the config from one document instead of
+     * the extras; that document is fetched/applied off the UI thread and the
+     * source is consumed once it succeeds. Otherwise a new intent without launch
+     * extras (launcher tap, SystemUI re-start) or one that resolves to the
+     * renderer URL already loaded keeps the live WebView (C-007); only the
+     * native postures are re-applied. A changed `dashboard_urls` prunes
+     * unreferenced inline dashboards.
      */
     private fun applyIntent(intent: Intent?) {
         val extras = readExtras(intent)
+        val ignitionUrl = extras[IGNITION_EXTRA]?.trim().orEmpty()
+        if (ignitionPending) {
+            Log.i(TAG, "ignition already pending; intent ignored")
+            return
+        }
+        if (ignitionUrl.isNotEmpty()) {
+            applyIgnition(ignitionUrl = ignitionUrl, file = null)
+            return
+        }
+        val file = File(filesDir, IGNITION_FILE)
+        if (file.isFile) {
+            applyIgnition(ignitionUrl = null, file = file)
+            return
+        }
+        applyParsed(extras)
+    }
+
+    private fun consumeIgnitionExtra(intent: Intent?) {
+        val target = intent ?: return
+        target.removeExtra(IGNITION_EXTRA)
+        setIntent(target)
+    }
+
+    /**
+     * Ignition (C-009): fetch/read the document on a background thread while
+     * the app background is shown, then apply it on the UI thread. A rejected
+     * document shows `E_IGNITION`; a failed `ignition_url` fetch shows
+     * `E_IGNITION_FETCH`. Nothing is persisted on failure and the file source
+     * stays in place.
+     */
+    private fun applyIgnition(ignitionUrl: String?, file: File?) {
+        ignitionPending = true
+        showBackground()
+        Thread({
+            val document = try {
+                val text = if (ignitionUrl != null) fetchIgnition(ignitionUrl) else readIgnitionFile(file!!)
+                Ignition.parse(text)
+            } catch (error: ConfigException) {
+                Log.w(TAG, "ignition rejected: ${error.message}")
+                mainHandler.post {
+                    ignitionPending = false
+                    if (isFinishing || isDestroyed) return@post
+                    showFatal(error.code, error.message.orEmpty())
+                }
+                return@Thread
+            }
+            mainHandler.post {
+                if (isFinishing || isDestroyed) {
+                    ignitionPending = false
+                    return@post
+                }
+                applyIgnitionDocument(document, file)
+            }
+        }, "ignition").start()
+    }
+
+    /** Store the document's inline dashboards, merge it over the persisted config, and apply it. */
+    private fun applyIgnitionDocument(document: IgnitionDocument, file: File?) {
+        ignitionPending = false
+        val persisted = configStore.load()
+        try {
+            val referenced = ArrayList<String>(persisted?.dashboardUrls.orEmpty())
+            document.dashboardUrls?.let { referenced.addAll(it) }
+            val inlineUrls = ArrayList<String>()
+            for (json in document.inlineDashboards) {
+                inlineUrls.add(inlineDashboards.write(json, referenced + inlineUrls))
+            }
+            val merged = Ignition.merge(persisted, document.withInlineUrls(inlineUrls))
+            config = merged
+            rendererUrl = ConfigParser.launchUrl(merged)
+            configStore.save(merged)
+            pruneInline(merged)
+            // One-shot: neither source may seed again over later in-app edits.
+            if (file != null && !file.delete()) Log.w(TAG, "ignition file could not be removed")
+            consumeIgnitionExtra(getIntent())
+            logConfig(merged, emptyList())
+            Log.i(
+                TAG,
+                "ignition applied: ${merged.dashboardUrls.size} dashboards, ${inlineUrls.size} inline, " +
+                    "collector=${if (merged.collector) "on" else "off"}, " +
+                    "${CollectorConfig.configuredTargets(merged).size} targets",
+            )
+            syncCollector(merged)
+            fatal = false
+            setupWebView()
+            applyKiosk(merged)
+            applyShowWhenLocked(merged.kiosk && configStore.loadShowWhenLocked())
+        } catch (error: ConfigException) {
+            Log.w(TAG, "ignition rejected: ${error.message}")
+            // Undo any inline files written for this document; keep persisted ones.
+            runCatching { inlineDashboards.prune(persisted?.dashboardUrls.orEmpty()) }
+            showFatal(error.code, error.message.orEmpty())
+        } catch (error: Exception) {
+            val reason = error.message ?: error.javaClass.simpleName
+            Log.w(TAG, "ignition rejected: $reason")
+            runCatching { inlineDashboards.prune(persisted?.dashboardUrls.orEmpty()) }
+            showFatal(Ignition.CODE_INVALID, sanitize(reason, MAX_ERROR))
+        }
+    }
+
+    /** Read `<filesDir>/ignition.json`, bounded by [Ignition.MAX_BYTES]. */
+    private fun readIgnitionFile(file: File): String {
+        if (file.length() > Ignition.MAX_BYTES) {
+            throw ConfigException(Ignition.CODE_INVALID, "ignition exceeds ${Ignition.MAX_BYTES} bytes")
+        }
+        val bytes = try {
+            file.readBytes()
+        } catch (_: IOException) {
+            throw ConfigException(Ignition.CODE_INVALID, "ignition file could not be read")
+        }
+        if (bytes.size > Ignition.MAX_BYTES) {
+            throw ConfigException(Ignition.CODE_INVALID, "ignition exceeds ${Ignition.MAX_BYTES} bytes")
+        }
+        return String(bytes, Charsets.UTF_8)
+    }
+
+    /**
+     * Fetch `ignition_url`: http(s) only, 10 s connect/read timeout, at most
+     * [Ignition.MAX_BYTES] bytes (declared or streamed), 2xx only. Every failure
+     * is `E_IGNITION_FETCH`.
+     */
+    private fun fetchIgnition(raw: String): String {
+        val url = try {
+            ConfigParser.validateHttpUrl(raw, "ignition_url")
+        } catch (error: ConfigException) {
+            throw ConfigException(Ignition.CODE_FETCH, error.message ?: "ignition_url must be an http(s) URL")
+        }
+        val connection = try {
+            (URI(url).toURL().openConnection() as HttpURLConnection).apply {
+                connectTimeout = IGNITION_TIMEOUT_MILLIS
+                readTimeout = IGNITION_TIMEOUT_MILLIS
+                instanceFollowRedirects = false
+                requestMethod = "GET"
+                setRequestProperty("Accept", "application/json")
+            }
+        } catch (_: Exception) {
+            throw ConfigException(Ignition.CODE_FETCH, "ignition_url could not be opened")
+        }
+        try {
+            val status = connection.responseCode
+            if (status !in 200..299) {
+                throw ConfigException(Ignition.CODE_FETCH, "ignition_url returned HTTP $status")
+            }
+            if (connection.contentLengthLong > Ignition.MAX_BYTES) {
+                throw ConfigException(Ignition.CODE_FETCH, "ignition_url exceeds ${Ignition.MAX_BYTES} bytes")
+            }
+            val out = ByteArrayOutputStream()
+            connection.inputStream.use { input ->
+                val buffer = ByteArray(16 * 1024)
+                while (true) {
+                    val count = input.read(buffer)
+                    if (count < 0) break
+                    out.write(buffer, 0, count)
+                    if (out.size() > Ignition.MAX_BYTES) {
+                        throw ConfigException(Ignition.CODE_FETCH, "ignition_url exceeds ${Ignition.MAX_BYTES} bytes")
+                    }
+                }
+            }
+            return out.toString("UTF-8")
+        } catch (error: ConfigException) {
+            throw error
+        } catch (_: Exception) {
+            throw ConfigException(Ignition.CODE_FETCH, "ignition_url could not be read")
+        } finally {
+            connection.disconnect()
+        }
+    }
+
+    /** The plain background shown while an ignition document is fetched. */
+    private fun showBackground() {
+        webView?.let { old ->
+            (old.parent as? ViewGroup)?.removeView(old)
+            old.removeJavascriptInterface(BRIDGE_NAME)
+            old.destroy()
+        }
+        webView = null
+        setContentView(
+            FrameLayout(this).apply { setBackgroundColor(displayBackground()) },
+        )
+    }
+
+    private fun applyParsed(extras: Map<String, String?>) {
         val persisted = configStore.load()
         try {
             val parsed = ConfigParser.parse(extras, persisted, configStore.loadShowWhenLocked())
@@ -1012,6 +1205,11 @@ class MainActivity : Activity() {
             "window.androdash && window.androdash.setLocked && window.androdash.setLocked(false)"
         private const val BRIDGE_NAME = "AndroDash"
         private const val STATE_URL = "renderer_url"
+        /** C-009 launch extra: http(s) URL of an Ignition document. */
+        private const val IGNITION_EXTRA = "ignition_url"
+        /** C-009 app-private Ignition source, `<filesDir>/ignition.json`. */
+        private const val IGNITION_FILE = "ignition.json"
+        private const val IGNITION_TIMEOUT_MILLIS = 10_000
         private val BACKGROUND = Color.rgb(8, 11, 18)
         private val PANEL = Color.rgb(17, 24, 32)
         private val TEXT = Color.rgb(231, 238, 246)

@@ -6,7 +6,8 @@
   `dashboard_urls`, `rotate_seconds`, stored slots, decision 0020; v7:
   `collector_phone`, phone exporter job, targets optional, decision 0021;
   amended 2026-10-29: `dashboard_urls`, `collector`, and `collector_targets`
-  editable in the app, inline dashboards, decision 0023)
+  editable in the app, inline dashboards, decision 0023); amended 2026-10-30
+  (`ignition_url`, Ignition seeding, decision 0024)
 - **Consumers:** Android shell (W1), web renderer config (W2)
 - **Machine-readable:** [`contracts/app-config.schema.json`](../../contracts/app-config.schema.json)
 - **Fixtures:** [`app-config.example.json`](../../contracts/fixtures/app-config.example.json)
@@ -64,6 +65,7 @@ This is deliberate: one name per concept, easy to debug with `adb`.
 | `collector_targets` | string | `null` | Comma-separated scrape targets, `[job:]instance=host:port` or `host:port`; 1–32 entries when set. With `collector=true` at least one of `collector_targets` and `collector_phone=true` is **required** (v7; before v7 the targets were always required). Native-only. Added in v5. |
 | `collector_scrape_seconds` | integer | `15` | Collector scrape interval, `5–300`. Native-only. Added in v5. |
 | `collector_retention` | string | `24h` | Collector TSDB retention; duration grammar as `time_range`, range `1h…30d`. Native-only. Added in v5. |
+| `ignition_url` | string | `null` | Absolute `http`/`https` URL of an Ignition document that seeds dashboards and collector targets at launch ([Ignition](#ignition), decision 0024). Native-only; never part of the renderer URL. |
 | `collector_phone` | boolean | `true` | While the collector runs, also run the in-app phone exporter on `127.0.0.1:19100` and scrape it as job `phone`, instance `phone` ([Phone exporter job](#phone-exporter-job)). Native-only; not a `setOption` name. Added in v7. |
 
 Intent extras use `--es` (string), `--ei` (int), `--ez` (boolean) with `adb`.
@@ -273,6 +275,78 @@ of `dashboard_url` in `dashboard_urls`:
 - The stored copies are untrusted dashboard JSON and are normalized exactly
   like a fetched one (C-002).
 
+## Ignition
+
+An **Ignition document** seeds a device in one step: the dashboards it shows and
+the collector targets it scrapes. It is the Android equivalent of a provisioning
+file, not a dashboard: the renderer never sees it, and nothing in it reaches the
+virtual origin except the dashboards themselves.
+
+Sources, first match wins:
+
+1. `ignition_url` launch extra: fetched at launch (http(s) only, 10 s
+   connect/read timeout, 2xx only, at most 5 MiB).
+2. `<filesDir>/ignition.json`, read when present and no `ignition_url` is given.
+
+The document is applied **once**: on success the file is deleted and the extra is
+removed from the activity's intent, so later launches and in-app edits are not
+overwritten. A rejected document leaves the source in place and shows a native
+fatal screen (`E_IGNITION` for a bad document, `E_IGNITION_FETCH` for a failed
+fetch); nothing is persisted.
+
+```json
+{
+  "schemaVersion": 1,
+  "dashboards": {
+    "urls": ["http://192.168.1.20:8099/contracts/fixtures/spark-dashboard.json"],
+    "current": "http://192.168.1.20:8099/contracts/fixtures/spark-dashboard.json",
+    "inline": [{ "metadata": { "name": "Wall" }, "spec": { "panels": {} } }]
+  },
+  "collector": {
+    "enabled": true,
+    "targets": "node:mac=192.168.1.20:9100",
+    "phone": true,
+    "scrapeSeconds": 15,
+    "retention": "24h"
+  },
+  "prometheusUrl": "http://192.168.1.20:9090",
+  "layoutMode": "fit",
+  "displayMode": "amoled",
+  "lockStyle": "monochrome",
+  "refreshSeconds": 10,
+  "timeRange": "1h",
+  "rotateSeconds": 0,
+  "kiosk": true,
+  "debug": false
+}
+```
+
+| Key | Type | Effect |
+|---|---|---|
+| `schemaVersion` | integer | Must be `1` when present |
+| `dashboards.urls` | array of 1–8 absolute `http(s)` URLs | Replaces `dashboard_urls`; each entry validated like the extra |
+| `dashboards.current` | URL | Dashboard shown first; must be in the merged list (else the first entry) |
+| `dashboards.inline` | array of 0–8 dashboard objects, each ≤ 5 MiB | Stored like pasted dashboards (content-hash URL), appended after `urls` |
+| `collector.enabled` | boolean | `collector` |
+| `collector.targets` | string | `collector_targets` grammar; `""` clears the user targets |
+| `collector.phone` | boolean | `collector_phone` |
+| `collector.scrapeSeconds` | integer 5–300 | `collector_scrape_seconds` |
+| `collector.retention` | duration 1h–30d | `collector_retention` |
+| `prometheusUrl` | `http(s)` URL | `prometheus_url` |
+| `layoutMode`, `displayMode`, `lockStyle` | enum | Same values as the extras |
+| `refreshSeconds`, `timeRange`, `rotateSeconds` | integer / duration / integer | Same rules as the extras (refresh 1–4 clamps to 5) |
+| `kiosk`, `debug` | boolean | Same as the extras |
+
+- Every key is optional; absent keys keep the persisted value. A device with
+  nothing persisted needs `dashboards.urls` or `dashboards.inline`.
+- Unknown keys anywhere in the structure, wrong types, and out-of-range values
+  are rejected. The merged config must satisfy [Validation](#validation),
+  including the collector rules (`collector=true` needs targets or
+  `collector_phone=true`; a user target may not repeat `phone`/`phone`).
+- The merged list must hold at most 8 dashboards including the inline ones.
+- `ignition_url` counts as a launch extra: it reloads the renderer, and it is
+  never folded into the renderer URL.
+
 ## Precedence
 
 Native:
@@ -346,6 +420,8 @@ advertised set.
 | Code | Condition |
 |---|---|
 | `E_CONFIG` | Invalid/missing required configuration; no renderer boot |
+| `E_IGNITION` | Ignition document invalid or not mergeable; no renderer boot |
+| `E_IGNITION_FETCH` | `ignition_url` fetch failed; no renderer boot |
 | `W_REFRESH_CLAMPED` | Refresh interval raised to the 5 s floor |
 | `W_CAPABILITY_UNKNOWN` | An advertised capability ID is recognized as unknown (recorded, inert) |
 

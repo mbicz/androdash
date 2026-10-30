@@ -64,7 +64,7 @@ object ConfigParser {
         "step_seconds", "kiosk", "debug", "layout_mode", "display_mode", "lock_style",
         "dashboard_source", "dashboard_name", "capabilities", "show_unsupported", "rotate_seconds",
         "collector", "collector_targets", "collector_scrape_seconds", "collector_retention", "collector_phone",
-        "lock_task", "show_when_locked",
+        "lock_task", "show_when_locked", "ignition_url",
     )
 
     /** Maximum length of a `setOption` name or value (C-007). */
@@ -277,10 +277,14 @@ object ConfigParser {
     /**
      * C-007: a new intent keeps the live renderer (no reload) when it carries no
      * launch extras or resolves to the renderer URL already loaded
-     * ([currentUrl], null when no renderer is live).
+     * ([currentUrl], null when no renderer is live). An `ignition_url` extra
+     * always reloads: it seeds the config from a document the extras do not
+     * describe, so the renderer URL cannot prove the launch is unchanged.
      */
     fun keepsRenderer(extras: Map<String, String?>, currentUrl: String?, nextUrl: String): Boolean =
-        currentUrl != null && (!hasConfigExtras(extras) || nextUrl == currentUrl)
+        currentUrl != null &&
+            extras["ignition_url"].isNullOrBlank() &&
+            (!hasConfigExtras(extras) || nextUrl == currentUrl)
 
     /** Maximum `setOption` value length for [name] (C-007). */
     fun maxOptionValue(name: String?): Int =
@@ -387,6 +391,23 @@ object ConfigParser {
      */
     fun rendererPrometheusUrl(config: AppConfig): String? =
         if (config.collector) CollectorConfig.URL else config.prometheusUrl
+
+    /**
+     * Everything a launch must satisfy: [validateConfig] plus the launch query
+     * bound ([buildQuery] is limited to [MAX_QUERY] characters). Ignition merges
+     * use this so a seeded config is launchable.
+     */
+    fun validateLaunch(config: AppConfig) {
+        validateConfig(config)
+        validateQueryLength(config)
+    }
+
+    /**
+     * Validate [value] as an absolute http(s) URL with a host and no userinfo,
+     * like the `dashboard_url` extra; returns [value]. Rejections are
+     * `E_CONFIG` with [name] in the message.
+     */
+    fun validateHttpUrl(value: String, name: String): String = validateUrl(value, name)
 
     fun validateConfig(config: AppConfig) {
         validateUrl(config.dashboardUrl, "dashboard_url")
