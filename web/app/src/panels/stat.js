@@ -12,17 +12,20 @@ const MIN_VALUE_PX = 18;
  * the number size follows the cell, bounded by the longest value so every
  * tile in a panel uses one type size.
  */
-function fitTiles(grid, count, longest, box, single, reserved = 0) {
+function fitTiles(grid, count, longest, box, single, reserved = 0, zoom = false) {
   const layout = single
     ? { columns: 1, rows: 1 }
     : bestCellGrid(count, box.width, box.height, { aspect: TILE_ASPECT, gap: TILE_GAP });
   const cellW = (box.width - TILE_GAP * (layout.columns - 1)) / layout.columns;
   const cellH = (box.height - TILE_GAP * (layout.rows - 1)) / layout.rows;
   // Label row, plus the state word and meter when the panel shows them.
-  const label = (single ? 0 : 15) + reserved;
+  const label = (single ? 0 : zoom ? Math.max(15, cellH * 0.18) : 15) + reserved;
   const byHeight = (cellH - label) * 0.78;
   const byWidth = (cellW - 14) / Math.max(3, longest * 0.58);
-  const fitted = Math.min(single ? 56 : 44, byHeight, byWidth);
+  // A zoomed panel lets numbers grow to fill it (C-005 "Panel zoom").
+  const cap = zoom ? 160 : single ? 56 : 44;
+  const fitted = Math.min(cap, byHeight, byWidth);
+  grid.style.setProperty("--label-size", `${Math.max(11, Math.min(26, fitted * 0.32)).toFixed(1)}px`);
   grid.style.gridTemplateColumns = `repeat(${layout.columns}, minmax(0, 1fr))`;
   if (fitted >= MIN_VALUE_PX || single) {
     grid.style.gridTemplateRows = `repeat(${layout.rows}, minmax(0, 1fr))`;
@@ -31,7 +34,7 @@ function fitTiles(grid, count, longest, box, single, reserved = 0) {
   }
   // Too many tiles for the box: keep a legible size and let the panel scroll
   // (C-005 "Panel scrolling") rather than shrink numbers below the floor.
-  const size = Math.max(MIN_VALUE_PX, Math.min(byWidth, 24));
+  const size = MIN_VALUE_PX;
   const tileHeight = Math.ceil(size / 0.78 + label + 4);
   grid.style.gridTemplateRows = `repeat(${layout.rows}, ${tileHeight}px)`;
   grid.style.setProperty("--value-size", `${size.toFixed(1)}px`);
@@ -43,7 +46,7 @@ function fitTiles(grid, count, longest, box, single, reserved = 0) {
  * attention (the threshold's name, e.g. "High"). A panel without thresholds
  * makes no judgement, so its tiles have a neutral edge and no meter.
  */
-export function renderStat(panel, series, { warn = null, size = null, fit = false } = {}) {
+export function renderStat(panel, series, { warn = null, size = null, fit = false, zoom = false } = {}) {
   const wrapper = document.createElement("div");
   wrapper.className = "stat-wrap";
   const calculation = panel.panelSpec?.calculation || "last-number";
@@ -139,7 +142,7 @@ export function renderStat(panel, series, { warn = null, size = null, fit = fals
   if (fit) {
     const count = Math.min(tiles.length, maxTiles);
     const reserved = (attention ? 15 : 0) + (steps.length > 0 ? 7 : 0);
-    if (size?.width > 0 && size?.height > 0) fitTiles(grid, count, longest, size, single, reserved);
+    if (size?.width > 0 && size?.height > 0) fitTiles(grid, count, longest, size, single, reserved, zoom);
     if (typeof ResizeObserver === "function") {
       let last = size ? `${size.width}x${size.height}` : "";
       const observer = new ResizeObserver(() => {
@@ -151,7 +154,7 @@ export function renderStat(panel, series, { warn = null, size = null, fit = fals
         const key = `${Math.round(rect.width)}x${Math.round(rect.height)}`;
         if (key === last || !(rect.width > 0) || !(rect.height > 0)) return;
         last = key;
-        fitTiles(grid, count, longest, { width: rect.width, height: rect.height }, single, reserved);
+        fitTiles(grid, count, longest, { width: rect.width, height: rect.height }, single, reserved, zoom);
       });
       observer.observe(wrapper);
     }

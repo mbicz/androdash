@@ -22,7 +22,7 @@ export const FIT = Object.freeze({
   comfort: 1.12,
 });
 
-const TILE = { width: 76, height: 44, single: 34, gap: 6 };
+const TILE = { width: 70, height: 44, single: 34, gap: 6 };
 const RING = { width: 70, height: 74, single: 64, gap: 6 };
 const CHART = { minWidth: 150, plot: 56, axis: 14, legendEntry: 140, legendLine: 15 };
 const TABLE = { minWidth: 140, row: 18, minRows: 3, more: 14 };
@@ -130,6 +130,7 @@ function planColumns(items, columns, width, gap) {
       const group = items.slice(start, end);
       for (const spans of compositions(columns, group.length)) {
         let rowMin = 0;
+        let rowRigid = 0;
         let rowMax = 0;
         let weight = 0;
         let capped = true;
@@ -139,6 +140,8 @@ function planColumns(items, columns, width, gap) {
           const demand = panelDemand(item.kind, item.count, w, item);
           if (w + 0.5 < demand.minW) ok = false;
           rowMin = Math.max(rowMin, demand.minH);
+          // Only charts can give up height; numbers and text cannot.
+          if (demand.weight < 3) rowRigid = Math.max(rowRigid, demand.minH);
           weight = Math.max(weight, demand.weight);
           if (demand.maxH === undefined) capped = false;
           else rowMax = Math.max(rowMax, demand.maxH);
@@ -154,7 +157,7 @@ function planColumns(items, columns, width, gap) {
             height,
             rows: [
               ...best[start].rows,
-              { cells, minHeight: rowMin, weight, maxHeight: capped ? Math.max(rowMin, rowMax) : null },
+              { cells, minHeight: rowMin, rigidHeight: rowRigid, weight, maxHeight: capped ? Math.max(rowMin, rowMax) : null },
             ],
           };
         }

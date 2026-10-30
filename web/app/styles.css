@@ -1640,6 +1640,41 @@ html[data-zoom="true"] body {
   font-size: 13px;
 }
 
+.panel.is-zoomed .stat-tile .metric-value {
+  font-size: var(--value-size, 40px);
+}
+
+.panel.is-zoomed .metric-label {
+  font-size: var(--label-size, 13px);
+}
+
+.panel.is-zoomed .data-table,
+.panel.is-zoomed .markdown-body {
+  font-size: var(--zoom-font, 14px);
+}
+
+.panel.is-zoomed .data-table td {
+  height: auto;
+  padding: 0.35em 0;
+  font-size: inherit;
+  line-height: 1.3;
+}
+
+.panel.is-zoomed .data-table th {
+  font-size: 0.75em;
+}
+
+.panel.is-zoomed .markdown-body h1,
+.panel.is-zoomed .markdown-body h2,
+.panel.is-zoomed .markdown-body h3,
+.panel.is-zoomed .markdown-body h4 {
+  font-size: 1.15em;
+}
+
+.panel.is-zoomed .markdown-body code {
+  font-size: 0.9em;
+}
+
 @keyframes zoom-in {
   from {
     opacity: 0.4;

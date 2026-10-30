@@ -190,9 +190,9 @@ headers, page dots, header actions, and the settings sheet.
   spans by dynamic programming over contiguous runs (reading order kept),
   choosing the fewest columns (≤ 6) with ≥ 1.12× room. Rows become CSS grid
   tracks `minmax(min px, weight fr)` (tables capped at their rows), so spare
-  height goes to charts first. A shortfall shrinks type and minimums to
-  `--fit-scale` ≥ 0.72; below that the grid scrolls and `W_FIT_OVERFLOW` is
-  recorded. Markdown is shown in fit and, like any panel, scrolls inside itself.
+  height goes to charts first. A shortfall shrinks only charts (to half their
+  minimum) and type via `--fit-scale` ≥ 0.72; numbers and text keep their
+  minimum, and beyond that the grid scrolls (`W_FIT_OVERFLOW`). Markdown is shown in fit and, like any panel, scrolls inside itself.
   Resize/rotation re-plans
   after 120 ms (`scheduleRelayout`), as does a cycle that changes a panel's
   series count. Renderers get `fit: true` and fill their box: stat tiles size

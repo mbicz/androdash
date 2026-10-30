@@ -457,6 +457,7 @@ function setZoom(panelId) {
     for (const id of new Set(redraw)) {
       const series = state.lastSeries.get(id);
       if (series) applyDataPanel(id, series, state.panelErrors.get(id) || null);
+      else if (state.dashboard?.panels.get(id)?.panelKind === "Markdown") renderMarkdownPanel(id);
     }
   });
   scheduleRotation();
@@ -531,11 +532,22 @@ function buildFit(main) {
   main.style.height = `${height}px`;
   main.style.setProperty("--fit-scale", plan.scale.toFixed(3));
   main.classList.toggle("overflow", plan.overflow);
+  // When space is short, only charts give up height — down to half their
+  // minimum, and never below the numbers, rings, or text sharing their row.
+  // Anything beyond that scrolls (C-005 "Fit layout").
+  const gaps = 8 * Math.max(0, plan.rows.length - 1);
+  const rigid = (row) => Math.max(row.rigidHeight || 0, 0);
+  const fixedTotal = plan.rows.reduce((sum, row) => sum + rigid(row), 0);
+  const giveable = plan.rows.reduce((sum, row) => sum + (row.minHeight - rigid(row)), 0);
+  const spare = height - gaps - fixedTotal;
+  const flexScale = giveable > 0 ? Math.max(0, Math.min(1, spare / giveable)) : 1;
+  const rowMin = (row) => Math.max(rigid(row), Math.round(rigid(row) + (row.minHeight - rigid(row)) * flexScale), Math.round(row.minHeight * 0.5));
+  if (plan.rows.reduce((sum, row) => sum + rowMin(row), 0) + gaps > height + 1) main.classList.add("overflow");
   main.style.gridTemplateRows = plan.rows
     .map((row) => {
-      const min = Math.round(row.minHeight * plan.scale);
+      const min = rowMin(row);
       return row.maxHeight
-        ? `minmax(${min}px, ${Math.round(row.maxHeight * plan.scale)}px)`
+        ? `minmax(${min}px, ${Math.max(min, row.maxHeight)}px)`
         : `minmax(${min}px, ${row.weight}fr)`;
     })
     .join(" ");
@@ -1359,6 +1371,34 @@ function panelElements(panelId) {
 }
 
 /**
+ * A zoomed table or text panel sets its type as large as still fits the panel
+ * (12–44 px, binary search on `--zoom-font`), so zooming makes text bigger
+ * rather than leaving it small in a large empty panel (C-005 "Panel zoom").
+ */
+function fillText(section) {
+  const body = section.querySelector(".panel-body");
+  if (!body) return;
+  const target = body.querySelector(".table-wrap, .markdown-body");
+  if (!section.classList.contains("is-zoomed") || !target) {
+    body.style.removeProperty("--zoom-font");
+    return;
+  }
+  const fits = (size) => {
+    body.style.setProperty("--zoom-font", `${size}px`);
+    return body.scrollHeight <= body.clientHeight + 1 && target.scrollWidth <= target.clientWidth + 1;
+  };
+  let low = 12;
+  let high = 44;
+  if (fits(high)) return;
+  for (let step = 0; step < 7; step += 1) {
+    const middle = (low + high) / 2;
+    if (fits(middle)) low = middle;
+    else high = middle;
+  }
+  body.style.setProperty("--zoom-font", `${Math.floor(low * 2) / 2}px`);
+}
+
+/**
  * Panel content can always scroll inside its panel (C-005 "Panel scrolling");
  * in the fit layout the panel itself never moves. `data-overflow` marks which
  * edges hide more content so CSS can fade them. Updated on scroll and resize
@@ -1411,6 +1451,7 @@ function renderMarkdownPanel(panelId) {
       });
       const empty = body.dataset.empty === "true";
       section.querySelector(".panel-body").replaceChildren(body);
+      fillText(section);
       trackOverflow(section.querySelector(".panel-body"));
       section.dataset.panelState = empty ? "empty" : "ready";
       section.setAttribute("aria-busy", "false");
@@ -1438,7 +1479,8 @@ function applyDataPanel(panelId, series, staleError = null) {
         warn: (code, message, _panelId, detail) => warn(code, message, panelId, detail),
         size: panelBodySize(body),
         timeWindow: state.panelWindows.get(panelId) || null,
-        fit: state.mode === "fit",
+        fit: state.mode === "fit" || section.classList.contains("is-zoomed"),
+        zoom: section.classList.contains("is-zoomed"),
       });
       if (!content) throw new Error(`No renderer for ${panel.panelKind}`);
       const empty = content.dataset.empty === "true";
@@ -1446,6 +1488,7 @@ function applyDataPanel(panelId, series, staleError = null) {
       body.replaceChildren(content);
       // Keep the reader's place in a scrolled panel across refreshes.
       if (scrolled > 0) body.scrollTop = scrolled;
+      fillText(section);
       trackOverflow(body);
       if (staleError) {
         section.dataset.panelState = "stale";
