@@ -94,7 +94,7 @@ panels = {
     "targets": panel(
         "Collector targets", "1 = the last scrape of that target succeeded",
         "Table", {"format": {"unit": "none", "decimalPlaces": 0}},
-        ["max by (job, instance) (up)"]),
+        ['label_join(max by (job, instance) (up), "target", " · ", "instance", "job")']),
     "uptime": panel(
         "Uptime (days)", "Since the phone booted",
         "StatChart", {"calculation": "last-number", "format": {"unit": "none", "decimalPlaces": 1}},

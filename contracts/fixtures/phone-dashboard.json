@@ -525,7 +525,7 @@
                   "kind": "PrometheusTimeSeriesQuery",
                   "spec": {
                     "datasource": "$ds",
-                    "query": "max by (job, instance) (up)"
+                    "query": "label_join(max by (job, instance) (up), \"target\", \" · \", \"instance\", \"job\")"
                   }
                 }
               }

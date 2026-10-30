@@ -56,7 +56,7 @@ class PhoneSampler(context: Context, private val collector: () -> CollectorRunti
             StorageState(stat.totalBytes, stat.availableBytes)
         }
         val network = source("network", ::network)
-        val wifi = source("wifi") { network?.capabilities?.let(::wifi) }
+        val wifi = source("wifi") { wifi(network?.capabilities) }
         val cpu = source("cpu", ::cpuPolicies)
         val screen = source("screen") { screen(power) }
         val time = source("time") {
@@ -175,11 +175,23 @@ class PhoneSampler(context: Context, private val collector: () -> CollectorRunti
      * RSSI and link speed from the active Wi-Fi network's [WifiInfo] (API 31+).
      * The redacted `WifiInfo` needs no location permission; null otherwise.
      */
-    private fun wifi(capabilities: NetworkCapabilities): Pair<Int?, Long?>? {
+    private fun wifi(active: NetworkCapabilities?): Pair<Int?, Long?>? {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return null
-        if (!capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) return null
-        val info = capabilities.transportInfo as? WifiInfo ?: return null
+        // Behind a VPN (e.g. Tailscale) the active network's transport info is
+        // the VPN's, so fall back to the Wi-Fi network underneath it.
+        val info = (active?.transportInfo as? WifiInfo) ?: underlyingWifi() ?: return null
         return PhoneMetrics.wifiRssi(info.rssi) to PhoneMetrics.linkSpeedBps(info.linkSpeed)
+    }
+
+    @Suppress("DEPRECATION") // allNetworks: the only synchronous enumeration API.
+    private fun underlyingWifi(): WifiInfo? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return null
+        val manager = context.getSystemService(ConnectivityManager::class.java) ?: return null
+        return manager.allNetworks.asSequence()
+            .mapNotNull { manager.getNetworkCapabilities(it) }
+            .filter { it.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) && !it.hasTransport(NetworkCapabilities.TRANSPORT_VPN) }
+            .mapNotNull { it.transportInfo as? WifiInfo }
+            .firstOrNull()
     }
 
     /** cpufreq policies; unreadable directories or files are skipped. */
