@@ -5,7 +5,8 @@
   countdown, `setLocked`; decision 0015); amended 2026-10-28
   (`W_FIT_OVERFLOW`, settings action replaces the lock-screen toggle; decision
   0017); amended 2026-10-28 (dashboard `source`/`storedAt`,
-  `W_STORED_DASHBOARD_INVALID`, `W_DASHBOARD_NOT_STORED`; decision 0018)
+  `W_STORED_DASHBOARD_INVALID`, `W_DASHBOARD_NOT_STORED`; decision 0018);
+  amended 2026-10-29 (header status is the dot only; decision 0022)
 - **Consumers:** Web renderer (W2), Android shell (W1)
 - **Machine-readable:** [`contracts/diagnostics.schema.json`](../../contracts/diagnostics.schema.json)
 - **Fixture:** [`diagnostics.example.json`](../../contracts/fixtures/diagnostics.example.json)
@@ -211,12 +212,14 @@ Warnings object same shape with W_* code.
 ## On-screen status
 
 One dashboard-wide status, always visible (release and debug), sits in the
-header with the dashboard title — under it in the sticky scroll-layout header,
-beside it on one line in the fit layout (C-005) (`.app-status`, `role="status"`,
+header, as a dot just before the dashboard title in every layout (C-005) (`.app-status`, `role="status"`,
 `aria-live="polite"`, `data-status` = state):
 
-- a dot: green `live`, amber `degraded`/`stale`, red `error`, gray `loading`;
-- one line of text:
+- a dot: green `live`, amber `degraded`/`stale`, red `error`, gray `loading`.
+  The dot is the only visible part: no time or words are drawn, so the header
+  does not change width or re-render text on refresh or dashboard switch;
+- a status text that is not displayed. It is the element's `aria-label`
+  (`<State>. <text>`) and `title`:
 
 | State | Text |
 |---|---|
@@ -226,7 +229,6 @@ beside it on one line in the fit layout (C-005) (`.app-status`, `role="status"`,
 | `error` | `Offline since <last success>`, or `Offline` with no prior success |
 | `loading` | `Loading` |
 
-- The `aria-label` is `<State>. <text>`.
 - There is no next-refresh countdown, no per-second ticker, and no bottom
   status bar. The status is recomputed only when a cycle settles or the
   scheduler state changes. The next refresh time and hidden/error counts are in

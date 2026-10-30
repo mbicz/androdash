@@ -58,7 +58,6 @@ const state = {
   intervalSeconds: 30,
   mode: "stack",
   statusEl: null,
-  statusTextEl: null,
   rangeText: null,
   panelWindows: new Map(),
   locked: false,
@@ -596,11 +595,8 @@ function createHeader() {
   const dot = document.createElement("span");
   dot.className = "status-dot";
   dot.setAttribute("aria-hidden", "true");
-  const text = document.createElement("span");
-  text.className = "status-text";
-  status.append(dot, text);
+  status.append(dot);
   state.statusEl = status;
-  state.statusTextEl = text;
 
   const actions = document.createElement("div");
   actions.className = "header-actions";
@@ -1755,7 +1751,7 @@ function syncDiagnostics() {
  */
 function updateStatus() {
   const status = currentStatus();
-  if (state.statusEl && state.statusTextEl) {
+  if (state.statusEl) {
     const lastSuccess = state.scheduler?.state()?.lastSuccessAt;
     const total = state.filtered?.dataPanelIds?.length || 0;
     const errors = state.panelErrors.size;
@@ -1766,8 +1762,9 @@ function updateStatus() {
     else if (status === "degraded") text = `${errors} of ${total} failing · ${formatClock(lastSuccess)}`;
     else text = lastSuccess ? formatClock(lastSuccess) : "Live";
     state.statusEl.dataset.status = status;
-    state.statusTextEl.textContent = text;
+    // Only the dot is shown; the words are for assistive tech and hover.
     state.statusEl.setAttribute("aria-label", `${statusLabel(status)}. ${text}`);
+    state.statusEl.title = text;
   }
   syncDiagnostics();
 }
