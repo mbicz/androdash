@@ -35,6 +35,8 @@ Open one of these:
 Launch options are the same query parameters in the browser and intent extras
 on the phone.
 
+<img src="images/desktop.png" width="640" alt="Spark Exporter dashboard in the desktop grid layout">
+
 ## 2. Build and install the app
 
 | Need | Notes |
