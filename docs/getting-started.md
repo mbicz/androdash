@@ -1,64 +1,55 @@
 # Getting started
 
-This guide takes you from a clone to a phone showing live dashboards. Every
-command here was run against the current code. For the full option set, see
-[C-001 Launch configuration](contracts/C-001-launch-config.md). For every
-development command, see [`development.md`](development.md).
+All options: [C-001 Launch configuration](contracts/C-001-launch-config.md).
+All development commands: [`development.md`](development.md).
 
-1. [Try it in a browser](#1-try-it-in-a-browser)
-2. [Build and install the app](#2-build-and-install-the-app)
-3. [First launch: the phone dashboard](#3-first-launch-the-phone-dashboard)
-4. [Show a Mac's metrics](#4-show-a-macs-metrics)
-5. [Choose dashboards](#5-choose-dashboards)
-6. [Use it day to day](#6-use-it-day-to-day)
-7. [Bring your own dashboard](#7-bring-your-own-dashboard)
+1. [Browser](#1-browser)
+2. [Build and install](#2-build-and-install)
+3. [First launch](#3-first-launch)
+4. [Add a computer's metrics](#4-add-a-computers-metrics)
+5. [Dashboards and display options](#5-dashboards-and-display-options)
+6. [Gestures and status](#6-gestures-and-status)
+7. [Custom dashboards](#7-custom-dashboards)
 8. [Troubleshooting](#8-troubleshooting)
 
-## 1. Try it in a browser
-
-The renderer is plain HTML and ES modules, so any browser runs it. The mock
-Prometheus returns deterministic values for every query in the bundled
-fixtures.
+## 1. Browser
 
 ```sh
 python3 tools/mock_prometheus.py --port 9091
 python3 tools/serve_demo.py --port 8099
 ```
 
-Open one of these:
-
 | Dashboard | URL |
 |---|---|
-| Spark Exporter, fit to screen | <http://localhost:8099/web/app/index.html?dashboard_url=http://localhost:8099/contracts/fixtures/spark-dashboard.json&prometheus_url=http://localhost:9091&layout_mode=fit> |
-| Demo, with the diagnostics overlay | <http://localhost:8099/web/app/index.html?dashboard_url=http://localhost:8099/contracts/fixtures/demo-dashboard.json&prometheus_url=http://localhost:9091&debug=true> |
+| Spark Exporter, fit layout | <http://localhost:8099/web/app/index.html?dashboard_url=http://localhost:8099/contracts/fixtures/spark-dashboard.json&prometheus_url=http://localhost:9091&layout_mode=fit> |
+| Demo, diagnostics overlay | <http://localhost:8099/web/app/index.html?dashboard_url=http://localhost:8099/contracts/fixtures/demo-dashboard.json&prometheus_url=http://localhost:9091&debug=true> |
 
-Launch options are the same query parameters in the browser and intent extras
-on the phone.
+Launch options are query parameters in the browser and intent extras on the
+phone.
 
 <img src="images/desktop.png" width="640" alt="Spark Exporter dashboard in the desktop grid layout">
 
-## 2. Build and install the app
+## 2. Build and install
 
-| Need | Notes |
+| Requirement | Notes |
 |---|---|
-| Android phone, arm64, Android 8+ | Developer options → USB or wireless debugging on |
-| JDK 17+, Android SDK platform 35, adb | `mise install` provides JDK 21, Node, Python, and Gradle from [`.mise.toml`](../.mise.toml) |
-| ~1 GB free disk | The first build downloads the pinned Prometheus release (~100 MB) into `~/.gradle/androdash-cache/`; `app/build` grows to ~600 MB |
+| Phone | arm64, Android 8.0+, USB or wireless debugging enabled |
+| Toolchain | JDK 17+, Android SDK platform 35, adb; `mise install` provides the pinned versions |
+| Disk | ~1 GB: the first build downloads the pinned Prometheus release (~100 MB) to `~/.gradle/androdash-cache/`; `app/build` reaches ~600 MB |
 
 ```sh
 mise exec -- ./gradlew :app:assembleDebug
-adb devices                                     # the phone must be listed
+adb devices
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
-Wireless debugging works too: pair with `adb pair <ip:port>`, then use
-`adb -s <serial>` in every command below.
+With several devices, or with wireless debugging, add `-s <serial>` to each
+`adb` command.
 
-## 3. First launch: the phone dashboard
+## 3. First launch
 
-The app has no configuration until it is launched with extras once. The
-configuration then persists: the launcher icon, a reboot, or a crash all
-restore it.
+The app needs one launch with extras. It persists the configuration and
+restores it from the launcher icon, after a reboot, or after a crash.
 
 ```sh
 adb shell am start -n com.mbicz.androdash/.MainActivity \
@@ -67,40 +58,28 @@ adb shell am start -n com.mbicz.androdash/.MainActivity \
   --es layout_mode fit
 ```
 
-- `http://androdash.local/dashboards/…` is a dashboard bundled in the APK. It
-  needs no server.
-- `collector=true` starts the bundled Prometheus as a foreground service
-  ("Collector" notification). It listens on `127.0.0.1:19090`, and the dashboard
-  queries it there.
-- The collector scrapes the in-app phone exporter (`127.0.0.1:19100`) by
-  default, so it has a target with no further setup.
-- History starts empty and charts fill as scrapes arrive (every 15 s by
-  default).
+- `http://androdash.local/dashboards/…` is a dashboard bundled in the APK.
+- `collector=true` runs the bundled Prometheus as a foreground service on
+  `127.0.0.1:19090`, and the renderer queries it there. The service holds a
+  partial wake lock, so keep the phone on a charger.
+- By default the collector scrapes the in-app phone exporter
+  (`127.0.0.1:19100`, job `phone`).
+- History starts empty. Charts fill as scrapes arrive, every 15 s by default.
 
-Expected result: the title is the phone model (for example "Pixel 10"), every
-panel shows data within about 30 s, and the "Collector targets" panel lists
-`phone · phone` with `1`.
+Result: the title is the phone's model name, the panels show data, and
+"Collector targets" lists `phone · phone` = `1`.
 
-The collector holds a partial wake lock so scrapes continue while the phone
-dozes. Keep the phone on a charger.
+## 4. Add a computer's metrics
 
-## 4. Show a Mac's metrics
-
-Run node_exporter on the Mac and make it reachable from the phone:
+Run node_exporter on the computer, listening on all interfaces. On macOS:
 
 ```sh
 brew install node_exporter
 echo '--web.listen-address=0.0.0.0:9100' > "$(brew --prefix)/etc/node_exporter.args"
 brew services start node_exporter
-ipconfig getifaddr en0          # the Mac's LAN address, e.g. 192.168.1.20
 ```
 
-There are two ways to get the Mac's metrics onto the phone.
-
-### A. The phone scrapes the Mac (recommended)
-
-Prometheus runs on the phone and the Mac only runs exporters. The phone keeps
-its history while the Mac sleeps or travels.
+### Option A: the phone scrapes the exporter
 
 ```sh
 adb shell am start -n com.mbicz.androdash/.MainActivity \
@@ -110,16 +89,14 @@ adb shell am start -n com.mbicz.androdash/.MainActivity \
   --es layout_mode fit
 ```
 
-`collector_targets` is a comma-separated list of `[job:]instance=host:port`
-entries, at most 32. The bundled dashboards expect these jobs: `node` for
-node_exporter, `agenticmac` for
+`collector_targets` is a comma-separated list of up to 32
+`[job:]instance=host:port` entries. The bundled dashboards expect these jobs:
+`node` for node_exporter, `agenticmac` for
 [agenticmac-exporter](integrations/agenticmac-exporter.md), and `phone`, which
-is added automatically.
+is added automatically. History is kept on the phone (`collector_retention`,
+default `24h`).
 
-### B. The phone queries the Mac's Prometheus
-
-If you already run Prometheus, point the renderer at it. Its default
-`--web.cors.origin=.*` already allows `http://androdash.local`.
+### Option B: the phone queries an existing Prometheus
 
 ```sh
 adb shell am start -n com.mbicz.androdash/.MainActivity \
@@ -128,93 +105,89 @@ adb shell am start -n com.mbicz.androdash/.MainActivity \
 ```
 
 Prometheus must listen beyond loopback (`--web.listen-address=0.0.0.0:9090`).
+Its default `--web.cors.origin=.*` already allows `http://androdash.local`.
 
-### Away from home: Tailscale
+### Over Tailscale
 
-Exporters that listen on `0.0.0.0` are also reachable over Tailscale. Use the
-Mac's tailnet address (`tailscale ip -4`) or its MagicDNS name in
-`collector_targets` or `prometheus_url`. The phone can then follow the Mac
-anywhere. If the phone's active network is the Tailscale VPN, the phone
-exporter still reports Wi-Fi signal from the underlying Wi-Fi network.
+Exporters bound to `0.0.0.0` are also reachable on the tailnet. Use the host's
+tailnet address (`tailscale ip -4`) or MagicDNS name in `collector_targets` or
+`prometheus_url`. While the phone's active network is the VPN, the phone
+exporter reads Wi-Fi signal from the underlying Wi-Fi network.
 
-> **Security.** Prometheus and the exporters have no authentication here. Keep
-> them on a trusted LAN or tailnet ([decision 0006](../changelog.d/0006-cleartext-lan-http.md),
-> [C-008](contracts/C-008-webview-security.md)).
+Prometheus and the exporters are unauthenticated in this setup; expose them
+only on a trusted LAN or tailnet
+([decision 0006](../changelog.d/0006-cleartext-lan-http.md),
+[C-008](contracts/C-008-webview-security.md)).
 
-## 5. Choose dashboards
+## 5. Dashboards and display options
 
 | Option | Example | Effect |
 |---|---|---|
-| `dashboard_urls` | `--es dashboard_urls "<url>,<url>"` | Up to 8 dashboards; swipe sideways between them |
-| `rotate_seconds` | `--ei rotate_seconds 60` | Advance automatically; `0` turns rotation off, otherwise 10–3600 |
-| `layout_mode` | `--es layout_mode fit` | `fit` puts every panel on one screen; `auto`/`grid`/`stack` scroll |
-| `display_mode` | `--es display_mode amoled` | `standard`, true-black `amoled`, or grayscale `monochrome` |
-| `show_when_locked` | `--ez show_when_locked true` | Keep the dashboard above the keyguard, dimmed, in grayscale or colour (`lock_style`) |
-| `time_range` / `refresh_seconds` | `--es time_range 1h --ei refresh_seconds 30` | Override the dashboard's defaults |
-| `dashboard_source` | `--es dashboard_source url` | `stored` (default) keeps a copy of a remote dashboard on the phone; `url` fetches it on every load |
+| `dashboard_urls` | `--es dashboard_urls "<url>,<url>"` | Up to 8 dashboards; swipe between them |
+| `rotate_seconds` | `--ei rotate_seconds 60` | Advance automatically; `0` = off, else 10–3600 |
+| `layout_mode` | `--es layout_mode fit` | `fit` (one screen), `auto`, `grid`, `stack` |
+| `display_mode` | `--es display_mode amoled` | `standard`, `amoled` (true black), `monochrome` |
+| `show_when_locked` | `--ez show_when_locked true` | Dimmed dashboard above the keyguard; `lock_style` `monochrome` or `color` |
+| `time_range`, `refresh_seconds` | `--es time_range 1h --ei refresh_seconds 30` | Override dashboard defaults |
+| `dashboard_source` | `--es dashboard_source url` | `stored` (default) keeps a copy of a remote dashboard; `url` fetches on every load |
 
-Most of these can also be changed on the phone. Tap the settings button (the
-sliders icon) to open the sheet: time range, refresh, layout, dashboards
-(show, add a bundled one, remove, rotate), the stored dashboard copy, the
-collector status, and the lock-screen view. Changes apply at once and persist.
+The settings sheet (sliders icon) changes time range, refresh, layout,
+dashboards (show, add bundled, remove, rotate), the stored copy, and the
+lock-screen view. It also shows the collector status. Changes persist.
 
-The settings sheet can add bundled dashboards but never new remote URLs. Remote
-URLs come only from launch extras, so content on a dashboard page cannot point
-the kiosk somewhere else.
+The sheet can add bundled dashboards only. Remote dashboard URLs come only from
+launch extras.
 
-## 6. Use it day to day
+## 6. Gestures and status
 
-| Gesture | Does |
+| Input | Action |
 |---|---|
-| Swipe left / right | Next or previous dashboard (anywhere in fit layout; on the header in scroll layouts) |
-| Vertical drag on a panel | Scrolls that panel's content; the panels stay put |
-| Double-tap a panel | Zoom it to full screen with larger type; double-tap again to return |
-| Tap a row title (scroll layouts) | Collapse or expand the row |
+| Horizontal swipe | Next or previous dashboard; anywhere in `fit`, on the header in scroll layouts |
+| Vertical drag on a panel | Scrolls that panel |
+| Double tap on a panel | Zooms it to full screen; double tap again to return |
+| Tap a row title (scroll layouts) | Folds the row |
 | Back | Ignored in kiosk mode |
 
-The status dot next to the clock is green when data is fresh, amber when it is
-stale, and red on error. Panels show the same states on their edge. A panel
-that cannot be rendered is hidden, never drawn with made-up data.
+The dot before the title shows data freshness: green fresh, amber stale or
+partly failing, red offline, gray loading. Panels show the same state on their
+left edge. With `--ez debug true` the diagnostics overlay shows the last update
+time and per-panel errors.
 
-To leave kiosk mode, relaunch with `--ez kiosk false` (Back then exits) or run
-`adb shell am force-stop com.mbicz.androdash`. With `--ez collector false` the
-collector stops and the configured `prometheus_url` is used again.
+To leave kiosk mode, relaunch with `--ez kiosk false` (Back then exits), or run
+`adb shell am force-stop com.mbicz.androdash`. `--ez collector false` stops the
+collector, and the renderer goes back to the configured `prometheus_url`.
 
-## 7. Bring your own dashboard
+## 7. Custom dashboards
 
-Any Perses dashboard JSON served over HTTP(S) works if it stays inside the
-supported subset:
+Requirements for a Perses dashboard JSON:
 
 - panels: `TimeSeriesChart`, `StatChart`, `GaugeChart`, `Table`, `Markdown`
   ([C-005](contracts/C-005-panel-rendering.md#supported-panels));
-- queries: Prometheus time-series queries, with dashboard variables
+- queries: Prometheus time-series queries; dashboard variables are supported
   ([C-002](contracts/C-002-dashboard-source.md),
-  [C-004](contracts/C-004-capability-negotiation.md)).
+  [C-004](contracts/C-004-capability-negotiation.md));
+- served with CORS that allows `http://androdash.local` (or `*`).
+  `tools/serve_demo.py --host <lan-ip>` serves this repository that way.
 
-The server must allow CORS from `http://androdash.local` (or `*`).
-`tools/serve_demo.py --host <lan-ip>` does this for files in the repository.
-After the first successful load the phone keeps a copy, so the server can go
-away.
+After the first successful load the phone keeps a copy, so the server is no
+longer needed.
 
-To bundle a dashboard in the APK, add `contracts/fixtures/<name>-dashboard.json`
-and rebuild. It is then served at
-`http://androdash.local/dashboards/<name>-dashboard.json` and offered in the
-settings sheet. The bundled dashboards are generated by scripts such as
-[`tools/gen_phone_dashboard.py`](../tools/gen_phone_dashboard.py) and
-[`tools/gen_agenticmac_dashboard.py`](../tools/gen_agenticmac_dashboard.py).
-Copy one as a starting point and validate each query against a real Prometheus
-first.
+To bundle a dashboard, add `contracts/fixtures/<name>-dashboard.json` and
+rebuild. It is then served at
+`http://androdash.local/dashboards/<name>-dashboard.json` and listed in the
+settings sheet. The bundled dashboards come from generators such as
+[`tools/gen_phone_dashboard.py`](../tools/gen_phone_dashboard.py).
 
 ## 8. Troubleshooting
 
-| Symptom | Fix |
+| Symptom | Check |
 |---|---|
-| Native screen with `E_CONFIG` | First launch had no extras, or a value is invalid; the screen names the field. Relaunch with valid extras. |
-| `E_DASHBOARD_FETCH` | The phone cannot reach the URL, or the server lacks CORS. Use a bundled dashboard to rule out the network. |
-| A panel says No data | The query matched nothing. Check `up` for its job in Prometheus (or the "Collector targets" panel), and check that the exporter listens on `0.0.0.0`, not `127.0.0.1`. |
-| Collector targets show `0` | The phone cannot reach `host:port`. From the Mac: `curl http://<ip>:9100/metrics`. Check the firewall, the Wi-Fi/VLAN, or Tailscale. |
-| Charts empty right after launch | Collector history starts empty; wait a few scrape intervals. |
-| Anything else | Relaunch with `--ez debug true` for the diagnostics overlay, and watch `adb logcat -s AndroDash`. |
+| Native `E_CONFIG` screen | No extras on first launch, or an invalid value; the screen names the field |
+| `E_DASHBOARD_FETCH` | The phone cannot reach the URL, or the server lacks CORS. Try a bundled dashboard |
+| Panel shows "No data" | Check the query's job in `up`, or in the "Collector targets" panel. The exporter must listen on `0.0.0.0` |
+| Collector target is `0` | The phone cannot reach `host:port`: firewall, Wi-Fi isolation, or VLAN |
+| Empty charts after launch | Collector history starts empty; wait a few scrape intervals |
+| Other | `--ez debug true` and `adb logcat -s AndroDash` |
 
-More: [`development.md` § Troubleshooting](development.md#10-troubleshooting),
-[collector inspection commands](development.md#prometheus-on-the-phone-collector).
+More: [`development.md` § Troubleshooting](development.md#10-troubleshooting)
+and the [collector inspection commands](development.md#prometheus-on-the-phone-collector).

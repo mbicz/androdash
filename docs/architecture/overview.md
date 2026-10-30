@@ -201,8 +201,8 @@ See [`security.md`](security.md) for the full model.
 
 - One WebView and one refresh scheduler; only the dashboard on screen is
   loaded and queried, even with several in `dashboard_urls`.
-- Measured on a Pixel 10: the collector uses about 2 % of one core and 35–100
-  MiB RSS, and writes about 3 MiB of disk per hour (decision 0019).
+- Measured on one phone (decision 0019): the collector uses about 2 % of one core and 35–100
+  MiB RSS, and writes about 3 MiB of disk per hour.
 - Bounded panels, series, and points (C-003/C-005).
 - SVG line charts for v1; no charting dependency.
 - Layout is built once; refreshes update panel bodies, not the whole DOM.
