@@ -7,6 +7,35 @@ Every material decision, contract change, or constitution amendment gets one
 entry. A future agent should be able to read `changelog.d/` and understand which
 choices are deliberate, which are provisional, and what superseded what.
 
+## Decision index
+
+One line per entry, oldest first. The newest entries describe the current
+shape; older ones remain binding unless marked superseded.
+
+| ID | Decision | Status |
+|---|---|---|
+| [0001](0001-on-device-webview-kiosk.md) | Render dashboards on-device in an Android WebView kiosk | accepted |
+| [0002](0002-mini-perses-renderer.md) | Implement a documented Perses subset instead of embedding the Perses UI | accepted |
+| [0003](0003-direct-prometheus-capabilities.md) | Query Prometheus directly and filter panels by advertised capabilities | accepted |
+| [0004](0004-contract-first-parallel-agents.md) | Contract-first development with a repository-native decision log | accepted |
+| [0005](0005-vanilla-es-modules.md) | Use vanilla ES modules and SVG charts with no web build step | accepted |
+| [0006](0006-cleartext-lan-http.md) | Allow cleartext HTTP for LAN dashboards and Prometheus | accepted |
+| [0007](0007-virtual-http-origin.md) | Serve the bundled renderer from a virtual local HTTP origin | accepted |
+| [0008](0008-dashboard-cors.md) | Require CORS for dashboard JSON fetches | accepted |
+| [0009](0009-config-edge-cases.md) | Normalize empty and duplicate launch configuration | accepted |
+| [0010](0010-amoled-monochrome-display-modes.md) | Add AMOLED and monochrome display modes | accepted |
+| [0011](0011-show-when-locked.md) | Allow the kiosk dashboard to show above the keyguard | accepted |
+| [0012](0012-spark-exporter-units.md) | Consume Spark Exporter metrics and add physical units | accepted |
+| [0013](0013-application-id-rename.md) | Rename the Android application ID to `com.mbicz.androdash` | accepted |
+| [0014](0014-css-pixel-geometry-and-grouped-metrics.md) | Render at CSS-pixel geometry and group same-unit metrics | accepted |
+| [0015](0015-phone-ux-and-visual-system.md) | Phone UX pass: paging, folding, time controls, quiet status, flat visual system | accepted |
+| [0016](0016-lock-screen-grayscale.md) | Lock-screen grayscale view, power-button re-light, and view/lock bridge methods | accepted |
+| [0017](0017-fit-layout-and-lock-style.md) | Fit-to-screen layout, settings sheet, and lock-screen colour option | accepted |
+| [0018](0018-on-device-dashboards.md) | On-device dashboards: bundled, stored copy, or live from the URL | accepted |
+| [0019](0019-on-phone-collector.md) | Prometheus on the phone: bundled collector service | accepted |
+| [0020](0020-multiple-dashboards-and-panel-scrolling.md) | Multiple dashboards, panel scrolling, and gestures that never leave the app | accepted |
+| [0021](0021-phone-exporter-zoom-and-stable-header.md) | Phone exporter in the app, panel zoom, and a stable header | accepted |
+
 ## File naming
 
 ```
