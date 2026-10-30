@@ -9,6 +9,10 @@
     <!-- Decision 0019: foreground service that runs the on-phone Prometheus collector. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <!-- Decision 0021: the in-app phone exporter reads the active network type and
+         Wi-Fi RSSI/link speed (normal permissions; never location). -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
 
     <application
         android:allowBackup="false"

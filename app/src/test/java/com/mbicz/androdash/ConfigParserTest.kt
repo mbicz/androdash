@@ -491,12 +491,13 @@ class ConfigParserTest {
     }
 
     @Test
-    fun `collector defaults are off, 15 s, 24h`() {
+    fun `collector defaults are off, 15 s, 24h, phone on`() {
         val config = ConfigParser.parse(extras("dashboard_url" to dashboard)).config
         assertFalse(config.collector)
         assertNull(config.collectorTargets)
         assertEquals(15, config.collectorScrapeSeconds)
         assertEquals("24h", config.collectorRetention)
+        assertTrue(config.collectorPhone)
     }
 
     @Test
@@ -555,14 +556,31 @@ class ConfigParserTest {
     }
 
     @Test
-    fun `collector without targets is E_CONFIG`() {
-        assertFails { ConfigParser.parse(extras("dashboard_url" to dashboard, "collector" to "true")) }
-        assertFails {
-            ConfigParser.parse(extras("dashboard_url" to dashboard, "collector" to "true", "collector_targets" to " "))
-        }
-        assertFails {
-            ConfigParser.parse(extras("dashboard_url" to dashboard, "collector" to "true", "collector_targets" to ",,"))
-        }
+    fun `collector alone runs the phone exporter job`() {
+        val parsed = ConfigParser.parse(extras("dashboard_url" to dashboard, "collector" to "true")).config
+        assertTrue(parsed.collector)
+        assertTrue(parsed.collectorPhone)
+        assertNull(parsed.collectorTargets)
+        assertEquals(listOf(CollectorConfig.PHONE_TARGET), CollectorConfig.from(parsed)!!.scrapeTargets)
+        assertTrue(JSONObject(parsed.toJson()).getBoolean("collectorPhone"))
+        assertEquals(parsed, ConfigParser.decodePersisted(parsed.toJson()))
+        assertFalse(ConfigParser.launchUrl(parsed).contains("collector"))
+    }
+
+    @Test
+    fun `collector without targets or phone is E_CONFIG`() {
+        fun launch(vararg values: Pair<String, String?>) =
+            ConfigParser.parse(extras("dashboard_url" to dashboard, "collector" to "true", *values))
+        assertFails { launch("collector_phone" to "false") }
+        assertFails { launch("collector_phone" to "false", "collector_targets" to " ") }
+        assertFails { launch("collector_targets" to ",,") }
+        assertFails { launch("collector_phone" to "no") }
+        assertFails { launch("collector_targets" to "phone:phone=a.lan:9100") }
+        val off = launch("collector_phone" to "false", "collector_targets" to "phone:phone=a.lan:9100").config
+        assertFalse(off.collectorPhone)
+        // collector_phone persists like the other collector fields.
+        assertFalse(ConfigParser.parse(extras("collector" to "true"), off).config.collectorPhone)
+        assertFails { ConfigParser.parse(extras("collector_phone" to "true"), off) }
     }
 
     @Test
@@ -597,8 +615,11 @@ class ConfigParserTest {
             remove("collectorTargets")
             remove("collectorScrapeSeconds")
             remove("collectorRetention")
+            remove("collectorPhone")
         }.toString()
         assertEquals(AppConfig(dashboardUrl = dashboard), ConfigParser.decodePersisted(legacy))
+        val preV7 = JSONObject(config.toJson()).apply { remove("collectorPhone") }.toString()
+        assertEquals(config.copy(collectorPhone = true), ConfigParser.decodePersisted(preV7))
         listOf(
             "collectorTargets" to "bad",
             "collectorScrapeSeconds" to 1,
@@ -607,6 +628,12 @@ class ConfigParserTest {
             assertNull(ConfigParser.decodePersisted(JSONObject(config.toJson()).put(key, value).toString()))
         }
         assertNull(
+            ConfigParser.decodePersisted(
+                JSONObject(config.copy(collectorPhone = false).toJson()).put("collectorTargets", JSONObject.NULL).toString(),
+            ),
+        )
+        assertEquals(
+            config.copy(collectorTargets = null),
             ConfigParser.decodePersisted(JSONObject(config.toJson()).put("collectorTargets", JSONObject.NULL).toString()),
         )
     }
@@ -843,7 +870,7 @@ class ConfigParserTest {
 
         assertFalse(ConfigParser.hasConfigExtras(emptyMap()))
         assertFalse(ConfigParser.hasConfigExtras(extras("android.intent.extra.REFERRER_NAME" to "x", "profile" to "0")))
-        listOf("dashboard_url", "dashboard_urls", "rotate_seconds", "collector_targets", "lock_task", "show_when_locked")
+        listOf("dashboard_url", "dashboard_urls", "rotate_seconds", "collector_targets", "collector_phone", "lock_task", "show_when_locked")
             .forEach { assertTrue(it, ConfigParser.hasConfigExtras(extras(it to "x"))) }
 
         // Launcher tap or system re-start: no extras.

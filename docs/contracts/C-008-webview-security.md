@@ -1,11 +1,12 @@
 # C-008 — WebView security
 
-- **Version:** 4
+- **Version:** 5
 - **Status:** Accepted, 2026-10-29 (v2: bundled and stored dashboards on the
   virtual origin, decision 0018; v3: bundled Prometheus executable on
   loopback, decision 0019; v4: stored-dashboard slots, generated
   `dashboards/index.json`, `setOption("dashboard_urls")` cannot add remote
-  URLs, decision 0020)
+  URLs, decision 0020; v5: in-app phone exporter, second loopback listener,
+  decision 0021)
 - **Consumers:** Android shell (W1), web renderer (W2)
 - **Related:** C-001 (URL validation), C-003 (CORS/cleartext), C-007 (bridge), C-009 (redaction)
 
@@ -147,6 +148,39 @@ Prometheus linux-arm64 release, packaged as
 - **Files** live in app-private storage (`<filesDir>/collector/`); the log is
   capped at 1 MiB per start and contains Prometheus's own warnings.
 
+## Phone exporter listener (decision 0021)
+
+With C-001 `collector=true` and `collector_phone=true` the app itself listens
+on a second loopback port, served by Kotlin code in the app process (C-007
+"Phone exporter"):
+
+- **Loopback only.** `127.0.0.1:19100`, never a LAN interface. One daemon
+  thread serves one connection at a time.
+- **Minimal HTTP/1.1.** The request head (request line plus headers) is read
+  up to 8 KiB, with a 5 s socket timeout. `GET /metrics` (query string
+  ignored) returns `200` with `Content-Type: text/plain; version=0.0.4;
+  charset=utf-8`; any other well-formed request returns `404`; a malformed,
+  incomplete, or oversized head returns `400`. Every response has
+  `Content-Length` and `Connection: close`. No other method, path, header,
+  or body is interpreted; request bytes never reach a file, process, or log.
+- **Content: phone state, no identifiers.** Only the metrics listed in
+  [`docs/integrations/phone-exporter.md`](../integrations/phone-exporter.md):
+  device build (manufacturer, model, Android release, SDK level), battery,
+  thermal, memory, storage, traffic counters, network transport type, Wi-Fi
+  RSSI and link speed, cpufreq, screen state and brightness, uptime/boot
+  time, AndroDash process RSS/CPU, collector health, and exporter self
+  metrics. No serial, IMEI, Android ID, account, SSID/BSSID, IP or MAC
+  address, location, app list, or notification content. Labels are bounded
+  (fixed enums, cpufreq policy numbers, build strings).
+- **Permissions.** `ACCESS_NETWORK_STATE` and `ACCESS_WIFI_STATE` (normal,
+  install-time). Wi-Fi data comes from the active network's redacted
+  `WifiInfo` (API 31+); location permission is never requested. No runtime
+  permission prompt.
+- **Other apps can read it** over loopback, like the collector (decision
+  0019). The content above is chosen to be harmless to expose to other apps on
+  the same phone; `collector_phone=false` or `collector=false` removes the
+  listener.
+
 ## Content Security Policy
 
 `index.html` includes:
@@ -265,14 +299,17 @@ Constraints:
 - [ ] Bundled Prometheus still pinned by both SHA-256 values, listening on
       `127.0.0.1` only, with no admin/lifecycle/remote-write flags
       (`CollectorConfigTest`).
+- [ ] Phone exporter still `127.0.0.1:19100` only, `GET /metrics` only, head
+      ≤ 8 KiB, no identifier metrics or labels (`MiniHttpTest`,
+      `PhoneMetricsTest`).
 
 ## Residual risks
 
 See `docs/architecture/security.md` §4. Accepted for v1: cleartext LAN,
 physical access, no auth, broad `connect-src`, inline styles, dashboard/Prometheus
-CORS permissiveness, and collector metrics readable by other apps over
-loopback (decision 0019). Revisit each with a decision when the deployment
-changes.
+CORS permissiveness, and collector and phone-exporter metrics readable by
+other apps over loopback (decisions 0019, 0021). Revisit each with a decision
+when the deployment changes.
 
 ## Out of scope
 

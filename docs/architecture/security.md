@@ -176,6 +176,7 @@ Do not add a global "ignore TLS errors" path to compensate for HTTPS misconfig.
 | Dashboard source CORS `*` | Required for the virtual app origin (decision 0008) | Restrict at the host/proxy layer if possible |
 | Prometheus CORS `*` | Required for the virtual app origin | Restrict at the Prometheus/proxy layer if possible |
 | On-phone collector readable by other apps | Android does not isolate loopback ports per app (decision 0019) | Scrape only metrics that LAN exporters already serve openly; `collector=false` removes the listener |
+| Phone exporter readable by other apps | Same loopback reason (decision 0021); content is device build, battery, thermal, memory, storage, network type/traffic, cpufreq, screen, uptime, and AndroDash process health only | No identifiers, SSID, IPs, or location (C-008); `collector_phone=false` removes the listener |
 
 ## 5. Security checklist for every change
 

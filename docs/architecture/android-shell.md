@@ -19,7 +19,8 @@ The shell is deliberately thin:
 6. Show a native fatal screen when configuration or the local asset fails.
 7. Log lifecycle and bridge events under the `AndroDash` tag.
 8. Optionally run and supervise the bundled Prometheus collector on loopback
-   (`collector=true`, decision 0019).
+   (`collector=true`, decision 0019), plus the in-app phone exporter it scrapes
+   (`collector_phone=true`, decision 0021).
 
 It must not parse Perses dashboards, build PromQL, schedule refreshes, or draw
 anything.
@@ -44,10 +45,14 @@ app/
     │   │   ├── AssetServer.kt    # virtual-origin routes: renderer, bundled + stored dashboards
     │   │   ├── DashboardStore.kt # stored remote-dashboard slots (fixed files, atomic)
     │   │   ├── LockRelightPolicy.kt # pure power-button re-light state machine
-    │   │   ├── CollectorConfig.kt   # pure: collector_targets grammar, prometheus.yml, arguments
-    │   │   ├── CollectorService.kt  # foreground service running/supervising libprometheus.so
+    │   │   ├── CollectorConfig.kt   # pure: collector_targets grammar, phone job, prometheus.yml, arguments
+    │   │   ├── CollectorService.kt  # foreground service running/supervising libprometheus.so + PhoneExporter
     │   │   ├── CollectorStatus.kt   # pure: collectorStatus() JSON + shared runtime state
-    │   │   └── RestartPolicy.kt     # pure collector restart backoff
+    │   │   ├── RestartPolicy.kt     # pure collector restart backoff
+    │   │   ├── PhoneExporter.kt     # 127.0.0.1:19100 listener thread serving GET /metrics
+    │   │   ├── PhoneSampler.kt      # per-scrape Android/proc/sys sampling, per-source errors
+    │   │   ├── PhoneMetrics.kt      # pure: snapshot → Prometheus text, unit conversions, /proc parsing
+    │   │   └── MiniHttp.kt          # pure: bounded request head, request line, routing, responses
     │   └── res/
     │       ├── drawable/ic_launcher.xml, ic_collector.xml
     │       └── values/
@@ -61,6 +66,8 @@ app/
         ├── ConfigParserTest.kt
         ├── DashboardStoreTest.kt
         ├── LockRelightPolicyTest.kt
+        ├── MiniHttpTest.kt
+        ├── PhoneMetricsTest.kt
         └── RestartPolicyTest.kt
 ```
 
@@ -79,8 +86,11 @@ project is a single `:app` module.
   `WAKE_LOCK` (normal; the lock-screen re-light, decision 0016, and the
   collector's partial wake lock, decision 0019); `FOREGROUND_SERVICE` and
   `FOREGROUND_SERVICE_SPECIAL_USE` for `CollectorService`
-  (`foregroundServiceType="specialUse"`, decision 0019); exported launcher
-  activity with the kiosk intent filter. No other permissions in v1.
+  (`foregroundServiceType="specialUse"`, decision 0019);
+  `ACCESS_NETWORK_STATE` and `ACCESS_WIFI_STATE` (normal; the phone exporter's
+  network type and Wi-Fi RSSI/link speed, decision 0021); exported launcher
+  activity with the kiosk intent filter. No other permissions in v1 (never
+  location).
 - Dependencies: Android framework + Kotlin standard library. No chart, network,
   JSON, or UI libraries.
 - Assets: the Gradle module maps `web/app/` as the assets root. A `shouldInterceptRequest`
@@ -137,6 +147,7 @@ one-to-one:
 | `collector_targets` | — | string (native-only; in AppConfig) |
 | `collector_scrape_seconds` | — | int (native-only; in AppConfig) |
 | `collector_retention` | — | string (native-only; in AppConfig) |
+| `collector_phone` | — | boolean (native-only; in AppConfig; default `true`) |
 
 Boolean Intent extras use `--ez`, integers `--ei`, strings `--es` when launching
 with `adb`.
@@ -217,6 +228,20 @@ process with `RestartPolicy` backoff, holds a `PARTIAL_WAKE_LOCK`
 process has exited. `collector=false` and `exitKiosk()` stop the service.
 `CollectorService.runtime` holds the state that `AndroDash.collectorStatus()`
 returns (C-007).
+
+With `collector_phone=true` (the default; decision 0021) `CollectorConfig`
+adds the scrape job `phone` → `127.0.0.1:19100` (instance `phone`) first, so
+`--ez collector true` alone is a valid collector, and the service runs
+`PhoneExporter` for exactly as long as it runs: started on each start command,
+stopped in `onDestroy` or when `collector_phone` turns false. The exporter's
+one daemon thread accepts on `127.0.0.1:19100`, reads a ≤ 8 KiB request head
+(`MiniHttp`), and for `GET /metrics` asks `PhoneSampler` for a `PhoneSnapshot`
+(battery sticky intent, `BatteryManager`, `PowerManager` thermal/screen,
+`ActivityManager.MemoryInfo`, `StatFs`, `TrafficStats`, `ConnectivityManager`
+capabilities and redacted `WifiInfo`, cpufreq sysfs, `/proc/<pid>/status|stat`
+for the app and the Prometheus child, `CollectorService.runtime`), which
+`PhoneMetrics` formats. Each source has its own try/catch and error counter.
+Metric list: [`docs/integrations/phone-exporter.md`](../integrations/phone-exporter.md).
 
 ## 5. WebView configuration
 

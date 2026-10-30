@@ -33,9 +33,12 @@ scraped too.
 
 ## Running it on the phone
 
-The exporter listens on the Mac's LAN address (`listen` in
-`~/.config/agenticmac-exporter/config.toml`, e.g. `192.168.192.16:9106`). With
-the on-phone collector (decision 0019):
+The exporter listens on every interface (`listen = "0.0.0.0:9106"` in
+`~/.config/agenticmac-exporter/config.toml`), as do node_exporter
+(`--web.listen-address=0.0.0.0:9100`) and the Mac's Prometheus (`:9090`), so
+the phone can reach them over the LAN or, away from home, over Tailscale (use
+the Mac's tailnet address or MagicDNS name as the target host). With the
+on-phone collector (decision 0019):
 
 ```sh
 adb shell am start -n com.mbicz.androdash/.MainActivity \
@@ -44,6 +47,9 @@ adb shell am start -n com.mbicz.androdash/.MainActivity \
   --es collector_targets "node:mac=192.168.192.16:9100,agenticmac:mac=192.168.192.16:9106" \
   --es layout_mode fit
 ```
+
+Over Tailscale, replace `192.168.192.16` with the Mac's tailnet address
+(`tailscale ip -4`) or MagicDNS name; the phone must be on the same tailnet.
 
 Counters start when the phone first scrapes them, so rates and spend fill in
 over the selected time range.
@@ -54,7 +60,8 @@ The exporter reads harness databases read-only through column allowlists, never
 reads prompt or message text, and exports only bounded labels (`harness`,
 `role`, `provider`, `model`, `type`, `window`, `service`, `vm`, `sensor`,
 `component`). It has no session, path, account, or email labels. It listens
-without authentication on the LAN, like node_exporter and the Mac's Prometheus;
+without authentication on every interface (LAN and tailnet), like node_exporter
+and the Mac's Prometheus — keep the Mac's networks trusted;
 the collector has no credential support (C-008: no credentials in v1). The
 exporter supports basic auth if the collector gains it later.
 

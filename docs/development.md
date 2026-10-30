@@ -225,14 +225,27 @@ adb shell am start -n com.mbicz.androdash/.MainActivity \
 ### Prometheus on the phone (collector)
 
 With `collector=true` the phone runs its own Prometheus (bundled in the APK)
-as a foreground service, scraping the LAN exporters directly, and the
-dashboard queries it on `127.0.0.1:19090`; no Prometheus on the Mac is needed
-(C-001 "On-phone collector", C-007 "Collector service", decision 0019). The
-exporter must listen on the LAN, e.g.
-`--web.listen-address=192.168.192.16:9100` in `node_exporter.args`:
+as a foreground service and the dashboard queries it on `127.0.0.1:19090`; no
+Prometheus on the Mac is needed (C-001 "On-phone collector", C-007 "Collector
+service", decision 0019). By default (`collector_phone=true`, decision 0021)
+it also scrapes the app's own phone exporter on `127.0.0.1:19100`, so
+`--ez collector true` alone already has a target and the phone's battery,
+thermal, memory, network, and CPU metrics
+([`integrations/phone-exporter.md`](integrations/phone-exporter.md)):
 
 ```sh
 adb install -r app/build/outputs/apk/debug/app-debug.apk
+adb shell am start -n com.mbicz.androdash/.MainActivity \
+  --es dashboard_url "http://androdash.local/dashboards/macos-node-dashboard.json" \
+  --ez collector true
+```
+
+Add LAN exporters with `collector_targets`. Each exporter must listen on the
+LAN, or on every interface so it is also reachable over Tailscale, e.g.
+`--web.listen-address=0.0.0.0:9100` in `node_exporter.args`; away from the LAN
+use the Mac's tailnet address (`tailscale ip -4`) as the target host:
+
+```sh
 adb shell am start -n com.mbicz.androdash/.MainActivity \
   --es dashboard_url "http://androdash.local/dashboards/macos-node-dashboard.json" \
   --ez collector true \
@@ -242,20 +255,26 @@ adb shell am start -n com.mbicz.androdash/.MainActivity \
 
 - `collector_targets`: comma-separated `[job:]instance=host:port` or
   `host:port` (job defaults to `node`, instance to `host:port`), up to 32.
+  Optional while `collector_phone=true`; `phone:phone=…` is reserved for the
+  phone job.
+- `--ez collector_phone false` drops the phone job and stops the exporter;
+  `collector_targets` is then required.
 - `--ei collector_scrape_seconds 10` (5–300, default 15) and
   `--es collector_retention 6h` (1h–30d, default `24h`).
 - History starts empty; charts fill as the phone scrapes.
 - The configured `prometheus_url` is kept and used again after
-  `--ez collector false`, which also stops the service.
+  `--ez collector false`, which also stops the service and the exporter.
 - The service holds a partial wake lock: keep the phone on a charger.
 
 Inspect it:
 
 ```sh
-adb logcat -s AndroDash          # "collector starting: 1 targets ..."
+adb logcat -s AndroDash          # "collector starting: 2 targets (phone true) ...",
+                                 # "phone exporter listening on 127.0.0.1:19100"
 adb shell run-as com.mbicz.androdash cat files/collector/prometheus.yml
 adb shell run-as com.mbicz.androdash cat files/collector/prometheus.log
 adb forward tcp:19090 tcp:19090 && curl -s 'http://127.0.0.1:19090/api/v1/query?query=up'
+adb forward tcp:19100 tcp:19100 && curl -s http://127.0.0.1:19100/metrics
 ```
 
 Kiosk off for development:

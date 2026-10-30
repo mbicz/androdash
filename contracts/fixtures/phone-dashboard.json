@@ -1,0 +1,729 @@
+{
+  "kind": "Dashboard",
+  "metadata": {
+    "name": "This phone",
+    "project": "androdash",
+    "createdAt": "2026-10-29T00:00:00Z",
+    "updatedAt": "2026-10-29T00:00:00Z",
+    "version": 1
+  },
+  "spec": {
+    "display": {
+      "name": "$device",
+      "description": "The phone running this dashboard (built-in phone exporter)"
+    },
+    "duration": "1h",
+    "refreshInterval": "15s",
+    "datasources": {
+      "prom": {
+        "default": true,
+        "plugin": {
+          "kind": "PrometheusDatasource",
+          "spec": {
+            "directUrl": "http://127.0.0.1:19090"
+          }
+        }
+      }
+    },
+    "variables": [
+      {
+        "kind": "ListVariable",
+        "spec": {
+          "name": "ds",
+          "defaultValue": "prom",
+          "allowMultiple": false,
+          "allowAllValue": false,
+          "plugin": {
+            "kind": "DatasourceVariable",
+            "spec": {
+              "datasourcePluginKind": "PrometheusDatasource"
+            }
+          }
+        }
+      },
+      {
+        "kind": "ListVariable",
+        "spec": {
+          "name": "device",
+          "allowMultiple": false,
+          "allowAllValue": false,
+          "plugin": {
+            "kind": "PrometheusLabelValuesVariable",
+            "spec": {
+              "labelName": "model",
+              "matchers": [
+                "android_device_info"
+              ]
+            }
+          }
+        }
+      }
+    ],
+    "panels": {
+      "battery": {
+        "kind": "Panel",
+        "spec": {
+          "display": {
+            "name": "Battery",
+            "description": "Charge level"
+          },
+          "plugin": {
+            "kind": "GaugeChart",
+            "spec": {
+              "calculation": "last-number",
+              "format": {
+                "unit": "percent",
+                "decimalPlaces": 0
+              }
+            }
+          },
+          "queries": [
+            {
+              "kind": "TimeSeriesQuery",
+              "spec": {
+                "plugin": {
+                  "kind": "PrometheusTimeSeriesQuery",
+                  "spec": {
+                    "datasource": "$ds",
+                    "query": "label_replace(100 * android_battery_level_ratio{job=\"phone\"}, \"reading\", \"battery\", \"\", \"\")"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "power": {
+        "kind": "Panel",
+        "spec": {
+          "display": {
+            "name": "Power",
+            "description": "Battery current in amperes (negative = discharging on most devices) and voltage"
+          },
+          "plugin": {
+            "kind": "StatChart",
+            "spec": {
+              "calculation": "last-number",
+              "format": {
+                "unit": "none",
+                "decimalPlaces": 2
+              }
+            }
+          },
+          "queries": [
+            {
+              "kind": "TimeSeriesQuery",
+              "spec": {
+                "plugin": {
+                  "kind": "PrometheusTimeSeriesQuery",
+                  "spec": {
+                    "datasource": "$ds",
+                    "query": "label_replace(android_battery_current_amperes{job=\"phone\"}, \"reading\", \"amps\", \"\", \"\")"
+                  }
+                }
+              }
+            },
+            {
+              "kind": "TimeSeriesQuery",
+              "spec": {
+                "plugin": {
+                  "kind": "PrometheusTimeSeriesQuery",
+                  "spec": {
+                    "datasource": "$ds",
+                    "query": "label_replace(android_battery_voltage_volts{job=\"phone\"}, \"reading\", \"volts\", \"\", \"\")"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "heat": {
+        "kind": "Panel",
+        "spec": {
+          "display": {
+            "name": "Heat",
+            "description": "Battery temperature and Android thermal status (0 none … 6 shutdown)"
+          },
+          "plugin": {
+            "kind": "StatChart",
+            "spec": {
+              "calculation": "last-number",
+              "format": {
+                "unit": "celsius",
+                "decimalPlaces": 1
+              },
+              "thresholds": {
+                "steps": [
+                  {
+                    "value": 40,
+                    "name": "Warm"
+                  },
+                  {
+                    "value": 45,
+                    "name": "Hot"
+                  }
+                ]
+              }
+            }
+          },
+          "queries": [
+            {
+              "kind": "TimeSeriesQuery",
+              "spec": {
+                "plugin": {
+                  "kind": "PrometheusTimeSeriesQuery",
+                  "spec": {
+                    "datasource": "$ds",
+                    "query": "label_replace(android_battery_temperature_celsius{job=\"phone\"}, \"reading\", \"battery\", \"\", \"\")"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "thermal": {
+        "kind": "Panel",
+        "spec": {
+          "display": {
+            "name": "Thermal status",
+            "description": "0 none · 1 light · 2 moderate · 3 severe · 4 critical"
+          },
+          "plugin": {
+            "kind": "StatChart",
+            "spec": {
+              "calculation": "last-number",
+              "format": {
+                "unit": "none",
+                "decimalPlaces": 0
+              },
+              "thresholds": {
+                "steps": [
+                  {
+                    "value": 2,
+                    "name": "Throttling"
+                  },
+                  {
+                    "value": 4,
+                    "name": "Critical"
+                  }
+                ]
+              }
+            }
+          },
+          "queries": [
+            {
+              "kind": "TimeSeriesQuery",
+              "spec": {
+                "plugin": {
+                  "kind": "PrometheusTimeSeriesQuery",
+                  "spec": {
+                    "datasource": "$ds",
+                    "query": "label_replace(android_thermal_status{job=\"phone\"}, \"reading\", \"status\", \"\", \"\")"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "battery-history": {
+        "kind": "Panel",
+        "spec": {
+          "display": {
+            "name": "Battery level",
+            "description": "Charge over the selected range"
+          },
+          "plugin": {
+            "kind": "TimeSeriesChart",
+            "spec": {
+              "legend": {
+                "position": "bottom"
+              },
+              "format": {
+                "unit": "percent",
+                "decimalPlaces": 0
+              }
+            }
+          },
+          "queries": [
+            {
+              "kind": "TimeSeriesQuery",
+              "spec": {
+                "plugin": {
+                  "kind": "PrometheusTimeSeriesQuery",
+                  "spec": {
+                    "datasource": "$ds",
+                    "query": "label_replace(100 * android_battery_level_ratio{job=\"phone\"}, \"reading\", \"battery\", \"\", \"\")"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "memory": {
+        "kind": "Panel",
+        "spec": {
+          "display": {
+            "name": "Memory",
+            "description": "Available memory as Android reports it, and the dashboard's own processes"
+          },
+          "plugin": {
+            "kind": "StatChart",
+            "spec": {
+              "calculation": "last-number",
+              "format": {
+                "unit": "bytes",
+                "decimalPlaces": 1
+              }
+            }
+          },
+          "queries": [
+            {
+              "kind": "TimeSeriesQuery",
+              "spec": {
+                "plugin": {
+                  "kind": "PrometheusTimeSeriesQuery",
+                  "spec": {
+                    "datasource": "$ds",
+                    "query": "label_replace(android_memory_available_bytes{job=\"phone\"}, \"reading\", \"available\", \"\", \"\")"
+                  }
+                }
+              }
+            },
+            {
+              "kind": "TimeSeriesQuery",
+              "spec": {
+                "plugin": {
+                  "kind": "PrometheusTimeSeriesQuery",
+                  "spec": {
+                    "datasource": "$ds",
+                    "query": "label_replace(androdash_process_resident_memory_bytes{job=\"phone\"}, \"reading\", \"$1\", \"process\", \"(.*)\")"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "storage": {
+        "kind": "Panel",
+        "spec": {
+          "display": {
+            "name": "Storage used",
+            "description": "App data partition"
+          },
+          "plugin": {
+            "kind": "GaugeChart",
+            "spec": {
+              "calculation": "last-number",
+              "format": {
+                "unit": "percent",
+                "decimalPlaces": 0
+              },
+              "thresholds": {
+                "steps": [
+                  {
+                    "value": 85,
+                    "name": "High"
+                  },
+                  {
+                    "value": 95,
+                    "name": "Full"
+                  }
+                ]
+              }
+            }
+          },
+          "queries": [
+            {
+              "kind": "TimeSeriesQuery",
+              "spec": {
+                "plugin": {
+                  "kind": "PrometheusTimeSeriesQuery",
+                  "spec": {
+                    "datasource": "$ds",
+                    "query": "label_replace(100 * (1 - android_storage_available_bytes{job=\"phone\"} / android_storage_total_bytes{job=\"phone\"}), \"reading\", \"storage\", \"\", \"\")"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "network": {
+        "kind": "Panel",
+        "spec": {
+          "display": {
+            "name": "Network",
+            "description": "All interfaces, bits per second"
+          },
+          "plugin": {
+            "kind": "TimeSeriesChart",
+            "spec": {
+              "legend": {
+                "position": "bottom"
+              },
+              "format": {
+                "unit": "bits",
+                "decimalPlaces": 1
+              }
+            }
+          },
+          "queries": [
+            {
+              "kind": "TimeSeriesQuery",
+              "spec": {
+                "plugin": {
+                  "kind": "PrometheusTimeSeriesQuery",
+                  "spec": {
+                    "datasource": "$ds",
+                    "query": "label_replace(rate(android_network_receive_bytes_total{job=\"phone\"}[1m]) * 8, \"reading\", \"rx\", \"\", \"\")"
+                  }
+                }
+              }
+            },
+            {
+              "kind": "TimeSeriesQuery",
+              "spec": {
+                "plugin": {
+                  "kind": "PrometheusTimeSeriesQuery",
+                  "spec": {
+                    "datasource": "$ds",
+                    "query": "label_replace(rate(android_network_transmit_bytes_total{job=\"phone\"}[1m]) * 8, \"reading\", \"tx\", \"\", \"\")"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "wifi": {
+        "kind": "Panel",
+        "spec": {
+          "display": {
+            "name": "Wi-Fi signal",
+            "description": "Received signal strength (dBm, closer to 0 is stronger)"
+          },
+          "plugin": {
+            "kind": "StatChart",
+            "spec": {
+              "calculation": "last-number",
+              "format": {
+                "unit": "none",
+                "decimalPlaces": 0
+              }
+            }
+          },
+          "queries": [
+            {
+              "kind": "TimeSeriesQuery",
+              "spec": {
+                "plugin": {
+                  "kind": "PrometheusTimeSeriesQuery",
+                  "spec": {
+                    "datasource": "$ds",
+                    "query": "label_replace(android_wifi_rssi_dbm{job=\"phone\"}, \"reading\", \"dBm\", \"\", \"\")"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "cpu": {
+        "kind": "Panel",
+        "spec": {
+          "display": {
+            "name": "CPU clocks",
+            "description": "Current frequency per CPU cluster"
+          },
+          "plugin": {
+            "kind": "StatChart",
+            "spec": {
+              "calculation": "last-number",
+              "format": {
+                "unit": "hertz",
+                "decimalPlaces": 2
+              }
+            }
+          },
+          "queries": [
+            {
+              "kind": "TimeSeriesQuery",
+              "spec": {
+                "plugin": {
+                  "kind": "PrometheusTimeSeriesQuery",
+                  "spec": {
+                    "datasource": "$ds",
+                    "query": "label_replace(android_cpu_frequency_hertz{job=\"phone\"}, \"reading\", \"$1\", \"policy\", \"(.*)\")"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "collector-cpu": {
+        "kind": "Panel",
+        "spec": {
+          "display": {
+            "name": "Dashboard CPU",
+            "description": "Share of one core used by the app and the on-phone collector"
+          },
+          "plugin": {
+            "kind": "TimeSeriesChart",
+            "spec": {
+              "legend": {
+                "position": "bottom"
+              },
+              "format": {
+                "unit": "percent",
+                "decimalPlaces": 1
+              }
+            }
+          },
+          "queries": [
+            {
+              "kind": "TimeSeriesQuery",
+              "spec": {
+                "plugin": {
+                  "kind": "PrometheusTimeSeriesQuery",
+                  "spec": {
+                    "datasource": "$ds",
+                    "query": "label_replace(100 * rate(androdash_process_cpu_seconds_total{job=\"phone\"}[2m]), \"reading\", \"$1\", \"process\", \"(.*)\")"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "targets": {
+        "kind": "Panel",
+        "spec": {
+          "display": {
+            "name": "Collector targets",
+            "description": "1 = the last scrape of that target succeeded"
+          },
+          "plugin": {
+            "kind": "Table",
+            "spec": {
+              "format": {
+                "unit": "none",
+                "decimalPlaces": 0
+              }
+            }
+          },
+          "queries": [
+            {
+              "kind": "TimeSeriesQuery",
+              "spec": {
+                "plugin": {
+                  "kind": "PrometheusTimeSeriesQuery",
+                  "spec": {
+                    "datasource": "$ds",
+                    "query": "max by (job, instance) (up)"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "uptime": {
+        "kind": "Panel",
+        "spec": {
+          "display": {
+            "name": "Uptime (days)",
+            "description": "Since the phone booted"
+          },
+          "plugin": {
+            "kind": "StatChart",
+            "spec": {
+              "calculation": "last-number",
+              "format": {
+                "unit": "none",
+                "decimalPlaces": 1
+              }
+            }
+          },
+          "queries": [
+            {
+              "kind": "TimeSeriesQuery",
+              "spec": {
+                "plugin": {
+                  "kind": "PrometheusTimeSeriesQuery",
+                  "spec": {
+                    "datasource": "$ds",
+                    "query": "label_replace(android_uptime_seconds{job=\"phone\"} / 86400, \"reading\", \"uptime\", \"\", \"\")"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "layouts": [
+      {
+        "kind": "Grid",
+        "spec": {
+          "display": {
+            "title": "Battery",
+            "collapse": {
+              "open": true
+            }
+          },
+          "items": [
+            {
+              "x": 0,
+              "y": 0,
+              "width": 8,
+              "height": 6,
+              "content": {
+                "$ref": "#/spec/panels/battery"
+              }
+            },
+            {
+              "x": 8,
+              "y": 0,
+              "width": 8,
+              "height": 3,
+              "content": {
+                "$ref": "#/spec/panels/heat"
+              }
+            },
+            {
+              "x": 16,
+              "y": 0,
+              "width": 8,
+              "height": 3,
+              "content": {
+                "$ref": "#/spec/panels/thermal"
+              }
+            },
+            {
+              "x": 8,
+              "y": 3,
+              "width": 16,
+              "height": 3,
+              "content": {
+                "$ref": "#/spec/panels/power"
+              }
+            },
+            {
+              "x": 0,
+              "y": 6,
+              "width": 24,
+              "height": 6,
+              "content": {
+                "$ref": "#/spec/panels/battery-history"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "kind": "Grid",
+        "spec": {
+          "display": {
+            "title": "System",
+            "collapse": {
+              "open": true
+            }
+          },
+          "items": [
+            {
+              "x": 0,
+              "y": 0,
+              "width": 12,
+              "height": 5,
+              "content": {
+                "$ref": "#/spec/panels/memory"
+              }
+            },
+            {
+              "x": 12,
+              "y": 0,
+              "width": 12,
+              "height": 5,
+              "content": {
+                "$ref": "#/spec/panels/storage"
+              }
+            },
+            {
+              "x": 0,
+              "y": 5,
+              "width": 12,
+              "height": 6,
+              "content": {
+                "$ref": "#/spec/panels/network"
+              }
+            },
+            {
+              "x": 12,
+              "y": 5,
+              "width": 6,
+              "height": 3,
+              "content": {
+                "$ref": "#/spec/panels/wifi"
+              }
+            },
+            {
+              "x": 18,
+              "y": 5,
+              "width": 6,
+              "height": 3,
+              "content": {
+                "$ref": "#/spec/panels/uptime"
+              }
+            },
+            {
+              "x": 12,
+              "y": 8,
+              "width": 12,
+              "height": 3,
+              "content": {
+                "$ref": "#/spec/panels/cpu"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "kind": "Grid",
+        "spec": {
+          "display": {
+            "title": "Dashboard",
+            "collapse": {
+              "open": true
+            }
+          },
+          "items": [
+            {
+              "x": 0,
+              "y": 0,
+              "width": 12,
+              "height": 6,
+              "content": {
+                "$ref": "#/spec/panels/collector-cpu"
+              }
+            },
+            {
+              "x": 12,
+              "y": 0,
+              "width": 12,
+              "height": 6,
+              "content": {
+                "$ref": "#/spec/panels/targets"
+              }
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

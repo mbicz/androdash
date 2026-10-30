@@ -64,7 +64,7 @@ object ConfigParser {
         "dashboard_url", "dashboard_urls", "prometheus_url", "refresh_seconds", "time_range",
         "step_seconds", "kiosk", "debug", "layout_mode", "display_mode", "lock_style",
         "dashboard_source", "dashboard_name", "capabilities", "show_unsupported", "rotate_seconds",
-        "collector", "collector_targets", "collector_scrape_seconds", "collector_retention",
+        "collector", "collector_targets", "collector_scrape_seconds", "collector_retention", "collector_phone",
         "lock_task", "show_when_locked",
     )
 
@@ -228,6 +228,8 @@ object ConfigParser {
             else -> extras.getValue("collector_retention")!!.trim()
         }
 
+        val collectorPhone = parseBoolean(extras, "collector_phone", base?.collectorPhone ?: true)
+
         val config = AppConfig(
             dashboardUrl = dashboardUrl,
             prometheusUrl = prometheusUrl,
@@ -247,6 +249,7 @@ object ConfigParser {
             collectorTargets = collectorTargets,
             collectorScrapeSeconds = collectorScrapeSeconds,
             collectorRetention = collectorRetention,
+            collectorPhone = collectorPhone,
             dashboardUrls = dashboardUrls,
             rotateSeconds = rotateSeconds,
         )
@@ -442,9 +445,7 @@ object ConfigParser {
             throw ConfigException("E_CONFIG", "collector_retention must be between 1h and 30d")
         }
         config.collectorTargets?.let { CollectorConfig.parseTargets(it) }
-        if (config.collector && config.collectorTargets == null) {
-            throw ConfigException("E_CONFIG", "collector_targets is required when collector=true")
-        }
+        CollectorConfig.from(config)
     }
 
     /** Milliseconds of a C-001 duration given as `collector_retention`. */

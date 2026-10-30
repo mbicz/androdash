@@ -34,13 +34,19 @@ soak, and accessibility.
 - Manifest: `INTERNET` permission; `usesCleartextTraffic=true` (decision 0006);
   `WAKE_LOCK` for the lock-screen re-light (decision 0016) and the collector
   (decision 0019); `FOREGROUND_SERVICE` + `FOREGROUND_SERVICE_SPECIAL_USE` for
-  `CollectorService` (decision 0019); exported launcher activity for the kiosk
-  intent. No other permissions in v1.
+  `CollectorService` (decision 0019); `ACCESS_NETWORK_STATE` +
+  `ACCESS_WIFI_STATE` for the phone exporter (decision 0021); exported
+  launcher activity for the kiosk intent. No other permissions in v1 (never
+  location).
 - Collector (decision 0019): `fetchPrometheus` packages the pinned upstream
   Prometheus as `libprometheus.so` (SHA-256-verified; tarball cached in
   `~/.gradle/androdash-cache/`). Do not modify, strip, or replace the binary
   without updating both pins and the decision log. `CollectorConfig`,
   `RestartPolicy`, and `CollectorStatus` stay pure and JVM-tested.
+- Phone exporter (decision 0021): `PhoneExporter` on `127.0.0.1:19100` only,
+  same lifecycle as the collector. `PhoneMetrics` and `MiniHttp` stay pure and
+  JVM-tested; new metrics go through `PhoneSnapshot` and
+  `docs/integrations/phone-exporter.md`, never identifiers.
 - Kotlin, no AndroidX unless a decision entry accepts it.
 - `minSdk 26`, `compileSdk 35`, `targetSdk 35`, JDK 17 target.
 - Gradle wrapper checked in; use a Gradle/AGP/Kotlin combination that actually

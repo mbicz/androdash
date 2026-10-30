@@ -38,13 +38,31 @@ class CollectorStatusTest {
         assertTrue(json.getBoolean("enabled"))
         assertTrue(json.getBoolean("running"))
         assertEquals("http://127.0.0.1:19090", json.getString("url"))
-        val target = json.getJSONArray("targets").getJSONObject(0)
+        val targets = json.getJSONArray("targets")
+        assertEquals(2, targets.length())
+        val phone = targets.getJSONObject(0)
+        assertEquals("phone", phone.getString("job"))
+        assertEquals("phone", phone.getString("instance"))
+        assertEquals("127.0.0.1:19100", phone.getString("address"))
+        val target = targets.getJSONObject(1)
         assertEquals("node", target.getString("job"))
         assertEquals("mac", target.getString("instance"))
         assertEquals("192.168.192.16:9100", target.getString("address"))
         assertEquals(2, json.getInt("restarts"))
         assertEquals(1_761_600_000_000L, json.getLong("startedAt"))
         assertEquals("exited with code 1 after 3s", json.getString("lastExit"))
+    }
+
+    @Test
+    fun `phone-only collector reports the phone target, collector_phone=false omits it`() {
+        val phoneOnly = JSONObject(CollectorStatus.of(base.copy(collector = true), CollectorRuntime()).toJson())
+        assertTrue(phoneOnly.getBoolean("enabled"))
+        assertEquals(1, phoneOnly.getJSONArray("targets").length())
+        assertEquals("phone", phoneOnly.getJSONArray("targets").getJSONObject(0).getString("job"))
+        val noPhone = base.copy(collector = true, collectorTargets = "a.lan:9100", collectorPhone = false)
+        val json = JSONObject(CollectorStatus.of(noPhone, CollectorRuntime()).toJson())
+        assertEquals(1, json.getJSONArray("targets").length())
+        assertEquals("node", json.getJSONArray("targets").getJSONObject(0).getString("job"))
     }
 
     @Test

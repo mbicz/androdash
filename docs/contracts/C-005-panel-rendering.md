@@ -191,6 +191,17 @@ scrolls. An edge that hides more content fades out (`data-overflow` =
 refresh keeps the panel's scroll position. A vertical drag inside a panel only
 scrolls that panel; it never scrolls the page in fit.
 
+### Panel zoom
+
+A double tap on a panel (two taps within 320 ms and 32 px; a mouse double
+click works the same) zooms it: the panel fills the screen below the header,
+shows its description, and is redrawn at the new size (charts, gauges, and
+stat tiles measure their box again). Other panels, section headers, and page
+dots are hidden but keep refreshing. A double tap anywhere, or `Escape`,
+returns. While zoomed, horizontal swipes do not switch dashboards and rotation
+waits. Switching dashboards clears the zoom; a relayout keeps it. Taps on
+buttons and the header never zoom.
+
 ### Multiple dashboards
 
 C-001 `dashboard_urls` lists up to 8 dashboards; `dashboard_url` is the one

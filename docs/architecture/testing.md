@@ -172,11 +172,20 @@ before asserting where order is not contractual.
   `collector_targets` grammar and limits (DNS/IPv4/bracketed IPv6 hosts,
   ports, names, 32 entries, duplicates), canonical form, deterministic
   `prometheus.yml`, loopback-only Prometheus arguments, retention durations.
-  `ConfigParserTest` covers the `collector*` extras, persistence, and the
-  `prometheus_url` substitution.
+  `ConfigParserTest` covers the `collector*` extras (including
+  `collector_phone` and the targets-or-phone rule), persistence, and the
+  `prometheus_url` substitution; `CollectorConfigTest` also covers the phone
+  exporter job (decision 0021).
 - `RestartPolicyTest` — collector backoff 1, 2, 4, … 60 s and the 10 min
   healthy reset.
-- `CollectorStatusTest` — `collectorStatus()` JSON shape and the 4 KiB bound.
+- `CollectorStatusTest` — `collectorStatus()` JSON shape, the phone target,
+  and the 4 KiB bound.
+- `PhoneMetricsTest` — phone exporter exposition (decision 0021): exact
+  deterministic text, one HELP/TYPE per family, omitted-when-null families,
+  label escaping, value formatting, battery/network/Wi-Fi/cpufreq unit
+  conversions, `/proc` status/stat parsing, no identifier labels.
+- `MiniHttpTest` — the exporter's bounded request head (8 KiB), request-line
+  parsing, `GET /metrics`-only routing (404/400), and response framing.
 
 `DashboardStoreTest` and `AssetServerRouteTest` cover the stored dashboard and
 the virtual-origin routes.

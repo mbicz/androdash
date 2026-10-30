@@ -1,9 +1,10 @@
 # C-001 — Launch configuration
 
-- **Version:** 6
+- **Version:** 7
 - **Status:** Accepted, 2026-10-29 (v4: `dashboard_source`, bundled and stored
   dashboards, decision 0018; v5: on-phone collector fields, decision 0019; v6:
-  `dashboard_urls`, `rotate_seconds`, stored slots, decision 0020)
+  `dashboard_urls`, `rotate_seconds`, stored slots, decision 0020; v7:
+  `collector_phone`, phone exporter job, targets optional, decision 0021)
 - **Consumers:** Android shell (W1), web renderer config (W2)
 - **Machine-readable:** [`contracts/app-config.schema.json`](../../contracts/app-config.schema.json)
 - **Fixtures:** [`app-config.example.json`](../../contracts/fixtures/app-config.example.json)
@@ -58,9 +59,10 @@ This is deliberate: one name per concept, easy to debug with `adb`.
 | `show_unsupported` | boolean | `false` | Render explicit placeholders for hidden panels instead of removing them. |
 | `rotate_seconds` | integer | `0` | Advance to the next `dashboard_urls` entry every N seconds; `0` = off, else `10–3600`. Added in v6. |
 | `collector` | boolean | `false` | Run the bundled Prometheus on the phone ([On-phone collector](#on-phone-collector), C-007). When `true` the shell passes `prometheus_url=http://127.0.0.1:19090` to the renderer instead of the configured `prometheus_url`. Native-only. Added in v5. |
-| `collector_targets` | string | `null` | Comma-separated scrape targets, `[job:]instance=host:port` or `host:port`; 1–32 entries. **Required** (non-empty) when `collector=true`. Native-only. Added in v5. |
+| `collector_targets` | string | `null` | Comma-separated scrape targets, `[job:]instance=host:port` or `host:port`; 1–32 entries when set. With `collector=true` at least one of `collector_targets` and `collector_phone=true` is **required** (v7; before v7 the targets were always required). Native-only. Added in v5. |
 | `collector_scrape_seconds` | integer | `15` | Collector scrape interval, `5–300`. Native-only. Added in v5. |
 | `collector_retention` | string | `24h` | Collector TSDB retention; duration grammar as `time_range`, range `1h…30d`. Native-only. Added in v5. |
+| `collector_phone` | boolean | `true` | While the collector runs, also run the in-app phone exporter on `127.0.0.1:19100` and scrape it as job `phone`, instance `phone` ([Phone exporter job](#phone-exporter-job)). Native-only; not a `setOption` name. Added in v7. |
 
 Intent extras use `--es` (string), `--ei` (int), `--ez` (boolean) with `adb`.
 
@@ -72,7 +74,7 @@ runtime with `AndroDash.setLockScreen()`, and while true the shell tells the
 renderer the locked state through `window.androdash.setLocked()` (C-007,
 decision 0016).
 
-The four `collector*` fields are native-only too: they are part of `AppConfig`
+The five `collector*` fields are native-only too: they are part of `AppConfig`
 (persisted in `launch_config`) but never renderer query parameters. Their only
 effect on the wire is the substituted `prometheus_url` while `collector=true`.
 
@@ -99,6 +101,7 @@ effect on the wire is the substituted `prometheus_url` while `collector=true`.
   "collectorTargets": null,
   "collectorScrapeSeconds": 15,
   "collectorRetention": "24h",
+  "collectorPhone": true,
   "dashboardUrls": [
     "http://10.0.2.2:8099/contracts/fixtures/demo-dashboard.json",
     "http://androdash.local/dashboards/macos-node-dashboard.json"
@@ -125,11 +128,12 @@ for types and constraints; this table is normative for semantics.
 - `dashboardSource` always resolves to `stored` or `url`; it is omitted only by
   pre-v4 persisted objects, which default to `stored`. Additive; `schemaVersion`
   stays `1`.
-- `collector`, `collectorScrapeSeconds`, and `collectorRetention` always
-  resolve to a value; `collectorTargets` is `null` when unset and must be a
-  string when `collector` is `true`. Pre-v5 persisted objects without them
-  default to `false`, `null`, `15`, and `24h`. Additive; `schemaVersion` stays
-  `1`.
+- `collector`, `collectorScrapeSeconds`, `collectorRetention`, and
+  `collectorPhone` always resolve to a value; `collectorTargets` is `null` when
+  unset and must be a string when `collector` is `true` and `collectorPhone` is
+  `false`. Pre-v5 persisted objects without them default to `false`, `15`,
+  `24h`, and `null`; pre-v7 objects without `collectorPhone` default to `true`.
+  Additive; `schemaVersion` stays `1`.
 - `dashboardUrls` always holds 1–8 distinct URLs and `rotateSeconds` is `0` or
   `10–3600`. Pre-v6 persisted objects without them default to
   `[dashboardUrl]` and `0`. Additive; `schemaVersion` stays `1`.
@@ -185,6 +189,9 @@ skipped):
   address (`[fd00::1]`, no zone ID).
 - `port` is `1–65535` without leading zeros.
 - At most 32 entries; one `job` + `instance` pair may appear once.
+- A blank `collector_targets` extra keeps the persisted value (like every
+  other string extra); a non-blank value must hold at least one entry (`,,` is
+  `E_CONFIG`).
 - The persisted canonical form is the entries joined by `,`, each written as
   `host:port` when it uses both defaults and as `job:instance=host:port`
   otherwise.
@@ -193,6 +200,31 @@ The shell builds `prometheus.yml` only from these validated fields (C-008): a
 global `scrape_interval` of `collector_scrape_seconds` and one scrape job per
 distinct `job`, each target with an `instance` label. The renderer is unaware
 of the collector except through `AndroDash.collectorStatus()` (C-007).
+
+### Phone exporter job
+
+Decision 0021. With `collector=true` and `collector_phone=true` (the default)
+the collector service also runs the in-app phone exporter (C-007, C-008,
+[`docs/integrations/phone-exporter.md`](../integrations/phone-exporter.md))
+and `prometheus.yml` gets one more job, written **first**:
+
+```yaml
+  - job_name: "phone"
+    static_configs:
+      - targets: ["127.0.0.1:19100"]
+        labels:
+          instance: "phone"
+```
+
+- `collector_targets` may then be unset: `--ez collector true` alone gives a
+  collector that scrapes only the phone. With `collector_phone=false` it is
+  required as before (`E_CONFIG` otherwise).
+- A user target with job `phone` and instance `phone` duplicates the phone job
+  and is `E_CONFIG` while `collector_phone=true`; other instances under job
+  `phone` are allowed.
+- The phone target counts in the notification's target count and in
+  `collectorStatus().targets` (first), but not toward the 32-entry limit of
+  `collector_targets`.
 
 ## Dashboard source
 
@@ -271,9 +303,11 @@ An implementation MUST reject:
 - `display_mode` outside the enum;
 - `lock_style` outside the enum;
 - `dashboard_source` outside the enum;
-- `collector` that is not a boolean;
-- `collector=true` without a non-empty `collector_targets` (explicit or
-  persisted);
+- `collector` or `collector_phone` that is not a boolean;
+- `collector=true` with `collector_phone=false` and without a non-empty
+  `collector_targets` (explicit or persisted);
+- `collector=true` and `collector_phone=true` with a target of job `phone` and
+  instance `phone`;
 - `collector_targets` violating the [grammar](#on-phone-collector) or holding
   more than 32 entries;
 - `collector_scrape_seconds` that is not an integer in `5–300`;
@@ -383,11 +417,11 @@ The native shell shows `E_CONFIG` on its fatal screen. The renderer shows an
 - the C-007 intent-without-changes decision (`hasConfigExtras`,
   `keepsRenderer`);
 - collector defaults, extras, persistence, the `prometheus_url` substitution
-  (and its reversal with `collector=false`), the targets requirement, and
-  limits.
+  (and its reversal with `collector=false`), the targets-or-phone requirement,
+  `collector_phone`, and limits.
 
-`CollectorConfigTest.kt` covers the `collector_targets` grammar, the
-`prometheus.yml` text, and the Prometheus arguments.
+`CollectorConfigTest.kt` covers the `collector_targets` grammar, the phone
+exporter job, the `prometheus.yml` text, and the Prometheus arguments.
 
 `DashboardStoreTest.kt` and `AssetServerRouteTest.kt` cover the stored slots
 (C-007), the legacy cleanup, and the `/dashboards/` (including `index.json`)
