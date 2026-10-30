@@ -8,8 +8,8 @@ phone itself.
   <img src="docs/images/hero.png" width="300" alt="The Spark Exporter dashboard in fit-to-screen layout">
 </p>
 
-<sub>Spark Exporter dashboard in `fit` layout, rendered from the repository's mock
-Prometheus. More screenshots: [lock screen](docs/images/locked.png),
+<sub>Spark Exporter dashboard in `fit` layout, rendered from the repository's
+mock Prometheus. More: [lock screen](docs/images/locked.png),
 [settings](docs/images/settings.png), [zoom](docs/images/zoom.png),
 [scroll layout](docs/images/scroll.png), [desktop](docs/images/desktop.png),
 [phone dashboard](docs/images/phone.png).</sub>
