@@ -531,7 +531,7 @@ function buildFit(main) {
   const height = Math.max(160, Math.floor(viewport - rect.top - bottom));
   const plan = planFit(items, { width, height });
   if (plan.overflow) {
-    warn("W_FIT_OVERFLOW", "Panels do not fit on one screen at the smallest legible size; scrolling", null, `${items.length} panels`);
+    warn("W_FIT_OVERFLOW", "Panels do not fit on one screen at their smallest legible size; scrolling", null, `${items.length} panels`);
   }
   main.style.height = `${height}px`;
   main.style.setProperty("--fit-scale", plan.scale.toFixed(3));

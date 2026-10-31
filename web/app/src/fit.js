@@ -182,8 +182,9 @@ function planColumns(items, columns, width, gap) {
 /**
  * Plan a fit layout for `items` ({ id, kind, count }) in a `width` × `height`
  * box. Returns { columns, rows, scale, overflow }. `scale` < 1 means type and
- * minimums shrink to fit; `overflow` means even at FIT.minScale the content is
- * taller than the screen and the container must scroll.
+ * the shrinkable part of each row give way to fit. `overflow` means the rows
+ * cannot fit even at their rigid height (a chart's plot floor, every other
+ * panel's minimum), so the container must scroll.
  */
 export function planFit(items, { width, height, gap = FIT.gap }) {
   if (items.length === 0) return { columns: 1, rows: [], scale: 1, overflow: false };
