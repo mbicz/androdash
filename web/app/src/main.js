@@ -536,16 +536,18 @@ function buildFit(main) {
   main.style.height = `${height}px`;
   main.style.setProperty("--fit-scale", plan.scale.toFixed(3));
   main.classList.toggle("overflow", plan.overflow);
-  // When space is short, only charts give up height — down to half their
-  // minimum, and never below the numbers, rings, or text sharing their row.
-  // Anything beyond that scrolls (C-005 "Fit layout").
+  // When space is short, a row gives up only what its panels may shrink below:
+  // a chart's legend lines, never its plot and axis; nothing at all for
+  // numbers, rings, tables, or text. Anything beyond that scrolls
+  // (C-005 "Fit layout").
   const gaps = 8 * Math.max(0, plan.rows.length - 1);
   const rigid = (row) => Math.max(row.rigidHeight || 0, 0);
   const fixedTotal = plan.rows.reduce((sum, row) => sum + rigid(row), 0);
   const giveable = plan.rows.reduce((sum, row) => sum + (row.minHeight - rigid(row)), 0);
   const spare = height - gaps - fixedTotal;
   const flexScale = giveable > 0 ? Math.max(0, Math.min(1, spare / giveable)) : 1;
-  const rowMin = (row) => Math.max(rigid(row), Math.round(rigid(row) + (row.minHeight - rigid(row)) * flexScale), Math.round(row.minHeight * 0.5));
+  // Floor, not round: rounding each row up can add a pixel of scroll.
+  const rowMin = (row) => Math.max(rigid(row), Math.floor(rigid(row) + (row.minHeight - rigid(row)) * flexScale));
   if (plan.rows.reduce((sum, row) => sum + rowMin(row), 0) + gaps > height + 1) main.classList.add("overflow");
   main.style.gridTemplateRows = plan.rows
     .map((row) => {

@@ -130,13 +130,14 @@ is `web/app/src/fit.js` (pure functions, no DOM); `main.js` builds the DOM.
   before the first data, 6 for a `Table`, otherwise its query count (≥ 1).
 - **Demand** (`panelDemand(kind, count, width)`): the minimum legible height of
   a panel `width` px wide, its minimum width, and its growth weight. Panel
-  chrome (title + padding) is 36 px; the inner width is `width − 20`.
+  chrome (title + padding) is 30 px in fit; the inner width is `width − 20`.
+  It also carries `rigidH`, the part of that minimum that must never shrink.
 
-  | Kind | Minimum height after the 36 px chrome | Min width | Weight |
+  | Kind | Minimum height after the 30 px chrome | Min width | Weight |
   |---|---|---:|---:|
   | `StatChart` | one tile: 34; else tile rows × 44 + 6 px gaps, tiles ≥ 76 px wide | 96 | 1 |
   | `GaugeChart` | one ring: 64; else ring rows × 74 + 6 px gaps, rings ≥ 70 px wide (≤ 4) | 90 | 2 |
-  | `TimeSeriesChart` | plot 56 + time axis 14 + legend `lines × 15 + 4`; legend entries are 140 px one-liners, `lines = ceil(min(n, 8) / floor(inner / 140))` | 150 | 3 |
+  | `TimeSeriesChart` | plot 56 + time axis 14 + legend `lines × 15 + 4`; legend entries are 140 px one-liners, `lines = ceil(min(n, 8) / floor(inner / 140))`. Rigid: plot floor 44 + axis 14 (`rigidH` = 30 + 44 + 14) | 150 | 3 |
   | `Table` | `min(n, 3)` rows × 18, + 14 when `n > 3`; capped at all `n` rows × 18 | 140 | 1 |
   | `Markdown` | 48; capped at 132 | 140 | 1 |
   | other | 40 | 120 | 1 |
@@ -148,24 +149,30 @@ is `web/app/src/fit.js` (pure functions, no DOM); `main.js` builds the DOM.
     (reading order is kept, like breaking a paragraph into lines) and every
     split of the `C` columns among a run's panels; a split is valid only when
     each panel gets at least its minimum width. A row's minimum height is its
-    tallest member's, its weight the largest member weight; a row of only
-    tables is capped at its tallest table's full height. The plan minimises
-    the total minimum height (gaps included); ties prefer fewer rows;
-  - `room = height / total minimum height`. The fewest columns with
-    `room ≥ 1.12` wins (wider panels read better); otherwise the plan with the
-    most room;
-  - `scale = min(1, room)`, floored at **0.72**. Below the floor the plan
+    tallest member's, its rigid height its tallest member's `rigidH` (a chart's
+    plot and axis; every other kind's minimum), its weight the largest member
+    weight; a row of only tables is capped at its tallest table's full height.
+    The plan minimises the total minimum height (gaps included); ties prefer
+    fewer rows;
+  - `room = height / total minimum height`, and `rigidRoom = height − total
+    rigid height (gaps included)`. The fewest columns with `rigidRoom ≥ 0` wins
+    (wider panels read better); when no column count fits at the rigid height,
+    the plan with the most `room`;
+  - `scale = min(1, room)`, floored at **0.72**. When `rigidRoom < 0` the plan
     overflows: the grid scrolls vertically and `W_FIT_OVERFLOW` (C-009) is
     recorded. Panels are never dropped to make room.
 - **DOM.** `<main class="fit-grid">` is as tall as the visual viewport below
   the header (minus the bottom safe-area margin), with `--fit-scale` set to the
   scale and one `grid-template-rows` track per planned row:
   `minmax(<row min>px, <weight>fr)`, or `minmax(<row min>px, <max>px)` for a
-  capped row. Only charts give up height when space is short: a row's minimum
-  never drops below the minimum of the stat, gauge, table, or text panels in it
-  (`rigidHeight`), and its chart share shrinks to at most half; past that the
-  grid scrolls rather than clip numbers. Left-over height goes to charts first,
-  then gauges, never past a table's rows. Each row is a `.fit-row` grid
+  capped row. When space is short a row gives up only what its panels may
+  shrink below (`rigidHeight`): a chart's legend lines go first, then its plot
+  shrinks from 56 px to a 44 px floor, but never further, and its axis stays;
+  stat, gauge, table, and text panels do not shrink at all. The fit legend is
+  `overflow: hidden`, so given-up legend lines are cut, not squashed. Past that
+  the grid scrolls (`W_FIT_OVERFLOW`) rather than clip numbers or lines.
+  Left-over height goes to charts first, then gauges, never past a table's
+  rows. Row minimums are floored, so per-row rounding cannot add scroll. Each row is a `.fit-row` grid
   with one `minmax(0, <span>fr)` column per panel, each panel in a
   `.panel-slot`. Panel titles, tile and gauge labels, state words, legends,
   axis labels, and table cells scale with `--fit-scale`. `html[data-layout="fit"]`

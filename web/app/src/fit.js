@@ -5,7 +5,10 @@
  *
  * Model: each panel has a minimum legible height for a given width (derived
  * from what it shows — tiles, rings, a plot and legend, table rows) and a
- * weight for how much it benefits from extra height. Panels are cut into rows
+ * weight for how much it benefits from extra height. Each panel also has a
+ * `rigidH`: the part of that minimum that must never shrink. For charts it is
+ * the plot plus its axis, so a short screen gives up legend lines (text) but
+ * never the lines themselves. Panels are cut into rows
  * of up to C columns, keeping order (like breaking a paragraph into lines);
  * dynamic programming finds the row breaks and column splits with the
  * smallest total minimum height. The fewest columns that fit with room to
@@ -15,7 +18,7 @@
 
 export const FIT = Object.freeze({
   gap: 8,
-  chrome: 36,
+  chrome: 30,
   minColumnWidth: 150,
   maxColumns: 6,
   minScale: 0.72,
@@ -24,7 +27,13 @@ export const FIT = Object.freeze({
 
 const TILE = { width: 70, height: 44, single: 34, gap: 6 };
 const RING = { width: 70, height: 74, single: 64, gap: 6 };
-const CHART = { minWidth: 150, plot: 56, axis: 14, legendEntry: 140, legendLine: 15 };
+const CHART = { minWidth: 150, plot: 56, floor: 44, axis: 14, legendEntry: 140, legendLine: 15 };
+/**
+ * A chart's plot floor and axis: the part that must stay, whatever the screen.
+ * The plot may shrink from `plot` to `floor`, but never further; legend lines
+ * are text and go first.
+ */
+const CHART_RIGID = FIT.chrome + CHART.floor + CHART.axis;
 const TABLE = { minWidth: 140, row: 18, minRows: 3, more: 14 };
 
 /** Columns × rows for `count` cells of at least `cellWidth` in `width`. */
@@ -84,6 +93,7 @@ export function panelDemand(kind, count, width, { thresholds = false } = {}) {
     return {
       minW: CHART.minWidth,
       minH: FIT.chrome + CHART.plot + CHART.axis + legend,
+      rigidH: CHART_RIGID,
       weight: 3,
     };
   }
@@ -140,8 +150,9 @@ function planColumns(items, columns, width, gap) {
           const demand = panelDemand(item.kind, item.count, w, item);
           if (w + 0.5 < demand.minW) ok = false;
           rowMin = Math.max(rowMin, demand.minH);
-          // Only charts can give up height; numbers and text cannot.
-          if (demand.weight < 3) rowRigid = Math.max(rowRigid, demand.minH);
+          // A row never drops below what its panels cannot shrink below: their
+          // minimum, or a chart's plot and axis (its legend may be given up).
+          rowRigid = Math.max(rowRigid, demand.rigidH ?? demand.minH);
           weight = Math.max(weight, demand.weight);
           if (demand.maxH === undefined) capped = false;
           else rowMax = Math.max(rowMax, demand.maxH);
@@ -176,23 +187,29 @@ function planColumns(items, columns, width, gap) {
 export function planFit(items, { width, height, gap = FIT.gap }) {
   if (items.length === 0) return { columns: 1, rows: [], scale: 1, overflow: false };
   const limit = Math.max(1, Math.min(FIT.maxColumns, Math.floor((width + gap) / (FIT.minColumnWidth + gap))));
+  const rigidTotal = (plan) =>
+    plan.rows.reduce((sum, row) => sum + (row.rigidHeight ?? row.minHeight), 0) + gap * (plan.rows.length - 1);
   const plans = [];
   for (let columns = 1; columns <= limit; columns += 1) {
     const plan = planColumns(items, columns, width, gap);
-    if (plan) plans.push({ columns, ...plan, room: height / plan.height });
+    if (plan) plans.push({ columns, ...plan, room: height / plan.height, rigidRoom: height - rigidTotal(plan) });
   }
   if (plans.length === 0) {
     const plan = planColumns(items, 1, width, gap);
-    plans.push({ columns: 1, ...plan, room: height / plan.height });
+    plans.push({ columns: 1, ...plan, room: height / plan.height, rigidRoom: height - rigidTotal(plan) });
   }
-  const chosen =
-    plans.find((plan) => plan.room >= FIT.comfort) ||
-    plans.reduce((a, b) => (b.room > a.room ? b : a));
+  // A plan whose panels all fit at their floor wins, widest panels first (the
+  // fewest columns that fit), because wider panels read better. Otherwise the
+  // plan with the most room at its minimum; it scrolls.
+  const fitting = plans.filter((plan) => plan.rigidRoom >= 0);
+  const chosen = fitting.length > 0
+    ? fitting.reduce((a, b) => (b.columns < a.columns ? b : a))
+    : plans.reduce((a, b) => (b.room > a.room ? b : a));
   const scale = Math.min(1, chosen.room);
   return {
     columns: chosen.columns,
     rows: chosen.rows,
     scale: Math.max(FIT.minScale, scale),
-    overflow: scale < FIT.minScale,
+    overflow: chosen.rigidRoom < 0,
   };
 }

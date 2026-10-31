@@ -65,6 +65,22 @@ test("C-005 fit charts take the growth; a table never grows past its rows", () =
   if (tableRow.cells.length === 1) assert.ok(tableRow.maxHeight >= tableRow.minHeight);
 });
 
+test("C-005 fit never shrinks a chart below its plot and axis", () => {
+  const items = [
+    { id: "cpu", kind: "TimeSeriesChart", count: 2 },
+    { id: "load", kind: "TimeSeriesChart", count: 3 },
+    { id: "mem", kind: "StatChart", count: 4 },
+  ];
+  const plan = planFit(items, { width: 361, height: 780 });
+  const chartRow = plan.rows.find((row) => row.cells.some((cell) => cell.id === "cpu"));
+  // Chrome + plot floor + axis: legend lines may go, the plot may not.
+  assert.equal(chartRow.rigidHeight, 30 + 44 + 14);
+  assert.ok(chartRow.minHeight >= chartRow.rigidHeight);
+  const statRow = plan.rows.find((row) => row.cells.some((cell) => cell.id === "mem"));
+  // Numbers cannot shrink at all: the row is rigid at its own minimum.
+  assert.equal(statRow.rigidHeight, statRow.minHeight);
+});
+
 test("C-005 cell grids follow the box shape", () => {
   assert.equal(bestCellGrid(4, 300, 300, { aspect: 1 }).columns, 2);
   assert.equal(bestCellGrid(4, 600, 120, { aspect: 1 }).columns, 4);

@@ -1585,13 +1585,15 @@ html[data-layout="fit"] body {
   min-height: 0;
 }
 
+/* Fit chrome is 30 px (FIT.chrome): 6 + 6 padding, a 15 px header, 3 gap.
+   Tight enough that a chart keeps its plot; never tighter than the title needs. */
 [data-layout-mode="fit"] .panel {
-  padding: 8px 10px 9px;
+  padding: 6px 10px 6px;
   border-radius: 14px;
 }
 
 [data-layout-mode="fit"] .panel-header {
-  margin-bottom: 4px;
+  margin-bottom: 3px;
 }
 
 [data-layout-mode="fit"] .panel-title {
@@ -1646,6 +1648,7 @@ html[data-layout="fit"] body {
   grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
   gap: 1px 10px;
   margin-top: 3px;
+  overflow: hidden;
   font-size: calc(11px * var(--fit-scale, 1));
 }
 
@@ -1674,8 +1677,9 @@ html[data-layout="fit"] body {
   line-height: 18px;
 }
 
+/* A chart's plot is never squeezed: the panel gives up legend lines instead. */
 [data-layout-mode="fit"] .chart-svg {
-  min-height: 48px;
+  min-height: 56px;
 }
 
 [data-layout-mode="fit"] .markdown-body {
