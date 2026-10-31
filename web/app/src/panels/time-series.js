@@ -74,7 +74,10 @@ export function renderTimeSeries(panel, series, { warn = null, size = null, time
       64,
       Math.max(22, Math.max(...tickLabels.map((label) => label.length)) * LABEL_CHAR_PX + 8),
     );
-    const padding = { left: 0, right: gutter, top: 7, bottom: 18 };
+    // A short box spends less on padding so the plot itself stays tall: 4 px
+    // above and 12 px below (room for one axis label) instead of 7 + 18.
+    const compact = height < 90;
+    const padding = { left: 0, right: gutter, top: compact ? 4 : 7, bottom: compact ? 12 : 18 };
     const plotW = Math.max(40, width - padding.left - padding.right);
     const plotH = Math.max(24, height - padding.top - padding.bottom);
     const x = (t) => padding.left + ((t - minT) / rangeT) * plotW;
@@ -101,13 +104,13 @@ export function renderTimeSeries(panel, series, { warn = null, size = null, time
         }),
       );
     });
-    const compact = plotW < 260;
-    const time = timeTicks(minT, maxT, Math.max(2, Math.min(8, Math.floor(plotW / (compact ? 46 : 84)))));
+    const narrow = plotW < 260;
+    const time = timeTicks(minT, maxT, Math.max(2, Math.min(8, Math.floor(plotW / (narrow ? 46 : 84)))));
     for (const t of time.ticks) {
       const xx = x(t);
       const anchor = xx - padding.left < 22 ? "start" : padding.left + plotW - xx < 22 ? "end" : "middle";
       grid.append(
-        svgText(timeTickLabel(t, time.step, rangeT, { compact }), {
+        svgText(timeTickLabel(t, time.step, rangeT, { compact: narrow }), {
           x: xx,
           y: height - 4,
           "text-anchor": anchor,

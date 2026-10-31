@@ -196,9 +196,10 @@ headers, page dots, header actions, and the settings sheet.
   choosing the fewest columns (≤ 6) with ≥ 1.12× room. Rows become CSS grid
   tracks `minmax(min px, weight fr)` (tables capped at their rows), so spare
   height goes to charts first. A shortfall drops chart legend lines and shrinks
-  a chart's plot to a 44 px floor, and type scales via `--fit-scale` ≥ 0.72;
-  numbers, rings, tables, and text keep their minimum, and beyond that the grid
-  scrolls (`W_FIT_OVERFLOW`). Markdown is shown in fit and, like any panel, scrolls inside itself.
+  a chart's SVG to a 58 px floor (42 px plot + 16 px axis; short charts also
+  spend less padding), and type scales via `--fit-scale` ≥ 0.72; numbers, rings,
+  tables, and text keep their minimum, and beyond that the grid scrolls
+  (`W_FIT_OVERFLOW`). Markdown is shown in fit and, like any panel, scrolls inside itself.
   Resize/rotation re-plans
   after 120 ms (`scheduleRelayout`), as does a cycle that changes a panel's
   series count. Renderers get `fit: true` and fill their box: stat tiles size

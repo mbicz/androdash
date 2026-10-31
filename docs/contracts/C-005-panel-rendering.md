@@ -137,7 +137,7 @@ is `web/app/src/fit.js` (pure functions, no DOM); `main.js` builds the DOM.
   |---|---|---:|---:|
   | `StatChart` | one tile: 34; else tile rows × 44 + 6 px gaps, tiles ≥ 76 px wide | 96 | 1 |
   | `GaugeChart` | one ring: 64; else ring rows × 74 + 6 px gaps, rings ≥ 70 px wide (≤ 4) | 90 | 2 |
-  | `TimeSeriesChart` | plot 56 + time axis 14 + legend `lines × 15 + 4`; legend entries are 140 px one-liners, `lines = ceil(min(n, 8) / floor(inner / 140))`. Rigid: plot floor 44 + axis 14 (`rigidH` = 30 + 44 + 14) | 150 | 3 |
+  | `TimeSeriesChart` | plot 56 + time axis 16 + legend `lines × 15 + 4`; legend entries are 140 px one-liners, `lines = ceil(min(n, 8) / floor(inner / 140))`. Rigid: the SVG's 58 px floor (42 px of drawn plot + 16 px axis padding), `rigidH` = 30 + 58 | 150 | 3 |
   | `Table` | `min(n, 3)` rows × 18, + 14 when `n > 3`; capped at all `n` rows × 18 | 140 | 1 |
   | `Markdown` | 48; capped at 132 | 140 | 1 |
   | other | 40 | 120 | 1 |
@@ -166,9 +166,12 @@ is `web/app/src/fit.js` (pure functions, no DOM); `main.js` builds the DOM.
   scale and one `grid-template-rows` track per planned row:
   `minmax(<row min>px, <weight>fr)`, or `minmax(<row min>px, <max>px)` for a
   capped row. When space is short a row gives up only what its panels may
-  shrink below (`rigidHeight`): a chart's legend lines go first, then its plot
-  shrinks from 56 px to a 44 px floor, but never further, and its axis stays;
-  stat, gauge, table, and text panels do not shrink at all. The fit legend is
+  shrink below (`rigidHeight`): a chart's legend lines go first, then its SVG
+  shrinks from 72 px (56 + 16) to a 58 px floor — 42 px of drawn plot plus the
+  16 px axis, which is also the CSS `min-height` — but never further; stat,
+  gauge, table, and text panels do not shrink at all. A chart box under 90 px
+  spends 4 px above and 12 px below the plot instead of 7 + 18, so the floor is
+  plot, not padding. The fit legend is
   `overflow: hidden`, so given-up legend lines are cut, not squashed. Past that
   the grid scrolls (`W_FIT_OVERFLOW`) rather than clip numbers or lines.
   Left-over height goes to charts first, then gauges, never past a table's

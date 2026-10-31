@@ -21,11 +21,14 @@ to show. Text (titles, legend labels) can be given up; a truncated plot cannot.
 
 1. **Two heights per panel.** `panelDemand` now returns `rigidH` beside `minH`:
    the part of the minimum that must never shrink. For `TimeSeriesChart` it is
-   chrome + plot floor (44 px) + axis (14 px); for every other kind it is the
-   full minimum. A row's `rigidHeight` is the tallest member's `rigidH`.
+   chrome + a 58 px SVG floor (42 px drawn plot + 16 px axis, the same number as
+   the CSS `min-height`); for every other kind it is the full minimum. A row's
+   `rigidHeight` is the tallest member's `rigidH`.
 2. **The plot is rigid, the legend is not.** A short screen drops legend lines
-   first (`overflow: hidden` on the fit legend), then shrinks the plot from
-   56 px to a 44 px floor. Below that, the grid scrolls rather than clip.
+   first (`overflow: hidden` on the fit legend), then shrinks the chart SVG from
+   72 px (56 plot + 16 axis) to the 58 px floor. A chart box under 90 px spends
+   4 px above and 12 px below the plot instead of 7 + 18, so the floor buys plot,
+   not padding. Below the floor the grid scrolls rather than clip.
 3. **Plan selection uses the rigid height.** The fewest columns with
    `height − Σ rigidHeight ≥ 0` wins (wider panels read better); only when no
    column count fits at the rigid height does the plan fall back to the most
@@ -39,8 +42,10 @@ to show. Text (titles, legend labels) can be given up; a truncated plot cannot.
 
 ### Positive
 
-- Spark fit at 393 × 851 renders every panel with no scroll: four charts at a
-  56 px plot, `bodyScroll: 0`, no `overflow` class.
+- Spark fit at 393 × 851 renders every panel with no scroll: four charts at
+  their 58 px SVG floor with 27–39 px of drawn plot, `bodyScroll: 0`, no
+  `overflow` class. The macos-node dashboard at 923 × 411 (the phone in
+  landscape) also fits with 27–40 px plots.
 - The macos-node and demo dashboards also fit at scale 1 with full legends.
 
 ### Negative / risks
@@ -53,6 +58,8 @@ to show. Text (titles, legend labels) can be given up; a truncated plot cannot.
   whole and only the grid scrolls.
 - `agenticmac` at 393 × 851 still overflows by 13 px because its stat/gauge
   rows are rigid at their minimum.
+- A chart box under 90 px loses the top and bottom padding, so the value axis
+  labels sit closer to the plot edge than in a tall panel.
 
 ## Contracts affected
 
@@ -63,7 +70,8 @@ to show. Text (titles, legend labels) can be given up; a truncated plot cannot.
 ## Verification
 
 - `c005-fit.test.js`: new case asserts a chart row's `rigidHeight` is
-  `30 + 44 + 14`, its minimum never drops below it, and a stat row is rigid at
-  its own minimum. 93 web tests pass.
-- Headless Chromium at 393 × 851 (mock Prometheus, Spark fixture): no overflow,
-  `bodyScroll: 0`, chart SVGs 56 px, legends clipped as designed.
+  `30 + 58`, its minimum never drops below it, and a stat row is rigid at its
+  own minimum. 93 web tests pass.
+- Headless Chromium at 393 × 851 (mock Prometheus, Spark and macos-node
+  fixtures): no overflow, `bodyScroll: 0`, chart SVGs at their 58 px floor,
+  legends clipped as designed.

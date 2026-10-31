@@ -73,8 +73,8 @@ test("C-005 fit never shrinks a chart below its plot and axis", () => {
   ];
   const plan = planFit(items, { width: 361, height: 780 });
   const chartRow = plan.rows.find((row) => row.cells.some((cell) => cell.id === "cpu"));
-  // Chrome + plot floor + axis: legend lines may go, the plot may not.
-  assert.equal(chartRow.rigidHeight, 30 + 44 + 14);
+  // Chrome + plot floor + axis padding: legend lines may go, the plot may not.
+  assert.equal(chartRow.rigidHeight, 30 + 58);
   assert.ok(chartRow.minHeight >= chartRow.rigidHeight);
   const statRow = plan.rows.find((row) => row.cells.some((cell) => cell.id === "mem"));
   // Numbers cannot shrink at all: the row is rigid at its own minimum.

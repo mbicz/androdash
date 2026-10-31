@@ -27,13 +27,14 @@ export const FIT = Object.freeze({
 
 const TILE = { width: 70, height: 44, single: 34, gap: 6 };
 const RING = { width: 70, height: 74, single: 64, gap: 6 };
-const CHART = { minWidth: 150, plot: 56, floor: 44, axis: 14, legendEntry: 140, legendLine: 15 };
+const CHART = { minWidth: 150, plot: 56, axis: 16, minSvg: 58, legendEntry: 140, legendLine: 15 };
 /**
- * A chart's plot floor and axis: the part that must stay, whatever the screen.
- * The plot may shrink from `plot` to `floor`, but never further; legend lines
- * are text and go first.
+ * A chart's plot and axis: the part that must stay, whatever the screen. The
+ * SVG may shrink from `plot + axis` to `minSvg` (42 px of drawn plot plus 16 px
+ * of axis padding, the CSS `min-height`), but never further; legend lines are
+ * text and go first.
  */
-const CHART_RIGID = FIT.chrome + CHART.floor + CHART.axis;
+const CHART_RIGID = FIT.chrome + CHART.minSvg;
 const TABLE = { minWidth: 140, row: 18, minRows: 3, more: 14 };
 
 /** Columns × rows for `count` cells of at least `cellWidth` in `width`. */
