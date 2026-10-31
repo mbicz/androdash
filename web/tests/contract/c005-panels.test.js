@@ -109,6 +109,22 @@ test("C-005 time axis spans the cycle window and ticks on round minutes", () => 
   assert.ok(xLabels.every((label) => /:(00|05|10|15|20|25|30|35|40|45|50|55)\b/.test(label)), xLabels.join());
 });
 
+test("C-005 a short chart box spends its height on the plot, not padding", () => {
+  // 58 px is the fit floor (C-005 "Fit layout"): 42 px of plot + 16 px axis.
+  const element = renderTimeSeries(panel("TimeSeriesChart"), cpu, {
+    size: { width: 343, height: 58 },
+  });
+  const rows = element
+    .querySelectorAll(".chart-grid line")
+    .map((line) => Number(line.getAttribute("y1")));
+  assert.equal(Math.min(...rows), 4, "top padding is 4 px, not 7");
+  assert.equal(Math.max(...rows), 46, "the plot runs from 4 to 46 px");
+  const xLabels = element
+    .querySelectorAll(".axis-label")
+    .filter((node) => node.getAttribute("y") === String(58 - 4));
+  assert.ok(xLabels.length >= 2, "the time axis still has room");
+});
+
 test("C-005 positive-only charts do not invent a negative y-axis", () => {
   const element = renderTimeSeries(panel("TimeSeriesChart"), [
     {

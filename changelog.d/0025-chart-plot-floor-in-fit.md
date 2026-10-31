@@ -75,3 +75,6 @@ to show. Text (titles, legend labels) can be given up; a truncated plot cannot.
 - Headless Chromium at 393 × 851 (mock Prometheus, Spark and macos-node
   fixtures): no overflow, `bodyScroll: 0`, chart SVGs at their 58 px floor,
   legends clipped as designed.
+- `c005-panels.test.js`: a 58 px box draws the plot from 4 to 46 px and keeps
+  the time axis; the renderer clamps at 58 px, not 64, so a floor-sized box is
+  never scaled down again. 94 web tests pass.
