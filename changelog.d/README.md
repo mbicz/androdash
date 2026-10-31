@@ -38,6 +38,7 @@ shape; older ones remain binding unless marked superseded.
 | [0022](0022-status-dot-only.md) | Header status: the dot only | accepted |
 | [0023](0023-in-app-dashboards-and-collector.md) | Dashboards and collector targets are edited in the app | accepted |
 | [0024](0024-ignition-seeding.md) | Ignition: one document seeds dashboards and collector targets | accepted |
+| [0025](0025-chart-plot-floor-in-fit.md) | Fit: a chart keeps its plot; the legend gives way first | accepted |
 
 ## File naming
 
