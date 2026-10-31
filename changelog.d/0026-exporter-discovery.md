@@ -27,19 +27,24 @@ document from the network instead of from memory.
    reads `/metrics` to decide what each one is. Candidates come from `--host`,
    `--prometheus <base>/api/v1/targets`, the ARP table, and `tailscale status`;
    loopback targets are dropped because the phone cannot reach them that way.
-2. **Identity is evidence, not a guess.** A host's instance label is
+2. **The phone has the last word.** `--device <adb serial>` (with `--adb` for a
+   non-default adb server) re-probes every discovered exporter from that device
+   with `adb shell nc -z`, and drops the ones it cannot reach. A target the Mac
+   can reach but the phone cannot — a tailnet exporter while the phone is off
+   the tailnet — is reported as dropped, not seeded as a permanently `0` target.
+3. **Identity is evidence, not a guess.** A host's instance label is
    `node_uname_info{nodename}`, else the reverse-DNS first label, else the
    address. The macOS dashboard is only offered for `sysname="Darwin"` node
    exporters; each other dashboard requires its own metric family in
    `/metrics` (`spark_`, `agent_`, `demo_`). An exporter that does not prove
    itself is not listed.
-3. **The document is the phone dashboard first.** The generated Ignition
+4. **The document is the phone dashboard first.** The generated Ignition
    document always starts with the bundled `phone-dashboard.json` and selects
    it, so a freshly seeded device has data from the in-app exporter before any
    LAN target answers. Discovered dashboards follow, one per exporter, capped at
    the 8-dashboard limit; `collector.enabled` and `collector.phone` are true and
    `collector.targets` is the canonical C-001 string.
-4. **Validated before it is written.** `validate_ignition` mirrors the shell's
+5. **Validated before it is written.** `validate_ignition` mirrors the shell's
    strict rules (unknown keys, URL shape, `current` membership, duplicate
    job/instance, the collector needs a target) so a document that would show
    `E_IGNITION` is never produced.
@@ -79,3 +84,9 @@ the document through the existing `ignition_url` path (decision 0024).
   `demo:mike=192.168.192.16:9091`; the document ignited to 4 dashboards and 4
   targets (phone included), every `up` = 1, and a relaunch kept them without the
   file.
+- With `--device 0B031JECB12106`, the same run also found
+  `spark:gx10-5cc5=100.87.99.90:9400` here and dropped it because the phone is
+  off the tailnet; the earlier document that kept it showed `up{job="spark"} 0`.
+- Two device-reachability cases in `test_discover_hosts.py`: the adb command
+  puts `-L tcp:5038` before the serial, and a target the device cannot reach is
+  dropped from both the dashboards and the targets.

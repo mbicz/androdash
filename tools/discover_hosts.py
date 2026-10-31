@@ -26,11 +26,17 @@ or `spark_` families for the Spark dashboard). Host identity comes from
 `node_uname_info{nodename}`, else the reverse DNS name, else the address; the
 phone exporter is always local (`phone`).
 
+A target is only useful when the *phone* can reach it, so `--device <adb serial>`
+re-probes every discovered exporter from that device with
+`adb shell nc -z <host> <port>` and drops the ones it cannot reach (a tailnet
+exporter when the phone is not on the tailnet, for example). `--adb` passes extra
+adb arguments, such as a non-default server (`-L tcp:5038`).
+
 Usage:
 
     python3 tools/discover_hosts.py --host 192.168.1.20
     python3 tools/discover_hosts.py --prometheus http://192.168.1.20:9090 \
-        --ignition /tmp/ignition.json
+        --device 0B031JECB12106 --adb "-L tcp:5038" --ignition /tmp/ignition.json
 
 The Ignition document is the one C-001 accepts: dashboards first (the phone
 dashboard, then discovered ones), collector enabled, canonical targets.
@@ -41,6 +47,7 @@ from __future__ import annotations
 import argparse
 import concurrent.futures
 import json
+import shlex
 import re
 import socket
 import subprocess
@@ -90,6 +97,8 @@ class Exporter:
 class Report:
     exporters: list[Exporter] = field(default_factory=list)
     unreachable: list[tuple[str, int]] = field(default_factory=list)
+    #: Exporters that answered here but not from the phone (`--device`).
+    unreachable_from_device: list[Exporter] = field(default_factory=list)
 
     def target(self, exporter: Exporter) -> str:
         """Canonical C-001 `collector_targets` entry for [exporter]."""
@@ -365,6 +374,30 @@ def candidates(args: argparse.Namespace) -> list[tuple[str, str]]:
     return pairs
 
 
+def reachable_from_device(exporter: Exporter, adb: list[str], device: str, timeout: float) -> bool:
+    """True when [device] can open a TCP connection to [exporter]'s port."""
+    # adb first: server flags (`-L tcp:5038`) follow the binary.
+    command = ["adb"] + adb + ["-s", device, "shell", "nc", "-w", str(max(1, int(timeout))), "-z",
+                               exporter.address, str(exporter.port)]
+    try:
+        result = subprocess.run(command, capture_output=True, text=True, timeout=timeout + 10)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return result.returncode == 0
+
+
+def verify_from_device(report: Report, adb: list[str], device: str, timeout: float = 1.5) -> Report:
+    """Drop exporters the phone cannot reach, keeping them in the report."""
+    kept: list[Exporter] = []
+    for exporter in report.exporters:
+        if reachable_from_device(exporter, adb, device, timeout):
+            kept.append(exporter)
+        else:
+            report.unreachable_from_device.append(exporter)
+    report.exporters = kept
+    return report
+
+
 def _fetch(url: str, timeout: float) -> str | None:
     try:
         with urllib.request.urlopen(url, timeout=timeout) as response:
@@ -381,6 +414,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--no-tailnet", action="store_true", help="skip `tailscale status`")
     parser.add_argument("--timeout", type=float, default=1.5, help="per-probe timeout in seconds")
     parser.add_argument("--layout-mode", default="fit", choices=["auto", "grid", "stack", "fit"])
+    parser.add_argument("--device", help="adb serial; drop targets this device cannot reach")
+    parser.add_argument("--adb", default="", help="extra adb arguments, e.g. \"-L tcp:5038\"")
     parser.add_argument("--ignition", type=Path, help="write the Ignition document here")
     parser.add_argument("--json", action="store_true", help="print the discovery report as JSON")
     args = parser.parse_args(argv)
@@ -390,6 +425,8 @@ def main(argv: list[str] | None = None) -> int:
         print("no candidate hosts: pass --host or --prometheus, or check the LAN", file=sys.stderr)
         return 2
     report = discover([address for address, _ in pairs], timeout=args.timeout, sources=dict(pairs))
+    if args.device:
+        verify_from_device(report, shlex.split(args.adb), args.device, args.timeout)
 
     if args.json:
         print(json.dumps({
@@ -407,12 +444,25 @@ def main(argv: list[str] | None = None) -> int:
                 for exporter in report.exporters
             ],
             "unreachable": len(report.unreachable),
+            "unreachable_from_device": [
+                {
+                    "address": exporter.address,
+                    "port": exporter.port,
+                    "job": exporter.job,
+                    "hostname": exporter.hostname,
+                    "source": exporter.source,
+                }
+                for exporter in report.unreachable_from_device
+            ],
         }, indent=2, sort_keys=True))
     else:
         print(f"probed {len(pairs)} hosts x {len(EXPORTERS)} ports")
         for exporter in report.exporters:
             print(f"  {exporter.address}:{exporter.port}  {exporter.job:<10} "
                   f"{exporter.hostname:<16} {exporter.dashboard}  ({exporter.source})")
+        for exporter in report.unreachable_from_device:
+            print(f"  {exporter.address}:{exporter.port}  {exporter.job:<10} "
+                  f"{exporter.hostname:<16} dropped: {args.device} cannot reach it")
         if not report.exporters:
             print("  no supported exporter answered")
 
