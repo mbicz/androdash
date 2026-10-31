@@ -1677,9 +1677,14 @@ html[data-layout="fit"] body {
   line-height: 18px;
 }
 
-/* A chart's plot is never squeezed: the panel gives up legend lines instead. */
+/* A chart's plot is never squeezed: the panel gives up legend lines instead.
+   The legend's margin would otherwise add a stray pixel of body scroll. */
+[data-layout-mode="fit"] .chart-wrap {
+  overflow: hidden;
+}
+
 [data-layout-mode="fit"] .chart-svg {
-  min-height: 56px;
+  min-height: 58px;
 }
 
 [data-layout-mode="fit"] .markdown-body {
