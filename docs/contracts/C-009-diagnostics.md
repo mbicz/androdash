@@ -75,7 +75,7 @@ Warnings are non-fatal and recorded in diagnostics:
 | `W_UNIT_UNKNOWN` | Unknown formatting unit; raw value used |
 | `W_STORED_DASHBOARD_INVALID` | The stored dashboard copy (C-002) could not be read or does not normalize; the renderer fetches `dashboard_url` instead. Detail: error code |
 | `W_DASHBOARD_NOT_STORED` | The shell refused to store a fetched dashboard (C-002, C-007 `storeDashboard`); it still renders, from the URL |
-| `W_FIT_OVERFLOW` | Fit layout (C-005) cannot place every panel on one screen even at the minimum type scale; the grid scrolls. Detail: `<N> panels` |
+| `W_FIT_OVERFLOW` | Fit layout (C-005) cannot place every panel on one screen at the rigid height (a chart's plot floor, every other panel's minimum); the grid scrolls. Detail: `<N> panels` |
 
 Do not invent ad-hoc codes. Add a contract update for a new code.
 

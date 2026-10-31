@@ -66,6 +66,8 @@ to show. Text (titles, legend labels) can be given up; a truncated plot cannot.
 - C-005 "Fit layout": demand table gains `rigidH`, chrome is 30 px in fit, plan
   selection is rigid-height first, the plot floor and legend sacrifice are
   stated.
+- C-009: `W_FIT_OVERFLOW` now says the grid scrolls when the rigid height does
+  not fit, not when the type scale bottoms out.
 
 ## Verification
 
