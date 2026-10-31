@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from discover_hosts import (
     PHONE_DASHBOARD,
@@ -26,7 +27,9 @@ from discover_hosts import (
     parse_arp,
     parse_prometheus_targets,
     parse_tailscale,
+    reachable_from_device,
     validate_ignition,
+    verify_from_device,
 )
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -103,6 +106,30 @@ class ClassifyTest(unittest.TestCase):
     def test_foreign_metrics_are_not_claimed(self) -> None:
         self.assertIsNone(classify("192.168.1.20", 9106, node_metrics(), "host"))
         self.assertIsNone(classify("192.168.1.20", 9091, "# only comments\n", "host"))
+
+
+class DeviceReachabilityTest(unittest.TestCase):
+    def test_adb_command_puts_server_flags_before_the_serial(self) -> None:
+        exporter = Exporter("100.64.0.11", 9400, "spark", "spark-dashboard.json", "spark-a")
+        with mock.patch("discover_hosts.subprocess.run") as run:
+            run.return_value = mock.Mock(returncode=0)
+            self.assertTrue(reachable_from_device(exporter, ["-L", "tcp:5038"], "0123456789ABCDEF", 2))
+        self.assertEqual(run.call_args.args[0], [
+            "adb", "-L", "tcp:5038", "-s", "0123456789ABCDEF", "shell",
+            "nc", "-w", "2", "-z", "100.64.0.11", "9400",
+        ])
+
+    def test_unreachable_targets_are_dropped_not_faked(self) -> None:
+        reachable = Exporter("192.168.1.20", 9100, "node", "macos-node-dashboard.json", "workstation")
+        tailnet = Exporter("100.64.0.11", 9400, "spark", "spark-dashboard.json", "spark-a")
+        report = Report(exporters=[reachable, tailnet])
+        with mock.patch("discover_hosts.reachable_from_device", side_effect=[True, False]):
+            verify_from_device(report, [], "0123456789ABCDEF")
+        self.assertEqual(report.exporters, [reachable])
+        self.assertEqual(report.unreachable_from_device, [tailnet])
+        doc = ignition_document(report)
+        self.assertNotIn("http://androdash.local/dashboards/spark-dashboard.json", doc["dashboards"]["urls"])
+        self.assertNotIn("100.64.0.11", doc["collector"]["targets"])
 
 
 class IgnitionTest(unittest.TestCase):

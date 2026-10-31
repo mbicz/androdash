@@ -260,7 +260,7 @@ to decide what each host runs, and writes the document
 
 ```sh
 python3 tools/discover_hosts.py --prometheus http://192.168.1.20:9090 \
-  --ignition /tmp/ignition.json
+  --device <adb serial> --ignition /tmp/ignition.json
 cp /tmp/ignition.json . && python3 tools/serve_demo.py --host 0.0.0.0 --port 8099
 adb shell am start -n com.mbicz.androdash/.MainActivity \
   --es ignition_url "http://192.168.1.20:8099/ignition.json"
@@ -279,8 +279,11 @@ discovered exporter, and enables the collector with canonical targets:
 A host is listed only when its `/metrics` proves it: the macOS dashboard needs
 `sysname="Darwin"`, the others need their own metric family. Candidates come
 from `--host`, a Prometheus's active targets, the ARP table, and
-`tailscale status`; loopback targets are dropped. The document is validated
-against the shell's rules before it is written.
+`tailscale status`; loopback targets are dropped. With `--device` (and `--adb`
+for a non-default adb server) every candidate is re-probed from the phone, so a
+target the Mac can reach but the phone cannot is dropped instead of seeded as a
+permanent `0`. The document is validated against the shell's rules before it is
+written.
 
 ## 9. Troubleshooting
 
