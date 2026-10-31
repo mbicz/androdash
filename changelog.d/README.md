@@ -39,6 +39,7 @@ shape; older ones remain binding unless marked superseded.
 | [0023](0023-in-app-dashboards-and-collector.md) | Dashboards and collector targets are edited in the app | accepted |
 | [0024](0024-ignition-seeding.md) | Ignition: one document seeds dashboards and collector targets | accepted |
 | [0025](0025-chart-plot-floor-in-fit.md) | Fit: a chart keeps its plot; the legend gives way first | accepted |
+| [0026](0026-exporter-discovery.md) | Discover exporters from what answers, then seed with Ignition | accepted |
 
 ## File naming
 

@@ -11,6 +11,7 @@ You own deterministic local tooling:
 tools/mock_prometheus.py
 tools/serve_demo.py
 tools/check_docs.py
+tools/discover_hosts.py
 ```
 
 You do **not** own the renderer (`web/app/`) or Android shell (`app/`). Tools
@@ -18,8 +19,8 @@ serve/observe them; they do not patch them.
 
 ## Current state
 
-`tools/check_docs.py`, `tools/mock_prometheus.py`, and `tools/serve_demo.py` are
-implemented. `tools/test_mock_prometheus.py` verifies that every query in the
+`tools/check_docs.py`, `tools/mock_prometheus.py`, `tools/serve_demo.py`, and
+`tools/discover_hosts.py` are implemented. `tools/test_mock_prometheus.py` verifies that every query in the
 Spark dashboard fixture is recognized and returns data. M3 may add more fixtures;
 the mock remains deterministic and dependency-free.
 
@@ -85,6 +86,20 @@ the mock remains deterministic and dependency-free.
 - Ignore external `http(s)` links, anchors, and mailto.
 - Report missing targets with file/line; exit non-zero on failure.
 - Standard library only; deterministic.
+
+### `discover_hosts.py`
+
+- Probe only the documented exporter ports (9100, 9106, 9091, 9400); never a
+  port scan of arbitrary ranges.
+- Classify a host by its `/metrics` families, never by its name: the macOS
+  dashboard requires `sysname="Darwin"`; the others require their own family.
+- Instance labels come from `node_uname_info{nodename}`, else reverse DNS, else
+  the address; loopback Prometheus targets are dropped.
+- Emit the C-001 Ignition document with the bundled phone dashboard first and
+  select it, the collector enabled, and canonical `collector_targets`.
+- Validate the document against the shell's rules before writing it.
+- Bounded: 1.5 s per probe, 4 MiB per `/metrics`, at most 32 targets and 8
+  dashboards. Standard library only; deterministic output for a given network.
 
 ## Commands
 

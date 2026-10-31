@@ -180,6 +180,26 @@ function planColumns(items, columns, width, gap) {
 }
 
 /**
+ * Every column count's plan for `items` in a `width` × `height` box, with the
+ * numbers `planFit` chooses between: `height` (total minimum), `rigidTotal`
+ * (total rigid height, gaps included), `room` (height / minimum), and
+ * `rigidRoom` (height − rigid total; negative means the plan scrolls).
+ */
+export function planCandidates(items, { width, height, gap = FIT.gap }) {
+  const limit = Math.max(1, Math.min(FIT.maxColumns, Math.floor((width + gap) / (FIT.minColumnWidth + gap))));
+  const rigidTotal = (plan) =>
+    plan.rows.reduce((sum, row) => sum + (row.rigidHeight ?? row.minHeight), 0) + gap * (plan.rows.length - 1);
+  const plans = [];
+  for (let columns = 1; columns <= limit; columns += 1) {
+    const plan = planColumns(items, columns, width, gap);
+    if (!plan) continue;
+    const rigid = rigidTotal(plan);
+    plans.push({ columns, ...plan, rigidTotal: rigid, room: height / plan.height, rigidRoom: height - rigid });
+  }
+  return plans;
+}
+
+/**
  * Plan a fit layout for `items` ({ id, kind, count }) in a `width` × `height`
  * box. Returns { columns, rows, scale, overflow }. `scale` < 1 means type and
  * the shrinkable part of each row give way to fit. `overflow` means the rows
@@ -188,25 +208,26 @@ function planColumns(items, columns, width, gap) {
  */
 export function planFit(items, { width, height, gap = FIT.gap }) {
   if (items.length === 0) return { columns: 1, rows: [], scale: 1, overflow: false };
-  const limit = Math.max(1, Math.min(FIT.maxColumns, Math.floor((width + gap) / (FIT.minColumnWidth + gap))));
-  const rigidTotal = (plan) =>
-    plan.rows.reduce((sum, row) => sum + (row.rigidHeight ?? row.minHeight), 0) + gap * (plan.rows.length - 1);
-  const plans = [];
-  for (let columns = 1; columns <= limit; columns += 1) {
-    const plan = planColumns(items, columns, width, gap);
-    if (plan) plans.push({ columns, ...plan, room: height / plan.height, rigidRoom: height - rigidTotal(plan) });
-  }
+  const plans = planCandidates(items, { width, height, gap });
   if (plans.length === 0) {
     const plan = planColumns(items, 1, width, gap);
-    plans.push({ columns: 1, ...plan, room: height / plan.height, rigidRoom: height - rigidTotal(plan) });
+    const rigid = plan.rows.reduce((sum, row) => sum + (row.rigidHeight ?? row.minHeight), 0) + gap * (plan.rows.length - 1);
+    plans.push({ columns: 1, ...plan, rigidTotal: rigid, room: height / plan.height, rigidRoom: height - rigid });
   }
   // A plan whose panels all fit at their floor wins, widest panels first (the
   // fewest columns that fit), because wider panels read better. Otherwise the
-  // plan with the most room at its minimum; it scrolls.
+  // plan that scrolls least: the smallest rigid total, then the most room, then
+  // the fewest columns.
   const fitting = plans.filter((plan) => plan.rigidRoom >= 0);
   const chosen = fitting.length > 0
     ? fitting.reduce((a, b) => (b.columns < a.columns ? b : a))
-    : plans.reduce((a, b) => (b.room > a.room ? b : a));
+    : plans.reduce((a, b) => {
+      if (b.rigidTotal < a.rigidTotal - 0.01) return b;
+      if (b.rigidTotal > a.rigidTotal + 0.01) return a;
+      if (b.room > a.room + 0.001) return b;
+      if (b.room < a.room - 0.001) return a;
+      return b.columns < a.columns ? b : a;
+    });
   const scale = Math.min(1, chosen.room);
   return {
     columns: chosen.columns,

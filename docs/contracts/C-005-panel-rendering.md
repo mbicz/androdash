@@ -157,7 +157,9 @@ is `web/app/src/fit.js` (pure functions, no DOM); `main.js` builds the DOM.
   - `room = height / total minimum height`, and `rigidRoom = height − total
     rigid height (gaps included)`. The fewest columns with `rigidRoom ≥ 0` wins
     (wider panels read better); when no column count fits at the rigid height,
-    the plan with the most `room`;
+    the plan with the smallest rigid total (it scrolls least), then the most
+    `room`, then the fewest columns. `planCandidates` returns every column
+    count's numbers;
   - `scale = min(1, room)`, floored at **0.72**. When `rigidRoom < 0` the plan
     overflows: the grid scrolls vertically and `W_FIT_OVERFLOW` (C-009) is
     recorded. Panels are never dropped to make room.

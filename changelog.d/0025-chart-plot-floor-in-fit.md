@@ -30,10 +30,11 @@ to show. Text (titles, legend labels) can be given up; a truncated plot cannot.
    4 px above and 12 px below the plot instead of 7 + 18, so the floor buys plot,
    not padding. Below the floor the grid scrolls rather than clip.
 3. **Plan selection uses the rigid height.** The fewest columns with
-   `height − Σ rigidHeight ≥ 0` wins (wider panels read better); only when no
-   column count fits at the rigid height does the plan fall back to the most
-   `room` and report overflow. Row minimums are floored, not rounded, so
-   per-row rounding cannot add a pixel of scroll.
+   `height − Σ rigidHeight ≥ 0` wins (wider panels read better). When no column
+   count fits at the rigid height, the plan with the smallest rigid total wins
+   (it scrolls least), then the most `room`, then the fewest columns; it reports
+   overflow. `planCandidates` exposes every column count's numbers. Row minimums
+   are floored, not rounded, so per-row rounding cannot add a pixel of scroll.
 4. **Fit chrome is 30 px** (6 px padding, 15 px header, 3 px gap), down from
    36 px. It is the smallest chrome that still fits the title, and it buys back
    the height the plot needs. Other layouts keep 36 px.

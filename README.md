@@ -24,6 +24,8 @@ repository's mock Prometheus. More: [lock screen](docs/images/locked.png),
   dashboard by URL, or paste dashboard JSON, from the app's settings sheet.
 - Ignition: one JSON document seeds the dashboards and collector targets at
   launch, then removes itself, so a device can be provisioned from a file.
+  `tools/discover_hosts.py` generates that document from the exporters that
+  actually answer on your network.
 - Optional on-phone collector: the APK bundles the upstream Prometheus binary
   (SHA-256 pinned). It runs as a foreground service on `127.0.0.1:19090` and
   scrapes your exporters, which you add from the settings sheet.
