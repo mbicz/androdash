@@ -64,7 +64,9 @@ export function renderTimeSeries(panel, series, { warn = null, size = null, time
 
   function draw(box) {
     const width = Math.max(96, Math.round(box.width));
-    const height = Math.max(64, Math.round(box.height));
+    // 58 px is the fit floor (C-005): clamping higher would scale the plot
+    // down inside a box that is already only a plot and an axis.
+    const height = Math.max(58, Math.round(box.height));
     // One value label per ~22 px of plot so labels never touch on short charts.
     const scale = niceTicks(dataMin, dataMax, Math.max(1, Math.min(4, Math.floor((height - 25) / 22))), unit);
     const minY = scale.min;
