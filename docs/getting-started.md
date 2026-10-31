@@ -252,6 +252,36 @@ deleted and the `ignition_url` extra is dropped, so the device keeps whatever is
 changed in the app afterwards. An invalid document shows `E_IGNITION` (or
 `E_IGNITION_FETCH` for a failed fetch) instead of the dashboard.
 
+### Generate the document from the network
+
+`tools/discover_hosts.py` probes the documented exporter ports, reads `/metrics`
+to decide what each host runs, and writes the document
+([decision 0026](../changelog.d/0026-exporter-discovery.md)):
+
+```sh
+python3 tools/discover_hosts.py --prometheus http://192.168.1.20:9090 \
+  --ignition /tmp/ignition.json
+cp /tmp/ignition.json . && python3 tools/serve_demo.py --host 0.0.0.0 --port 8099
+adb shell am start -n com.mbicz.androdash/.MainActivity \
+  --es ignition_url "http://192.168.1.20:8099/ignition.json"
+```
+
+It always seeds the bundled phone dashboard first, then one dashboard per
+discovered exporter, and enables the collector with canonical targets:
+
+| Port | Exporter | Dashboard | Instance label |
+|---:|---|---|---|
+| 9100 | node_exporter on macOS | `macos-node-dashboard.json` | `node_uname_info{nodename}` |
+| 9106 | agenticmac-exporter | `agenticmac-dashboard.json` | same, else reverse DNS |
+| 9091 | demo/mock Prometheus | `demo-dashboard.json` | same |
+| 9400 | spark-exporter | `spark-dashboard.json` | same |
+
+A host is listed only when its `/metrics` proves it: the macOS dashboard needs
+`sysname="Darwin"`, the others need their own metric family. Candidates come
+from `--host`, a Prometheus's active targets, the ARP table, and
+`tailscale status`; loopback targets are dropped. The document is validated
+against the shell's rules before it is written.
+
 ## 9. Troubleshooting
 
 | Symptom | Check |

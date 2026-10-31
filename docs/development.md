@@ -267,6 +267,14 @@ adb shell am start -n com.mbicz.androdash/.MainActivity \
   `--ez collector false`, which also stops the service and the exporter.
 - The service holds a partial wake lock: keep the phone on a charger.
 
+Generate the whole configuration from the LAN (see
+[getting started](getting-started.md#generate-the-document-from-the-network)):
+
+```sh
+python3 tools/discover_hosts.py --prometheus http://192.168.1.20:9090 \
+  --ignition /tmp/ignition.json
+```
+
 Inspect it:
 
 ```sh

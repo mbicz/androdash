@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { bestCellGrid, panelDemand, planFit } from "../../app/src/fit.js";
+import { bestCellGrid, panelDemand, planCandidates, planFit } from "../../app/src/fit.js";
 
 const mac = [
   { id: "util", kind: "GaugeChart", count: 4 },
@@ -79,6 +79,35 @@ test("C-005 fit never shrinks a chart below its plot and axis", () => {
   const statRow = plan.rows.find((row) => row.cells.some((cell) => cell.id === "mem"));
   // Numbers cannot shrink at all: the row is rigid at its own minimum.
   assert.equal(statRow.rigidHeight, statRow.minHeight);
+});
+
+test("C-005 fit scrolls least when nothing fits at the rigid height", () => {
+  const items = [
+    { id: "harnesses", kind: "StatChart", count: 2 },
+    { id: "sessions", kind: "StatChart", count: 2 },
+    { id: "throughput", kind: "TimeSeriesChart", count: 2 },
+    { id: "spend", kind: "TimeSeriesChart", count: 2 },
+    { id: "tiers", kind: "StatChart", count: 2 },
+    { id: "quota", kind: "GaugeChart", count: 4 },
+    { id: "models", kind: "Table", count: 8 },
+    { id: "pressure", kind: "StatChart", count: 2, thresholds: true },
+    { id: "temperature", kind: "StatChart", count: 3, thresholds: true },
+    { id: "agent-memory", kind: "StatChart", count: 2 },
+    { id: "power", kind: "TimeSeriesChart", count: 2 },
+    { id: "services", kind: "Table", count: 3 },
+    { id: "vms", kind: "Table", count: 3 },
+  ];
+  const box = { width: 859, height: 355 };
+  const plans = planCandidates(items, box);
+  assert.ok(plans.length > 1);
+  assert.ok(plans.every((plan) => plan.rigidRoom < 0), "no column count fits");
+  const least = Math.min(...plans.map((plan) => plan.rigidTotal));
+  const plan = planFit(items, box);
+  const chosen = plans.find((candidate) => candidate.columns === plan.columns);
+  assert.equal(chosen.rigidTotal, least, "the plan that scrolls least wins");
+  assert.equal(plan.overflow, true);
+  // Every panel is still placed, in order.
+  assert.deepEqual(order(plan), items.map((item) => item.id));
 });
 
 test("C-005 cell grids follow the box shape", () => {
