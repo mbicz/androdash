@@ -7,7 +7,9 @@
   `collector_phone`, phone exporter job, targets optional, decision 0021;
   amended 2026-10-29: `dashboard_urls`, `collector`, and `collector_targets`
   editable in the app, inline dashboards, decision 0023); amended 2026-10-30
-  (`ignition_url`, Ignition seeding, decision 0024)
+  (`ignition_url`, Ignition seeding, decision 0024); amended 2026-11-01
+  (`ignition_wait`, `ignition_wait_seconds`, device identity and wait mode,
+  decision 0027)
 - **Consumers:** Android shell (W1), web renderer config (W2)
 - **Machine-readable:** [`contracts/app-config.schema.json`](../../contracts/app-config.schema.json)
 - **Fixtures:** [`app-config.example.json`](../../contracts/fixtures/app-config.example.json)
@@ -65,7 +67,9 @@ This is deliberate: one name per concept, easy to debug with `adb`.
 | `collector_targets` | string | `null` | Comma-separated scrape targets, `[job:]instance=host:port` or `host:port`; 1–32 entries when set. With `collector=true` at least one of `collector_targets` and `collector_phone=true` is **required** (v7; before v7 the targets were always required). Native-only. Added in v5. |
 | `collector_scrape_seconds` | integer | `15` | Collector scrape interval, `5–300`. Native-only. Added in v5. |
 | `collector_retention` | string | `24h` | Collector TSDB retention; duration grammar as `time_range`, range `1h…30d`. Native-only. Added in v5. |
-| `ignition_url` | string | `null` | Absolute `http`/`https` URL of an Ignition document that seeds dashboards and collector targets at launch ([Ignition](#ignition), decision 0024). Native-only; never part of the renderer URL. |
+| `ignition_url` | string | `null` | Absolute `http`/`https` URL of an Ignition document that seeds dashboards and collector targets at launch ([Ignition](#ignition), decision 0024). May carry the tokens `{device}` and `{deviceId}`, substituted by the shell ([Device identity](#device-identity), decision 0027). Native-only; never part of the renderer URL. |
+| `ignition_wait` | boolean | `false` (but `true` while a provisioning URL is persisted) | Keep fetching `ignition_url` until a document exists instead of failing: a `404`/`410`/`204` is a waiting state, and the template is persisted for the next launch ([Ignition](#ignition), decision 0027). Native-only; not persisted inside `launch_config`. |
+| `ignition_wait_seconds` | integer | `15` | Retry interval in wait mode, `1–300`. Native-only; persisted with the provisioning URL. |
 | `collector_phone` | boolean | `true` | While the collector runs, also run the in-app phone exporter on `127.0.0.1:19100` and scrape it as job `phone`, instance `phone` ([Phone exporter job](#phone-exporter-job)). Native-only; not a `setOption` name. Added in v7. |
 
 Intent extras use `--es` (string), `--ei` (int), `--ez` (boolean) with `adb`.
@@ -346,6 +350,54 @@ fetch); nothing is persisted.
 - The merged list must hold at most 8 dashboards including the inline ones.
 - `ignition_url` counts as a launch extra: it reloads the renderer, and it is
   never folded into the renderer URL.
+
+### Device identity
+
+A phone identifies itself to a provisioning server with a **six-digit device
+code** it generates once (`SecureRandom`, `100000…999999`) and keeps in its
+preferences under `device_code`. The code is stable across app updates, config
+resets, and Ignition consumption, and it is what the unprovisioned screen shows
+so an operator can type it into a server (decision 0027).
+
+`ignition_url` stays an ordinary http(s) URL; the shell substitutes two literal
+tokens before fetching:
+
+| Token | Becomes |
+|---|---|
+| `{device}` | The six-digit code |
+| `{deviceId}` | First 8 lowercase hex characters of SHA-256 of `Settings.Secure.ANDROID_ID` |
+
+Any other `{…}` token, a `#fragment`, and a result longer than 8192 characters
+are `E_IGNITION_FETCH`. The substituted URL is validated with the same rules as
+any other URL (http/https, a host, no userinfo).
+
+The shell also appends identity query parameters to the resolved URL when it
+does not already carry them, so a server can key on anything without templating:
+
+| Parameter | Value |
+|---|---|
+| `device_code` | The six-digit code |
+| `device_model` | `Build.MANUFACTURER Build.MODEL`, percent-encoded |
+| `device_ip` | The phone's LAN IPv4 address, omitted when it has none |
+
+### One-shot and wait mode
+
+| Mode | How it is selected | On `404`/`410`/`204` | On a 2xx document | After success |
+|---|---|---|---|---|
+| One-shot (default) | `ignition_url` without `ignition_wait` | `E_IGNITION_FETCH`, fatal screen | parse and merge | Source consumed: the file is deleted, the extra dropped (decision 0024) |
+| Wait | `--ez ignition_wait true`, or a persisted provisioning URL with no new extra | Provisioning screen (code, redacted URL, last outcome, attempts, Retry); retry every `ignition_wait_seconds` | parse and merge; an unparseable document is `E_IGNITION` | The template and interval are persisted under `ignition_url`/`ignition_wait_seconds`; the extra is dropped so the next launch re-fetches |
+
+- Every other non-2xx status and every transport failure behaves like a missing
+  document in wait mode, and like `E_IGNITION_FETCH` in one-shot mode.
+- A device that already has a persisted config keeps running it while a wait-mode
+  re-fetch fails; it does not fall back to a provisioning screen.
+- The retry timer runs only while the activity is started (`onStart` resumes it,
+  `onStop` stops it).
+- `--ez ignition_wait false` clears the persisted template and returns to
+  one-shot mode. `ignition_wait=true` without any template or persisted URL is
+  `E_CONFIG`.
+- Wait mode re-fetches on launch only; it never overwrites a live in-app edit
+  while the dashboard is running.
 
 ## Precedence
 

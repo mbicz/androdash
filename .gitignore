@@ -35,6 +35,9 @@ venv/
 /tmp/
 /screenshots/
 
+# Local provisioning state (device codes, documents, request log)
+/provisioning/
+
 # Secrets / signing (never commit)
 *.jks
 *.keystore

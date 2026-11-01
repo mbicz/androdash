@@ -285,13 +285,57 @@ target the Mac can reach but the phone cannot is dropped instead of seeded as a
 permanent `0`. The document is validated against the shell's rules before it is
 written.
 
+### Provision a phone by its own code
+
+A phone launched with `ignition_wait` shows a six-digit device code and keeps
+asking a provisioning server for its document until one exists
+([decision 0027](../changelog.d/0027-device-code-provisioning.md)). Nothing has
+to know the phone's serial number or address first.
+
+```sh
+# 1. Serve the repository, including the provisioning directory.
+python3 tools/serve_demo.py --host 0.0.0.0 --port 8099
+
+# 2. Launch the phone with the templated URL. It shows its code and waits.
+adb shell am start -n com.mbicz.androdash/.MainActivity \
+  --es ignition_url "http://192.168.1.20:8099/ignition/{device}.json" \
+  --ez ignition_wait true
+
+# 3. Read the code off the screen (or from the request log), then provision it.
+python3 tools/provision.py pending
+python3 tools/provision.py write 482913 /tmp/ignition.json
+```
+
+The phone applies the document within `ignition_wait_seconds` (default 15,
+`--ei ignition_wait_seconds 5` to poll faster). The template is persisted, so
+the next launch checks in again; `--ez ignition_wait false` returns the phone to
+one-shot seeding. A document that does not parse is still `E_IGNITION`.
+
+The code and the request log live in `provisioning/` at the repository root:
+
+| Command | Effect |
+|---|---|
+| `python3 tools/provision.py pending` | Codes that polled and have no document, newest first |
+| `python3 tools/provision.py served` | Codes that already have a document |
+| `python3 tools/provision.py write <code> <file>` | Validate and store `<code>.json` |
+| `python3 tools/provision.py show <code>` | Print the stored document |
+| `python3 tools/provision.py clear <code>` | Delete it, so the phone waits again |
+
+`serve_demo.py` answers `/ignition/<code>.json`; a missing file is a plain 404,
+which is exactly what the phone treats as "not provisioned yet". The shell also
+appends `device_code`, `device_model`, and `device_ip` to the URL, so a server
+can key on any of them without templating. The code is not a credential: the
+convention is unauthenticated and belongs on a trusted LAN.
+
 ## 9. Troubleshooting
 
 | Symptom | Check |
 |---|---|
 | Native `E_CONFIG` screen | No extras on first launch, or an invalid value; the screen names the field |
 | Native `E_IGNITION` screen | The Ignition document is invalid; the screen names the key. Fix the file/URL and tap Retry |
-| Native `E_IGNITION_FETCH` screen | The phone cannot fetch `ignition_url` (scheme, status, size, timeout) |
+| Native `E_IGNITION_FETCH` screen | The phone cannot fetch `ignition_url` (scheme, status, size, timeout), or the URL has an unknown `{token}`, a fragment, or is too long |
+| Provisioning screen never leaves "not provisioned" | `python3 tools/provision.py pending` lists the codes the server saw; write `<code>.json` for the code shown on the phone. Check the phone can reach the server host and port |
+| Device code differs from the one on the server | The code is per-installation: read it off the screen or from `adb shell run-as com.mbicz.androdash cat shared_prefs/androdash.xml` |
 | `E_DASHBOARD_FETCH` | The phone cannot reach the URL, or the server lacks CORS. Try a bundled dashboard |
 | Panel shows "No data" | Check the query's job in `up`, or in the "Collector targets" panel. The exporter must listen on `0.0.0.0` |
 | Collector target is `0` | The phone cannot reach `host:port`: firewall, Wi-Fi isolation, or VLAN |

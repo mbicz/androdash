@@ -15,6 +15,7 @@ import android.os.Handler
 import android.os.Looper
 import android.os.PowerManager
 import android.os.SystemClock
+import android.provider.Settings
 import android.util.Log
 import android.view.Gravity
 import android.view.View
@@ -44,6 +45,8 @@ import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.IOException
 import java.net.HttpURLConnection
+import java.net.Inet4Address
+import java.net.NetworkInterface
 import java.net.URI
 
 class MainActivity : Activity() {
@@ -78,6 +81,20 @@ class MainActivity : Activity() {
     /** True while an ignition document is being fetched/parsed off the UI thread. */
     private var ignitionPending = false
 
+    /** The provisioning launch in progress (C-001 decision 0027), or null. */
+    private var provisioningLaunch: ProvisioningLaunch? = null
+    private var provisioningFile: File? = null
+    private var provisioningResolvedUrl: String? = null
+    private var provisioningAttempts = 0
+    private var provisioningStatus = ""
+    /** True when the device already had a config, so a failed fetch must not replace it. */
+    private var provisioningBackground = false
+    /** The six-digit code this device presents, once resolved. */
+    private var provisioningCode: String = ""
+    private var activityStarted = false
+    private val secureRandom = java.security.SecureRandom()
+    private val provisioningRetry = Runnable { startProvisioningAttempt() }
+
     /** The API 33+ kiosk back consumer (an `OnBackInvokedCallback`) while registered. */
     private var backCallback: Any? = null
 
@@ -111,18 +128,31 @@ class MainActivity : Activity() {
      */
     private fun applyIntent(intent: Intent?) {
         val extras = readExtras(intent)
-        val ignitionUrl = extras[IGNITION_EXTRA]?.trim().orEmpty()
         if (ignitionPending) {
             Log.i(TAG, "ignition already pending; intent ignored")
             return
         }
-        if (ignitionUrl.isNotEmpty()) {
-            applyIgnition(ignitionUrl = ignitionUrl, file = null)
+        val persistedUrl = configStore.loadIgnitionUrl()
+        val provisioning = try {
+            ConfigParser.parseProvisioning(extras, persistedUrl, configStore.loadIgnitionWaitSeconds())
+        } catch (error: ConfigException) {
+            Log.w(TAG, "provisioning rejected: ${error.message}")
+            showFatal(error.code, error.message.orEmpty())
             return
+        }
+        if (provisioning.template != null) {
+            if (!provisioning.wait && persistedUrl != null) configStore.clearProvisioning()
+            applyIgnition(provisioning, file = null)
+            return
+        }
+        if (persistedUrl != null) {
+            // `ignition_wait=false` without a new URL: back to one-shot mode.
+            configStore.clearProvisioning()
+            Log.i(TAG, "provisioning cleared")
         }
         val file = File(filesDir, IGNITION_FILE)
         if (file.isFile) {
-            applyIgnition(ignitionUrl = null, file = file)
+            applyIgnition(provisioning.copy(wait = false), file = file)
             return
         }
         applyParsed(extras)
@@ -135,40 +165,171 @@ class MainActivity : Activity() {
     }
 
     /**
-     * Ignition (C-009): fetch/read the document on a background thread while
-     * the app background is shown, then apply it on the UI thread. A rejected
-     * document shows `E_IGNITION`; a failed `ignition_url` fetch shows
-     * `E_IGNITION_FETCH`. Nothing is persisted on failure and the file source
-     * stays in place.
+     * Ignition (C-009, decision 0027): fetch/read the document on a background
+     * thread, then apply it on the UI thread.
+     *
+     * A rejected document is `E_IGNITION` and a failed fetch is
+     * `E_IGNITION_FETCH` in one-shot mode (nothing is persisted; the file source
+     * stays in place). In `ignition_wait` mode a missing document (404/410/204)
+     * or a failed fetch is a state, not an error: a device with no persisted
+     * config shows the provisioning screen and retries every
+     * `ignition_wait_seconds`, while a device that already has a config keeps
+     * running it.
      */
-    private fun applyIgnition(ignitionUrl: String?, file: File?) {
-        ignitionPending = true
-        showBackground()
-        Thread({
-            val document = try {
-                val text = if (ignitionUrl != null) fetchIgnition(ignitionUrl) else readIgnitionFile(file!!)
-                Ignition.parse(text)
+    private fun applyIgnition(launch: ProvisioningLaunch, file: File?) {
+        val template = launch.template
+        val resolved = if (template != null) {
+            try {
+                resolveProvisioningUrl(template)
             } catch (error: ConfigException) {
-                Log.w(TAG, "ignition rejected: ${error.message}")
-                mainHandler.post {
-                    ignitionPending = false
-                    if (isFinishing || isDestroyed) return@post
-                    showFatal(error.code, error.message.orEmpty())
+                Log.w(TAG, "provisioning rejected: ${error.message}")
+                showFatal(error.code, error.message.orEmpty())
+                return
+            }
+        } else {
+            null
+        }
+        provisioningLaunch = launch
+        provisioningFile = file
+        provisioningResolvedUrl = resolved
+        provisioningAttempts = 0
+        provisioningStatus = ""
+        provisioningBackground = file == null && launch.wait && configStore.load() != null
+        if (launch.wait && template != null) {
+            // Persist before the first fetch: an invalid or unreachable document
+            // must not leave the appliance needing another adb launch to recover.
+            configStore.saveProvisioning(template, launch.waitSeconds)
+        }
+        if (provisioningBackground) {
+            // Re-provisioning a configured device: keep the dashboard up while
+            // the document is fetched; a failure leaves it running.
+            applyParsed(emptyMap())
+        } else if (file != null) {
+            showBackground()
+        } else {
+            showProvisioningScreen()
+        }
+        startProvisioningAttempt()
+    }
+
+    /**
+     * One background fetch/read for [provisioningLaunch]: the file source is
+     * read once, the URL source is fetched from the resolved `ignition_url`.
+     */
+    private fun startProvisioningAttempt() {
+        val launch = provisioningLaunch ?: return
+        if (ignitionPending) return
+        ignitionPending = true
+        provisioningAttempts += 1
+        if (!provisioningBackground && provisioningFile == null) {
+            provisioningStatus = if (provisioningAttempts == 1) "Requesting…" else "Requesting… (attempt $provisioningAttempts)"
+            showProvisioningScreen()
+        }
+        val file = provisioningFile
+        val url = provisioningResolvedUrl
+        Thread({
+            if (file != null) {
+                val document = try {
+                    Ignition.parse(readIgnitionFile(file))
+                } catch (error: ConfigException) {
+                    Log.w(TAG, "ignition rejected: ${error.message}")
+                    postIgnition { showFatal(error.code, error.message.orEmpty()) }
+                    return@Thread
                 }
+                postIgnition { applyIgnitionDocument(document, file, launch) }
                 return@Thread
             }
-            mainHandler.post {
-                if (isFinishing || isDestroyed) {
-                    ignitionPending = false
-                    return@post
-                }
-                applyIgnitionDocument(document, file)
-            }
+            val outcome = fetchIgnition(url!!)
+            postIgnition { handleProvisioningOutcome(launch, outcome) }
         }, "ignition").start()
     }
 
+    /** Run [block] on the UI thread once a background ignition attempt finished. */
+    private fun postIgnition(block: () -> Unit) {
+        mainHandler.post {
+            ignitionPending = false
+            if (isFinishing || isDestroyed) return@post
+            block()
+        }
+    }
+
+    /**
+     * C-001 [Ignition](docs/contracts/C-001-launch-config.md#ignition) wait mode
+     * (decision 0027): a document that arrives is applied; a missing or failed
+     * one is retried on the provisioning screen while the device has no config,
+     * and ignored (with a warning) once it has one.
+     */
+    private fun handleProvisioningOutcome(launch: ProvisioningLaunch, outcome: FetchOutcome) {
+        val body = outcome.body
+        if (body != null) {
+            val document = try {
+                Ignition.parse(body)
+            } catch (error: ConfigException) {
+                Log.w(TAG, "ignition rejected: ${error.message}")
+                showFatal(error.code, error.message.orEmpty())
+                return
+            }
+            applyIgnitionDocument(document, null, launch)
+            return
+        }
+        val reason = outcome.describe()
+        if (launch.wait) {
+            if (provisioningBackground) {
+                Log.w(TAG, "provisioning: $reason; keeping the current dashboard")
+                return
+            }
+            provisioningStatus = reason
+            Log.i(TAG, "provisioning: $reason; retrying in ${launch.waitSeconds}s")
+            showProvisioningScreen()
+            scheduleProvisioningRetry(launch.waitSeconds)
+            return
+        }
+        Log.w(TAG, "ignition rejected: $reason")
+        provisioningLaunch = null
+        showFatal(Ignition.CODE_FETCH, reason)
+    }
+
+    private fun scheduleProvisioningRetry(seconds: Int) {
+        mainHandler.removeCallbacks(provisioningRetry)
+        if (!activityStarted) return
+        mainHandler.postDelayed(provisioningRetry, seconds * 1000L)
+    }
+
+    /**
+     * Resolve the `ignition_url` template for this device (decision 0027):
+     * `{device}` is the six-digit code, `{deviceId}` its hashed platform id, and
+     * `device_code`/`device_model`/`device_ip` are appended. Failures are
+     * `E_IGNITION_FETCH`.
+     */
+    private fun resolveProvisioningUrl(template: String): String {
+        val code = configStore.deviceCode(secureRandom)
+        provisioningCode = code
+        val androidId = try {
+            Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID)
+        } catch (_: Exception) {
+            null
+        }
+        val model = listOf(Build.MANUFACTURER, Build.MODEL)
+            .filter { it.isNotBlank() }
+            .joinToString(" ")
+            .takeIf { it.isNotEmpty() }
+        return Provisioning.resolve(template, code, Provisioning.deviceId(androidId), model, localIpv4())
+    }
+
+    /** The device's LAN IPv4 address, or null when it has none (offline). */
+    private fun localIpv4(): String? = try {
+        NetworkInterface.getNetworkInterfaces()?.toList().orEmpty()
+            .filter { it.isUp && !it.isLoopback }
+            .flatMap { it.inetAddresses.toList() }
+            .filterIsInstance<Inet4Address>()
+            .firstOrNull { !it.isLoopbackAddress && !it.isLinkLocalAddress }
+            ?.hostAddress
+    } catch (_: Exception) {
+        null
+    }
+
     /** Store the document's inline dashboards, merge it over the persisted config, and apply it. */
-    private fun applyIgnitionDocument(document: IgnitionDocument, file: File?) {
+    private fun applyIgnitionDocument(document: IgnitionDocument, file: File?, launch: ProvisioningLaunch) {
         ignitionPending = false
         val persisted = configStore.load()
         try {
@@ -183,9 +344,21 @@ class MainActivity : Activity() {
             rendererUrl = ConfigParser.launchUrl(merged)
             configStore.save(merged)
             pruneInline(merged)
-            // One-shot: neither source may seed again over later in-app edits.
-            if (file != null && !file.delete()) Log.w(TAG, "ignition file could not be removed")
-            consumeIgnitionExtra(getIntent())
+            if (launch.wait) {
+                // Wait mode keeps the source so the next launch re-fetches it
+                // (persisted before the first attempt); drop the extra so a
+                // relaunch uses the stored template.
+                consumeIgnitionExtra(getIntent())
+            } else {
+                // One-shot: neither source may seed again over later in-app edits.
+                if (file != null && !file.delete()) Log.w(TAG, "ignition file could not be removed")
+                consumeIgnitionExtra(getIntent())
+            }
+            provisioningLaunch = null
+            provisioningFile = null
+            provisioningResolvedUrl = null
+            provisioningBackground = false
+            mainHandler.removeCallbacks(provisioningRetry)
             logConfig(merged, emptyList())
             Log.i(
                 TAG,
@@ -228,16 +401,15 @@ class MainActivity : Activity() {
     }
 
     /**
-     * Fetch `ignition_url`: http(s) only, 10 s connect/read timeout, at most
-     * [Ignition.MAX_BYTES] bytes (declared or streamed), 2xx only. Every failure
-     * is `E_IGNITION_FETCH`.
+     * One fetch of an already-resolved `ignition_url` (http(s) only, 10 s
+     * connect/read timeout, no redirects, at most [Ignition.MAX_BYTES] bytes).
+     *
+     * A 2xx response is the document body. `404`, `410`, and `204` mean "no
+     * document yet" ([FetchOutcome.Pending]); every other status and every
+     * transport failure is a [FetchOutcome.Failed]. The caller decides whether
+     * that is fatal (one-shot) or a retry (wait mode, C-001 decision 0027).
      */
-    private fun fetchIgnition(raw: String): String {
-        val url = try {
-            ConfigParser.validateHttpUrl(raw, "ignition_url")
-        } catch (error: ConfigException) {
-            throw ConfigException(Ignition.CODE_FETCH, error.message ?: "ignition_url must be an http(s) URL")
-        }
+    private fun fetchIgnition(url: String): FetchOutcome {
         val connection = try {
             (URI(url).toURL().openConnection() as HttpURLConnection).apply {
                 connectTimeout = IGNITION_TIMEOUT_MILLIS
@@ -247,15 +419,18 @@ class MainActivity : Activity() {
                 setRequestProperty("Accept", "application/json")
             }
         } catch (_: Exception) {
-            throw ConfigException(Ignition.CODE_FETCH, "ignition_url could not be opened")
+            return FetchOutcome.Failed("ignition_url could not be opened")
         }
         try {
             val status = connection.responseCode
+            if (status == 404 || status == 410 || status == 204) {
+                return FetchOutcome.Pending("HTTP $status — not provisioned yet")
+            }
             if (status !in 200..299) {
-                throw ConfigException(Ignition.CODE_FETCH, "ignition_url returned HTTP $status")
+                return FetchOutcome.Failed("ignition_url returned HTTP $status")
             }
             if (connection.contentLengthLong > Ignition.MAX_BYTES) {
-                throw ConfigException(Ignition.CODE_FETCH, "ignition_url exceeds ${Ignition.MAX_BYTES} bytes")
+                return FetchOutcome.Failed("ignition_url exceeds ${Ignition.MAX_BYTES} bytes")
             }
             val out = ByteArrayOutputStream()
             connection.inputStream.use { input ->
@@ -265,17 +440,36 @@ class MainActivity : Activity() {
                     if (count < 0) break
                     out.write(buffer, 0, count)
                     if (out.size() > Ignition.MAX_BYTES) {
-                        throw ConfigException(Ignition.CODE_FETCH, "ignition_url exceeds ${Ignition.MAX_BYTES} bytes")
+                        return FetchOutcome.Failed("ignition_url exceeds ${Ignition.MAX_BYTES} bytes")
                     }
                 }
             }
-            return out.toString("UTF-8")
-        } catch (error: ConfigException) {
-            throw error
+            return FetchOutcome.Document(out.toString("UTF-8"))
         } catch (_: Exception) {
-            throw ConfigException(Ignition.CODE_FETCH, "ignition_url could not be read")
+            return FetchOutcome.Failed("ignition_url could not be read")
         } finally {
             connection.disconnect()
+        }
+    }
+
+    /** Outcome of one `ignition_url` fetch (C-001 decision 0027). */
+    private sealed interface FetchOutcome {
+        /** A 2xx body to parse. */
+        data class Document(val text: String) : FetchOutcome
+
+        /** The server has no document yet (`404`/`410`/`204`). */
+        data class Pending(val reason: String) : FetchOutcome
+
+        /** Transport failure or an unexpected status. */
+        data class Failed(val reason: String) : FetchOutcome
+
+        val body: String?
+            get() = (this as? Document)?.text
+
+        fun describe(): String = when (this) {
+            is Document -> "document received"
+            is Pending -> reason
+            is Failed -> reason
         }
     }
 
@@ -290,6 +484,140 @@ class MainActivity : Activity() {
         setContentView(
             FrameLayout(this).apply { setBackgroundColor(displayBackground()) },
         )
+    }
+
+    /**
+     * The unprovisioned state (C-001 decision 0027): the six-digit device code,
+     * the URL being polled, the last attempt's outcome, and a Retry button. It is
+     * not a fatal screen — it is what an appliance shows while it waits to be
+     * provisioned.
+     */
+    private fun showProvisioningScreen() {
+        webView?.let { old ->
+            (old.parent as? ViewGroup)?.removeView(old)
+            old.removeJavascriptInterface(BRIDGE_NAME)
+            old.destroy()
+        }
+        webView = null
+        fatal = false
+        applyShowWhenLocked(false)
+
+        val scroll = ScrollView(this).apply {
+            setBackgroundColor(displayBackground())
+            isFillViewport = true
+        }
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            setPadding(dp(24), dp(40), dp(24), dp(40))
+        }
+        val title = TextView(this).apply {
+            text = "AndroDash"
+            setTextColor(ACCENT)
+            textSize = 14f
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            letterSpacing = 0.08f
+        }
+        val heading = TextView(this).apply {
+            text = "Not provisioned"
+            setTextColor(TEXT)
+            textSize = 22f
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            setPadding(0, dp(8), 0, dp(16))
+        }
+        val codeView = TextView(this).apply {
+            text = provisioningCode
+            setTextColor(TEXT)
+            textSize = 44f
+            typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
+            letterSpacing = 0.16f
+            gravity = Gravity.CENTER
+            setPadding(0, dp(6), 0, dp(6))
+        }
+        val codeHint = TextView(this).apply {
+            text = "Enter this code in the provisioning server."
+            setTextColor(MUTED)
+            textSize = 13f
+            gravity = Gravity.CENTER
+            setPadding(0, dp(4), 0, dp(16))
+        }
+        val urlView = TextView(this).apply {
+            text = provisioningResolvedUrl?.let(::redactUrlWithQuery) ?: ""
+            setTextColor(MUTED)
+            textSize = 11f
+            typeface = Typeface.MONOSPACE
+            setTextIsSelectable(true)
+            gravity = Gravity.CENTER
+        }
+        val statusView = TextView(this).apply {
+            text = provisioningStatus.ifEmpty { "Requesting…" }
+            setTextColor(ACCENT)
+            textSize = 13f
+            gravity = Gravity.CENTER
+            setPadding(0, dp(12), 0, dp(4))
+        }
+        val attemptsView = TextView(this).apply {
+            text = "attempt $provisioningAttempts · retry every ${provisioningLaunch?.waitSeconds ?: 0}s"
+            setTextColor(MUTED)
+            textSize = 11f
+            gravity = Gravity.CENTER
+        }
+        val retry = Button(this).apply {
+            text = "Retry"
+            isAllCaps = false
+            setTextColor(TEXT)
+            setBackgroundColor(PANEL)
+            setOnClickListener {
+                mainHandler.removeCallbacks(provisioningRetry)
+                provisioningAttempts = 0
+                startProvisioningAttempt()
+            }
+        }
+        content.addView(title)
+        content.addView(heading)
+        content.addView(codeView)
+        content.addView(codeHint)
+        content.addView(
+            urlView,
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ),
+        )
+        content.addView(statusView)
+        content.addView(attemptsView)
+        content.addView(
+            retry,
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ).apply { topMargin = dp(16) },
+        )
+        scroll.addView(
+            content,
+            FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ),
+        )
+        setContentView(scroll)
+        enterImmersive()
+    }
+
+    /**
+     * A provisioning URL for the screen: scheme, host, port, path, and query
+     * parameter names, never their values (they carry the device identity).
+     */
+    private fun redactUrlWithQuery(raw: String): String = try {
+        val uri = Uri.parse(raw)
+        val port = if (uri.port == -1) "" else ":${uri.port}"
+        val names = uri.queryParameterNames
+            .orEmpty()
+            .joinToString("&") { "$it=…" }
+        val query = if (names.isEmpty()) "" else "?$names"
+        "${uri.scheme}://${uri.host}$port${uri.path.orEmpty()}$query"
+    } catch (_: Exception) {
+        "[invalid-url]"
     }
 
     private fun applyParsed(extras: Map<String, String?>) {
@@ -768,6 +1096,11 @@ class MainActivity : Activity() {
     override fun onStart() {
         super.onStart()
         dashboardForeground = true
+        activityStarted = true
+        // Resuming a provisioning screen: keep polling (the timer stops in onStop).
+        if (!ignitionPending && provisioningLaunch?.wait == true && webView == null && !fatal) {
+            scheduleProvisioningRetry(provisioningLaunch!!.waitSeconds)
+        }
     }
 
     override fun onResume() {
@@ -787,6 +1120,8 @@ class MainActivity : Activity() {
     }
 
     override fun onStop() {
+        activityStarted = false
+        mainHandler.removeCallbacks(provisioningRetry)
         // Stopped by the display turning off: still the dashboard. Stopped with
         // the display on: the user left for another app; do not re-light for it.
         if (getSystemService(PowerManager::class.java)?.isInteractive != false) {
@@ -825,6 +1160,10 @@ class MainActivity : Activity() {
 
     private fun showFatal(code: String, reason: String) {
         fatal = true
+        provisioningLaunch = null
+        provisioningFile = null
+        provisioningResolvedUrl = null
+        mainHandler.removeCallbacks(provisioningRetry)
         // No dashboard, nothing to show over the keyguard.
         applyShowWhenLocked(false)
         webView?.let { web ->

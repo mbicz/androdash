@@ -253,6 +253,26 @@ relaunch.
 `10.0.2.2` is the emulator's host loopback. A physical phone uses the host LAN
 IP and the same ports, with the host firewall allowing them.
 
+### Device-code provisioning (M3)
+
+```sh
+python3 tools/serve_demo.py --host 0.0.0.0 --port 8099
+adb shell am start -n com.mbicz.androdash/.MainActivity \
+  --es ignition_url "http://<host>:8099/ignition/{device}.json" \
+  --ez ignition_wait true --ei ignition_wait_seconds 5
+python3 tools/provision.py pending        # the code the phone just presented
+python3 tools/provision.py write <code> /tmp/ignition.json
+```
+
+Expected: the phone shows the six-digit code (equal to `device_code` in
+`shared_prefs/androdash.xml`) and `HTTP 404 — not provisioned yet`; with no
+document it keeps retrying and never shows `E_IGNITION_FETCH`. Writing the
+document applies it within one interval and the dashboard renders. Clearing the
+document on a provisioned phone leaves the dashboard running (`provisioning:
+… keeping the current dashboard`). `--ez ignition_wait false` clears the stored
+template. One-shot without `ignition_wait` still shows `E_IGNITION_FETCH` for a
+404.
+
 ### Negative checks
 
 - Dashboard URL 404 → fatal `E_DASHBOARD_FETCH`, no blank screen.

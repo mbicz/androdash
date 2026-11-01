@@ -341,6 +341,37 @@ Screenshot:
 adb exec-out screencap -p > /tmp/androdash.png
 ```
 
+### Device-code provisioning
+
+A phone can fetch its own Ignition document from one generic URL
+([decision 0027](../changelog.d/0027-device-code-provisioning.md)):
+
+```sh
+python3 tools/serve_demo.py --host 0.0.0.0 --port 8099     # serves /ignition/
+adb shell am start -n com.mbicz.androdash/.MainActivity \
+  --es ignition_url "http://192.168.1.20:8099/ignition/{device}.json" \
+  --ez ignition_wait true \
+  --ei ignition_wait_seconds 5
+python3 tools/provision.py pending                          # codes that polled, newest first
+python3 tools/provision.py write 482913 /tmp/ignition.json   # validated before writing
+python3 tools/provision.py clear 482913                      # back to waiting
+```
+
+The screen shows the six-digit code; the same value is in
+`shared_prefs/androdash.xml` under `device_code`:
+
+```sh
+adb shell run-as com.mbicz.androdash cat shared_prefs/androdash.xml
+```
+
+`ignition_url` tokens: `{device}` is the code, `{deviceId}` the first 8 hex of
+SHA-256 of `ANDROID_ID`. The shell appends `device_code`, `device_model`, and
+`device_ip` when they are absent. `404`, `410`, and `204` mean "not provisioned
+yet"; any other failure is retried too, and the last outcome is on screen. A
+document that arrives is applied like a one-shot seed; an unparseable one is
+`E_IGNITION`. The template is persisted, so relaunches re-fetch;
+`--ez ignition_wait false` clears it. The retry timer stops in `onStop`.
+
 ## 6. Emulator setup
 
 List AVDs and start one:

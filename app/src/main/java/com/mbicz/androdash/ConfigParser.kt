@@ -29,6 +29,18 @@ data class OptionUpdate(
 )
 
 /**
+ * Provisioning launch state (C-001 [Ignition](docs/contracts/C-001-launch-config.md#ignition),
+ * decision 0027): [template] is the `ignition_url` to fetch (with `{device}`/
+ * `{deviceId}` unresolved), or null when no Ignition source is configured.
+ * [wait] keeps the template persisted and re-fetches it on every launch.
+ */
+data class ProvisioningLaunch(
+    val template: String?,
+    val wait: Boolean,
+    val waitSeconds: Int,
+)
+
+/**
  * Pure C-001 parsing and local URL building. MainActivity supplies Intent
  * extras as strings and the last persisted config; unit tests exercise this
  * without an Android device.
@@ -64,7 +76,7 @@ object ConfigParser {
         "step_seconds", "kiosk", "debug", "layout_mode", "display_mode", "lock_style",
         "dashboard_source", "dashboard_name", "capabilities", "show_unsupported", "rotate_seconds",
         "collector", "collector_targets", "collector_scrape_seconds", "collector_retention", "collector_phone",
-        "lock_task", "show_when_locked", "ignition_url",
+        "lock_task", "show_when_locked", "ignition_url", "ignition_wait", "ignition_wait_seconds",
     )
 
     /** Maximum length of a `setOption` name or value (C-007). */
@@ -266,6 +278,56 @@ object ConfigParser {
             showWhenLockedPreference = showWhenLockedPreference,
             warnings = warnings,
         )
+    }
+
+    /**
+     * C-001 provisioning extras (decision 0027). `ignition_url` is an http(s)
+     * URL template: `{device}` and `{deviceId}` are substituted by the shell
+     * before the fetch ([Provisioning.resolve]), so validation happens after
+     * substitution. `ignition_wait` (default false) turns a missing document
+     * into a waiting state instead of `E_IGNITION_FETCH`; when it is absent the
+     * persisted `ignition_url` is the template and the persisted wait interval
+     * applies. `ignition_wait_seconds` must be [Provisioning.MIN_WAIT_SECONDS]…
+     * [Provisioning.MAX_WAIT_SECONDS].
+     *
+     * A blank `ignition_url` extra is unset; `ignition_wait=false` clears the
+     * persisted template, which is how an operator returns to one-shot mode.
+     */
+    fun parseProvisioning(
+        extras: Map<String, String?>,
+        persistedUrl: String?,
+        persistedWaitSeconds: Int,
+    ): ProvisioningLaunch {
+        val rawTemplate = extras["ignition_url"]?.trim().orEmpty()
+        // Wait mode persists across launches; an explicit URL without
+        // `ignition_wait` is a one-shot seed, as before decision 0027.
+        val wait = parseBoolean(extras, "ignition_wait", rawTemplate.isEmpty() && persistedUrl != null)
+        val waitSeconds = when {
+            extras["ignition_wait_seconds"].isNullOrBlank() -> persistedWaitSeconds
+            else -> {
+                val value = parseInteger(extras.getValue("ignition_wait_seconds")!!, "ignition_wait_seconds")
+                if (value !in Provisioning.MIN_WAIT_SECONDS..Provisioning.MAX_WAIT_SECONDS) {
+                    throw ConfigException(
+                        "E_CONFIG",
+                        "ignition_wait_seconds must be between ${Provisioning.MIN_WAIT_SECONDS} and " +
+                            "${Provisioning.MAX_WAIT_SECONDS}",
+                    )
+                }
+                value
+            }
+        }
+        val template = when {
+            rawTemplate.isNotEmpty() -> rawTemplate
+            wait -> persistedUrl
+            else -> null
+        }
+        if (wait && template == null) {
+            throw ConfigException(
+                "E_CONFIG",
+                "ignition_wait requires an ignition_url or a persisted provisioning URL",
+            )
+        }
+        return ProvisioningLaunch(template = template, wait = wait, waitSeconds = waitSeconds)
     }
 
     /**
