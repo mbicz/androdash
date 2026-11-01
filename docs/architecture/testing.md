@@ -267,11 +267,14 @@ python3 tools/provision.py write <code> /tmp/ignition.json
 Expected: the phone shows the six-digit code (equal to `device_code` in
 `shared_prefs/androdash.xml`) and `HTTP 404 — not provisioned yet`; with no
 document it keeps retrying and never shows `E_IGNITION_FETCH`. Writing the
-document applies it within one interval and the dashboard renders. Clearing the
-document on a provisioned phone leaves the dashboard running (`provisioning:
-… keeping the current dashboard`). `--ez ignition_wait false` clears the stored
-template. One-shot without `ignition_wait` still shows `E_IGNITION_FETCH` for a
-404.
+document applies it within one interval and the dashboard renders. Polling
+continues after the apply: rewriting `<code>.json` with a different dashboard
+list rebuilds the page within one interval with no relaunch, and rewriting it
+with identical bytes logs `document unchanged` and does not rebuild. Clearing
+the document on a provisioned phone leaves the dashboard running
+(`provisioning: … keeping the current dashboard`). `--ez ignition_wait false`
+clears the stored template and stops polling. One-shot without `ignition_wait`
+still shows `E_IGNITION_FETCH` for a 404.
 
 ### Negative checks
 

@@ -95,6 +95,17 @@ object Provisioning {
     }
 
     /**
+     * SHA-256 of an Ignition document body as lowercase hex. Wait mode compares
+     * it with the last applied document so an unchanged poll does not rebuild
+     * the dashboard (C-001 decision 0028).
+     */
+    fun documentDigest(body: String): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+            .digest(body.toByteArray(StandardCharsets.UTF_8))
+        return digest.joinToString("") { "%02x".format(it) }
+    }
+
+    /**
      * First 8 hex characters of SHA-256 of the platform device id: stable across
      * app updates and reinstallations, and not the raw fingerprint.
      */

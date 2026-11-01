@@ -9,7 +9,7 @@
   editable in the app, inline dashboards, decision 0023); amended 2026-10-30
   (`ignition_url`, Ignition seeding, decision 0024); amended 2026-11-01
   (`ignition_wait`, `ignition_wait_seconds`, device identity and wait mode,
-  decision 0027)
+  decision 0027; continuous polling in wait mode, decision 0028)
 - **Consumers:** Android shell (W1), web renderer config (W2)
 - **Machine-readable:** [`contracts/app-config.schema.json`](../../contracts/app-config.schema.json)
 - **Fixtures:** [`app-config.example.json`](../../contracts/fixtures/app-config.example.json)
@@ -68,8 +68,8 @@ This is deliberate: one name per concept, easy to debug with `adb`.
 | `collector_scrape_seconds` | integer | `15` | Collector scrape interval, `5–300`. Native-only. Added in v5. |
 | `collector_retention` | string | `24h` | Collector TSDB retention; duration grammar as `time_range`, range `1h…30d`. Native-only. Added in v5. |
 | `ignition_url` | string | `null` | Absolute `http`/`https` URL of an Ignition document that seeds dashboards and collector targets at launch ([Ignition](#ignition), decision 0024). May carry the tokens `{device}` and `{deviceId}`, substituted by the shell ([Device identity](#device-identity), decision 0027). Native-only; never part of the renderer URL. |
-| `ignition_wait` | boolean | `false` (but `true` while a provisioning URL is persisted) | Keep fetching `ignition_url` until a document exists instead of failing: a `404`/`410`/`204` is a waiting state, and the template is persisted for the next launch ([Ignition](#ignition), decision 0027). Native-only; not persisted inside `launch_config`. |
-| `ignition_wait_seconds` | integer | `15` | Retry interval in wait mode, `1–300`. Native-only; persisted with the provisioning URL. |
+| `ignition_wait` | boolean | `false` (but `true` while a provisioning URL is persisted) | Keep polling `ignition_url` every `ignition_wait_seconds` instead of failing once: a `404`/`410`/`204` is a waiting state, polling continues after a document applies, and the template is persisted for the next launch ([Ignition](#ignition), decisions 0027/0028). Native-only; not persisted inside `launch_config`. |
+| `ignition_wait_seconds` | integer | `15` | Poll interval in wait mode, `1–300`. Native-only; persisted with the provisioning URL. |
 | `collector_phone` | boolean | `true` | While the collector runs, also run the in-app phone exporter on `127.0.0.1:19100` and scrape it as job `phone`, instance `phone` ([Phone exporter job](#phone-exporter-job)). Native-only; not a `setOption` name. Added in v7. |
 
 Intent extras use `--es` (string), `--ei` (int), `--ez` (boolean) with `adb`.
@@ -385,19 +385,29 @@ does not already carry them, so a server can key on anything without templating:
 | Mode | How it is selected | On `404`/`410`/`204` | On a 2xx document | After success |
 |---|---|---|---|---|
 | One-shot (default) | `ignition_url` without `ignition_wait` | `E_IGNITION_FETCH`, fatal screen | parse and merge | Source consumed: the file is deleted, the extra dropped (decision 0024) |
-| Wait | `--ez ignition_wait true`, or a persisted provisioning URL with no new extra | Provisioning screen (code, redacted URL, last outcome, attempts, Retry); retry every `ignition_wait_seconds` | parse and merge; an unparseable document is `E_IGNITION` | The template and interval are persisted under `ignition_url`/`ignition_wait_seconds`; the extra is dropped so the next launch re-fetches |
+| Wait | `--ez ignition_wait true`, or a persisted provisioning URL with no new extra | Provisioning screen (code, redacted URL, last outcome, attempts, Retry); retry every `ignition_wait_seconds` | parse and merge; an unparseable document is `E_IGNITION` | The template and interval are persisted under `ignition_url`/`ignition_wait_seconds`; polling continues every `ignition_wait_seconds` (decision 0028) |
 
 - Every other non-2xx status and every transport failure behaves like a missing
   document in wait mode, and like `E_IGNITION_FETCH` in one-shot mode.
 - A device that already has a persisted config keeps running it while a wait-mode
-  re-fetch fails; it does not fall back to a provisioning screen.
+  poll fails; it does not fall back to a provisioning screen, and the poll is
+  retried after `ignition_wait_seconds`.
+- **Continuous polling.** After a successful apply, wait mode keeps polling
+  (decision 0028), so a server can re-provision a running appliance without a
+  relaunch. A poll whose document is byte-identical to the last applied one is a
+  no-op (SHA-256 digest compared in memory; the digest is not persisted, so a
+  relaunch applies the stored document once). A poll that differs is applied
+  exactly like a first seed and rebuilds the page. This is the documented cost:
+  it overwrites in-app edits on the next poll, and `ignition_wait=false` is the
+  way out.
+- A new launch that arrives while a poll is in flight is deferred, not dropped,
+  and applied as soon as the attempt finishes.
 - The retry timer runs only while the activity is started (`onStart` resumes it,
-  `onStop` stops it).
-- `--ez ignition_wait false` clears the persisted template and returns to
-  one-shot mode. `ignition_wait=true` without any template or persisted URL is
-  `E_CONFIG`.
-- Wait mode re-fetches on launch only; it never overwrites a live in-app edit
-  while the dashboard is running.
+  `onStop` stops it); it covers both the provisioning screen and a live
+  dashboard.
+- `--ez ignition_wait false` clears the persisted template, stops polling, and
+  returns to one-shot mode. `ignition_wait=true` without any template or
+  persisted URL is `E_CONFIG`.
 
 ## Precedence
 

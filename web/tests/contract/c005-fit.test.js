@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { bestCellGrid, panelDemand, planCandidates, planFit } from "../../app/src/fit.js";
+import { headerRail } from "../../app/src/layout.js";
 
 const mac = [
   { id: "util", kind: "GaugeChart", count: 4 },
@@ -121,4 +122,15 @@ test("C-005 fit gives text panels a bounded share; they scroll inside", () => {
   const row = plan.rows.find((r) => r.cells.some((cell) => cell.id === "about"));
   assert.ok(row, "Markdown is placed in the fit layout");
   if (row.cells.length === 1) assert.ok(row.maxHeight !== null && row.maxHeight <= 36 + 132);
+});
+
+test("C-005 landscape fit moves the header into a rail instead of taking height", () => {
+  // Phone portrait and a narrow landscape keep the one-line header.
+  assert.equal(headerRail(361, 780), false);
+  assert.equal(headerRail(400, 380), false, "too narrow for a rail beside a legible panel");
+  // A phone on its side and any wider screen use the rail.
+  assert.equal(headerRail(780, 361), true);
+  assert.equal(headerRail(1000, 500), true);
+  // Square is not landscape.
+  assert.equal(headerRail(500, 500), false);
 });

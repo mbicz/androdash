@@ -9,7 +9,9 @@
   amended 2026-10-29 (header status is the dot only; decision 0022);
   amended 2026-10-30 (`E_IGNITION`, `E_IGNITION_FETCH`; decision 0024);
   amended 2026-11-01 (`E_IGNITION_FETCH` also covers a rejected provisioning
-  URL template; the unprovisioned screen is a state, not a code; decision 0027)
+  URL template; the unprovisioned screen is a state, not a code; decision 0027);
+  amended 2026-11-01 (wait mode polls continuously after a document applies, and
+  a failed poll on a configured device is logged, not shown; decision 0028)
 - **Consumers:** Web renderer (W2), Android shell (W1)
 - **Machine-readable:** [`contracts/diagnostics.schema.json`](../../contracts/diagnostics.schema.json)
 - **Fixture:** [`diagnostics.example.json`](../../contracts/fixtures/diagnostics.example.json)
@@ -97,7 +99,11 @@ no error code. It shows the provisioning screen:
 
 A document that arrives and does not parse is `E_IGNITION` and does move to the
 fatal screen. A device that already has a config keeps rendering it while a
-wait-mode re-fetch fails; it logs the failure and does not switch screens.
+wait-mode poll fails; it logs the failure and does not switch screens, and the
+poll is retried after `ignition_wait_seconds`. After a document applies, wait
+mode keeps polling (C-001, decision 0028), so re-provisioning a running appliance
+never needs a relaunch; an identical document is a no-op and produces no status
+change.
 
 ## Diagnostics snapshot
 
