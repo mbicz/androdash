@@ -5,6 +5,19 @@ export function resolveLayoutMode(mode, width) {
 }
 
 /**
+ * Fit layout with less height than width (C-005 "Header"): the header turns
+ * into a rail down the left edge, so its height costs panels nothing. Returns
+ * true only for a clearly landscape viewport (`width ≥ 1.3 × height`), wide
+ * enough that a 44 px rail still leaves a panel at the planner's minimum width.
+ * A near-square screen keeps the one-line header: rotating a title there costs
+ * more width than the header costs height.
+ */
+export function headerRail(width, height, { rail = 44, minContent = 150, gutter = 16 } = {}) {
+  if (!(width >= height * 1.3)) return false;
+  return width - rail >= minContent + 2 * gutter;
+}
+
+/**
  * Panel kinds whose stack slot is sized by their content instead of the
  * height-derived slot (C-005). Stat tiles are a few text rows; a fixed
  * height-derived slot wasted more than half of it. Tables, Markdown, charts,

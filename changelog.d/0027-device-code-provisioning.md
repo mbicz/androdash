@@ -5,6 +5,7 @@ status: accepted
 kind: contract
 scope: android, docs, tools
 supersedes: []
+amended-by: [0028]
 ---
 
 # Device-code provisioning: a phone fetches its own Ignition document

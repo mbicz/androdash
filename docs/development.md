@@ -369,8 +369,11 @@ SHA-256 of `ANDROID_ID`. The shell appends `device_code`, `device_model`, and
 `device_ip` when they are absent. `404`, `410`, and `204` mean "not provisioned
 yet"; any other failure is retried too, and the last outcome is on screen. A
 document that arrives is applied like a one-shot seed; an unparseable one is
-`E_IGNITION`. The template is persisted, so relaunches re-fetch;
-`--ez ignition_wait false` clears it. The retry timer stops in `onStop`.
+`E_IGNITION`. The template is persisted and polling continues after a document
+applies (decision 0028), so writing a new `<code>.json` re-provisions a running
+phone within one interval without a relaunch; an unchanged document is a no-op.
+`--ez ignition_wait false` clears the template and stops polling. The retry
+timer stops in `onStop`.
 
 ## 6. Emulator setup
 

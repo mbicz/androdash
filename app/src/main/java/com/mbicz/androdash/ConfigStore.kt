@@ -7,7 +7,8 @@ import android.content.Context
  * preferences file/key, only after validation succeeded; plus the native-only
  * preferences under their own keys (they are not part of AppConfig):
  * `show_when_locked`, and the provisioning state from decision 0027 (the
- * device code and, in `ignition_wait` mode, the Ignition URL template).
+ * device code and, in `ignition_wait` mode, the Ignition URL template that is
+ * polled every `ignition_wait_seconds`, decision 0028).
  */
 class ConfigStore(context: Context) {
     private val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -33,13 +34,13 @@ class ConfigStore(context: Context) {
         return generated
     }
 
-    /** The `ignition_url` template to re-fetch on every launch, or null in one-shot mode. */
+    /** The `ignition_url` template polled in wait mode, or null in one-shot mode. */
     fun loadIgnitionUrl(): String? = prefs.getString(KEY_IGNITION_URL, null)?.takeIf { it.isNotBlank() }
 
     fun loadIgnitionWaitSeconds(): Int =
         prefs.getInt(KEY_IGNITION_WAIT_SECONDS, Provisioning.DEFAULT_WAIT_SECONDS)
 
-    /** Enter `ignition_wait` mode: keep [url] and re-fetch it on every launch. */
+    /** Enter `ignition_wait` mode: keep [url] and poll it every [waitSeconds]. */
     fun saveProvisioning(url: String, waitSeconds: Int) {
         prefs.edit()
             .putString(KEY_IGNITION_URL, url)
@@ -47,7 +48,7 @@ class ConfigStore(context: Context) {
             .apply()
     }
 
-    /** Leave `ignition_wait` mode: the next launch does not re-fetch. */
+    /** Leave `ignition_wait` mode: polling stops and a relaunch does not fetch. */
     fun clearProvisioning() {
         prefs.edit().remove(KEY_IGNITION_URL).remove(KEY_IGNITION_WAIT_SECONDS).apply()
     }

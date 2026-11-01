@@ -41,6 +41,8 @@ shape; older ones remain binding unless marked superseded.
 | [0025](0025-chart-plot-floor-in-fit.md) | Fit: a chart keeps its plot; the legend gives way first | accepted |
 | [0026](0026-exporter-discovery.md) | Discover exporters from what answers, then seed with Ignition | accepted |
 | [0027](0027-device-code-provisioning.md) | Device-code provisioning: a phone fetches its own Ignition document | accepted |
+| [0028](0028-continuous-provisioning.md) | Wait mode keeps polling after a document applies | accepted |
+| [0029](0029-landscape-header-rail.md) | Fit layout in landscape moves the header into a left rail | accepted |
 
 ## File naming
 

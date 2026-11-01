@@ -89,8 +89,16 @@ class MainActivity : Activity() {
     private var provisioningStatus = ""
     /** True when the device already had a config, so a failed fetch must not replace it. */
     private var provisioningBackground = false
+    /**
+     * SHA-256 of the last applied wait-mode document, or null. An unchanged poll
+     * is a no-op, so continuous polling does not rebuild the dashboard
+     * (C-001 decision 0028). In memory only: a relaunch applies once more.
+     */
+    private var provisioningDigest: String? = null
     /** The six-digit code this device presents, once resolved. */
     private var provisioningCode: String = ""
+    /** A launch that arrived while an ignition attempt was in flight. */
+    private var pendingIntent: Intent? = null
     private var activityStarted = false
     private val secureRandom = java.security.SecureRandom()
     private val provisioningRetry = Runnable { startProvisioningAttempt() }
@@ -129,7 +137,10 @@ class MainActivity : Activity() {
     private fun applyIntent(intent: Intent?) {
         val extras = readExtras(intent)
         if (ignitionPending) {
-            Log.i(TAG, "ignition already pending; intent ignored")
+            // Continuous wait-mode polling makes this common: keep the launch so
+            // an operator's new extras are not dropped mid-fetch.
+            Log.i(TAG, "ignition attempt in flight; launch deferred")
+            pendingIntent = intent
             return
         }
         val persistedUrl = configStore.loadIgnitionUrl()
@@ -148,6 +159,7 @@ class MainActivity : Activity() {
         if (persistedUrl != null) {
             // `ignition_wait=false` without a new URL: back to one-shot mode.
             configStore.clearProvisioning()
+            stopProvisioning()
             Log.i(TAG, "provisioning cleared")
         }
         val file = File(filesDir, IGNITION_FILE)
@@ -250,18 +262,32 @@ class MainActivity : Activity() {
             ignitionPending = false
             if (isFinishing || isDestroyed) return@post
             block()
+            val deferred = pendingIntent
+            if (deferred != null) {
+                pendingIntent = null
+                Log.i(TAG, "applying deferred launch")
+                applyIntent(deferred)
+            }
         }
     }
 
     /**
      * C-001 [Ignition](docs/contracts/C-001-launch-config.md#ignition) wait mode
-     * (decision 0027): a document that arrives is applied; a missing or failed
-     * one is retried on the provisioning screen while the device has no config,
-     * and ignored (with a warning) once it has one.
+     * (decisions 0027, 0028): a document that arrives is applied; a missing or
+     * failed one is retried on the provisioning screen while the device has no
+     * config, and retried silently once it has one. Polling continues after a
+     * successful apply, so a server can re-provision a running appliance; a poll
+     * that returns the document already applied is a no-op.
      */
     private fun handleProvisioningOutcome(launch: ProvisioningLaunch, outcome: FetchOutcome) {
         val body = outcome.body
         if (body != null) {
+            val digest = Provisioning.documentDigest(body)
+            if (launch.wait && digest == provisioningDigest && configStore.load() != null) {
+                Log.i(TAG, "provisioning: document unchanged; keeping the dashboard")
+                scheduleProvisioningRetry(launch.waitSeconds)
+                return
+            }
             val document = try {
                 Ignition.parse(body)
             } catch (error: ConfigException) {
@@ -269,6 +295,7 @@ class MainActivity : Activity() {
                 showFatal(error.code, error.message.orEmpty())
                 return
             }
+            provisioningDigest = digest
             applyIgnitionDocument(document, null, launch)
             return
         }
@@ -276,6 +303,7 @@ class MainActivity : Activity() {
         if (launch.wait) {
             if (provisioningBackground) {
                 Log.w(TAG, "provisioning: $reason; keeping the current dashboard")
+                scheduleProvisioningRetry(launch.waitSeconds)
                 return
             }
             provisioningStatus = reason
@@ -293,6 +321,20 @@ class MainActivity : Activity() {
         mainHandler.removeCallbacks(provisioningRetry)
         if (!activityStarted) return
         mainHandler.postDelayed(provisioningRetry, seconds * 1000L)
+    }
+
+    /**
+     * Stop wait-mode polling entirely: clear the in-flight launch, the retry
+     * timer, and the applied-document digest. Used when `ignition_wait=false`
+     * returns the device to one-shot mode, and by the fatal screen.
+     */
+    private fun stopProvisioning() {
+        mainHandler.removeCallbacks(provisioningRetry)
+        provisioningLaunch = null
+        provisioningFile = null
+        provisioningResolvedUrl = null
+        provisioningBackground = false
+        provisioningDigest = null
     }
 
     /**
@@ -340,25 +382,17 @@ class MainActivity : Activity() {
                 inlineUrls.add(inlineDashboards.write(json, referenced + inlineUrls))
             }
             val merged = Ignition.merge(persisted, document.withInlineUrls(inlineUrls))
+            // A re-provisioning poll that changes nothing must not rebuild the
+            // page (decision 0028).
+            val unchanged = launch.wait && merged == config && webView != null
             config = merged
             rendererUrl = ConfigParser.launchUrl(merged)
             configStore.save(merged)
             pruneInline(merged)
-            if (launch.wait) {
-                // Wait mode keeps the source so the next launch re-fetches it
-                // (persisted before the first attempt); drop the extra so a
-                // relaunch uses the stored template.
-                consumeIgnitionExtra(getIntent())
-            } else {
-                // One-shot: neither source may seed again over later in-app edits.
-                if (file != null && !file.delete()) Log.w(TAG, "ignition file could not be removed")
-                consumeIgnitionExtra(getIntent())
+            consumeIgnitionExtra(getIntent())
+            if (!launch.wait && file != null && !file.delete()) {
+                Log.w(TAG, "ignition file could not be removed")
             }
-            provisioningLaunch = null
-            provisioningFile = null
-            provisioningResolvedUrl = null
-            provisioningBackground = false
-            mainHandler.removeCallbacks(provisioningRetry)
             logConfig(merged, emptyList())
             Log.i(
                 TAG,
@@ -366,11 +400,28 @@ class MainActivity : Activity() {
                     "collector=${if (merged.collector) "on" else "off"}, " +
                     "${CollectorConfig.configuredTargets(merged).size} targets",
             )
+            if (unchanged) {
+                Log.i(TAG, "ignition unchanged; keeping the live dashboard")
+                provisioningBackground = true
+                scheduleProvisioningRetry(launch.waitSeconds)
+                return
+            }
             syncCollector(merged)
             fatal = false
             setupWebView()
             applyKiosk(merged)
             applyShowWhenLocked(merged.kiosk && configStore.loadShowWhenLocked())
+            if (launch.wait) {
+                // Wait mode keeps polling after a successful apply (decision
+                // 0028): the server may re-provision a running appliance. The
+                // template and interval are persisted, so a relaunch continues
+                // where this left off.
+                provisioningBackground = true
+                scheduleProvisioningRetry(launch.waitSeconds)
+                Log.i(TAG, "provisioning: next poll in ${launch.waitSeconds}s")
+            } else {
+                stopProvisioning()
+            }
         } catch (error: ConfigException) {
             Log.w(TAG, "ignition rejected: ${error.message}")
             // Undo any inline files written for this document; keep persisted ones.
@@ -1097,8 +1148,9 @@ class MainActivity : Activity() {
         super.onStart()
         dashboardForeground = true
         activityStarted = true
-        // Resuming a provisioning screen: keep polling (the timer stops in onStop).
-        if (!ignitionPending && provisioningLaunch?.wait == true && webView == null && !fatal) {
+        // Wait mode keeps polling whether the provisioning screen or a live
+        // dashboard is up (decision 0028); the timer stops in onStop.
+        if (!ignitionPending && provisioningLaunch?.wait == true && !fatal) {
             scheduleProvisioningRetry(provisioningLaunch!!.waitSeconds)
         }
     }
@@ -1160,10 +1212,7 @@ class MainActivity : Activity() {
 
     private fun showFatal(code: String, reason: String) {
         fatal = true
-        provisioningLaunch = null
-        provisioningFile = null
-        provisioningResolvedUrl = null
-        mainHandler.removeCallbacks(provisioningRetry)
+        stopProvisioning()
         // No dashboard, nothing to show over the keyguard.
         applyShowWhenLocked(false)
         webView?.let { web ->

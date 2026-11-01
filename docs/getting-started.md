@@ -307,9 +307,13 @@ python3 tools/provision.py write 482913 /tmp/ignition.json
 ```
 
 The phone applies the document within `ignition_wait_seconds` (default 15,
-`--ei ignition_wait_seconds 5` to poll faster). The template is persisted, so
-the next launch checks in again; `--ez ignition_wait false` returns the phone to
-one-shot seeding. A document that does not parse is still `E_IGNITION`.
+`--ei ignition_wait_seconds 5` to poll faster). Polling **continues** after the
+document applies ([decision 0028](../changelog.d/0028-continuous-provisioning.md)),
+so writing a new `<code>.json` re-provisions a running phone within one interval,
+with no relaunch; an identical document is a no-op. That also means a poll
+overwrites in-app edits — `--ez ignition_wait false` clears the template, stops
+polling, and returns the phone to one-shot seeding. A document that does not
+parse is still `E_IGNITION`.
 
 The code and the request log live in `provisioning/` at the repository root:
 

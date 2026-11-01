@@ -151,8 +151,8 @@ one-to-one:
 | `collector_retention` | — | string (native-only; in AppConfig) |
 | `collector_phone` | — | boolean (native-only; in AppConfig; default `true`) |
 | `ignition_url` | — | string (native-only; http(s) URL template for Ignition; never in the renderer URL) |
-| `ignition_wait` | — | boolean (native-only; wait mode, persisted as its own preference) |
-| `ignition_wait_seconds` | — | int (`1–300`; retry interval in wait mode) |
+| `ignition_wait` | — | boolean (native-only; wait mode, persisted as its own preference; polls continuously, decision 0028) |
+| `ignition_wait_seconds` | — | int (`1–300`; poll interval in wait mode) |
 
 Boolean Intent extras use `--ez`, integers `--ei`, strings `--es` when launching
 with `adb`.
@@ -209,9 +209,13 @@ pending response (404/410/204), or a failure.
   config shows the provisioning screen (code, redacted URL, last outcome,
   attempts, Retry) and retries every `ignition_wait_seconds`; a device that
   already has a config keeps rendering it and logs the failure. A parsed
-  document is applied like a one-shot seed, and the extra is dropped so the next
-  launch re-fetches from the stored template. The retry timer stops in
-  `onStop` and resumes in `onStart`.
+  document is applied like a one-shot seed, and the extra is dropped. Polling
+  **continues** after a successful apply (decision 0028): `applyIgnitionDocument`
+  sets `provisioningBackground` and reschedules, so a server can re-provision a
+  running appliance. A poll whose body is byte-identical to the last applied one
+  is skipped (`Provisioning.documentDigest`, in memory only); a changed document
+  rebuilds the page. The retry timer stops in `onStop` and resumes in `onStart`,
+  and a launch that arrives mid-poll is deferred and applied when it finishes.
 
 ### New intents
 

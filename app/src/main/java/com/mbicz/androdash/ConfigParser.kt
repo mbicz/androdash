@@ -32,7 +32,8 @@ data class OptionUpdate(
  * Provisioning launch state (C-001 [Ignition](docs/contracts/C-001-launch-config.md#ignition),
  * decision 0027): [template] is the `ignition_url` to fetch (with `{device}`/
  * `{deviceId}` unresolved), or null when no Ignition source is configured.
- * [wait] keeps the template persisted and re-fetches it on every launch.
+ * [wait] keeps the template persisted and polls it every [waitSeconds] while the
+ * activity is started, whether or not the device already has a config.
  */
 data class ProvisioningLaunch(
     val template: String?,

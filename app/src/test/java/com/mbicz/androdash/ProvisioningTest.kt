@@ -176,6 +176,17 @@ class ProvisioningTest {
     }
 
     @Test
+    fun `document digest is stable hex and detects a changed document`() {
+        val body = """{"schemaVersion":1,"dashboards":{"urls":["http://192.168.1.20:8099/d.json"]}}"""
+        val digest = Provisioning.documentDigest(body)
+        assertEquals(64, digest.length)
+        assertTrue(digest.matches(Regex("^[0-9a-f]{64}$")))
+        assertTrue("the same body is a no-op poll", digest == Provisioning.documentDigest(body))
+        assertTrue(digest != Provisioning.documentDigest("$body "))
+        assertTrue(digest != Provisioning.documentDigest(body.replace("8099", "9090")))
+    }
+
+    @Test
     fun `provisioning extras are launch extras`() {
         assertTrue(ConfigParser.hasConfigExtras(mapOf("ignition_wait" to "true")))
         assertTrue(ConfigParser.hasConfigExtras(mapOf("ignition_wait_seconds" to "30")))
