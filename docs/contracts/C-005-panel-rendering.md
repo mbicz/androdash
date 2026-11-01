@@ -10,7 +10,8 @@
   multiple dashboards with swipe and rotation; decision 0020); amended
   2026-10-29 (settings sheet adds dashboards by URL or pasted JSON and edits
   the collector; decision 0023); amended 2026-11-01 (fit layout in landscape
-  moves the header into a left rail so it costs panels no height; decision 0029)
+  collapses the header to one tight horizontal line instead of a rotated rail;
+  decision 0030, superseding 0029)
 - **Consumers:** Web renderer (W2)
 - **Fixtures:** [`demo-dashboard.json`](../../contracts/fixtures/demo-dashboard.json),
   [`spark-dashboard.json`](../../contracts/fixtures/spark-dashboard.json)
@@ -185,16 +186,15 @@ is `web/app/src/fit.js` (pure functions, no DOM); `main.js` builds the DOM.
   and the body do not scroll; `.fit-grid.overflow` does.
 - **Header.** One compact line: the status dot, the title (20 px), the page
   dots, and 30 px icon buttons; it is not sticky.
-- **Landscape rail.** When the viewport is clearly landscape
-  (`width ≥ 1.3 × height`) and at least 222 px wide (`44 px rail + 2 × 16 px
-  gutter + a 150 px panel`), the header becomes a fixed 44 px rail down the left
-  edge (`app[data-header-rail="true"]`): the title is rotated bottom-to-top
-  (`writing-mode: vertical-rl`, ellipsised along its own axis), the page dots and
-  icon buttons stack below it. The grid keeps a left inset equal to the rail, so
-  the host name and controls cost panels **no height** — the whole viewport goes
-  to panels. `--header-h` is `0px` in this mode, so a zoomed panel starts beside
-  the rail. A near-square viewport keeps the one-line header: rotating the title
-  there would cost more width than the header costs height.
+- **Compact header in landscape.** When the viewport is clearly landscape
+  (`width ≥ 1.3 × height`, `headerCompact()` in `layout.js`), the header stays
+  in flow and horizontal — the host name is **never rotated** — but collapses to
+  one tight line (`app[data-header-compact="true"]`): `env(safe-area-inset-top)`
+  top padding with 2 px below, a 15 px title, 14 × 20 page dots, and 26 px icon
+  buttons. On the Pixel 4a (5G) that is 30 px instead of 48 px, and the whole
+  difference goes to panels. Portrait and near-square screens keep the normal
+  header. `--header-h` follows the real height, so a zoomed panel still starts
+  below it.
 - **Rebuild instead of waiting.** `renderDashboard()` rebuilds the page and
   repaints every panel's retained data or error, so a layout switch, rotation,
   and lock/unlock never wait for the next refresh. In fit, a window resize
@@ -294,8 +294,9 @@ shown. Only the shown dashboard is loaded and queried.
 The header (`.app-header`) holds the dashboard title, the one dashboard status
 (C-009), and icon actions: **Refresh now**, **View settings** (sliders icon),
 and diagnostics (only with `debug=true`). The page carries no toolbar or other
-controls. In the fit layout on a landscape screen it is a rail down the left
-edge (see [Fit layout](#fit-layout)); its contents and order do not change.
+controls. In the fit layout on a landscape screen it collapses to one tight
+line rather than being rotated or moved (see [Fit layout](#fit-layout)); its
+contents and order do not change.
 
 View settings opens a bottom sheet (`.sheet-overlay` > `.sheet`,
 `role="dialog"`, `aria-modal="true"`, `aria-label="View settings"`) titled

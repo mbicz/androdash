@@ -31,7 +31,7 @@ import {
   redactUrl,
   statusLabel,
 } from "./diagnostics.js";
-import { headerRail, orderedItems, renderRows, resolveLayoutMode } from "./layout.js";
+import { headerCompact, orderedItems, renderRows, resolveLayoutMode } from "./layout.js";
 import { planFit } from "./fit.js";
 import { renderPanelBody } from "./panels/index.js";
 import { labelValues as prometheusLabelValues, queryInstant, queryRange, stepFor } from "./prometheus.js";
@@ -406,10 +406,11 @@ function renderDashboard() {
   state.mode = fit ? "fit" : scrollMode();
   app.dataset.layoutMode = state.mode;
   document.documentElement.dataset.layout = fit ? "fit" : "scroll";
-  // Landscape fit: the header becomes a rail down the left edge so its height
-  // costs panels nothing (C-005 "Header").
-  const rail = fit && headerRail(window.innerWidth, window.innerHeight);
-  app.dataset.headerRail = String(rail);
+  // Landscape fit: the header stays in flow and horizontal but collapses to a
+  // compact single line, so panels get back the height the bar would have
+  // spent (C-005 "Header").
+  const compact = fit && headerCompact(window.innerWidth, window.innerHeight);
+  app.dataset.headerCompact = String(compact);
 
   const header = createHeader();
   const main = document.createElement("main");
@@ -426,12 +427,10 @@ function renderDashboard() {
     app.replaceChildren(header, main);
   }
   // Sections snap under the header and a zoomed panel starts below it; keep
-  // the offset equal to the header's height. The rail sits beside the panels,
-  // so it costs no vertical offset.
-  document.documentElement.style.setProperty("--header-h", rail ? "0px" : `${Math.round(header.getBoundingClientRect().height)}px`);
+  // the offset equal to the header's height.
+  document.documentElement.style.setProperty("--header-h", `${Math.round(header.getBoundingClientRect().height)}px`);
   if (typeof ResizeObserver === "function") {
     new ResizeObserver(([entry]) => {
-      if (rail) return;
       const height = Math.round(entry.target.getBoundingClientRect().height);
       document.documentElement.style.setProperty("--header-h", `${height}px`);
     }).observe(header);

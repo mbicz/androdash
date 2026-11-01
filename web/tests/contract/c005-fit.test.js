@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { bestCellGrid, panelDemand, planCandidates, planFit } from "../../app/src/fit.js";
-import { headerRail } from "../../app/src/layout.js";
+import { headerCompact } from "../../app/src/layout.js";
 
 const mac = [
   { id: "util", kind: "GaugeChart", count: 4 },
@@ -124,13 +124,12 @@ test("C-005 fit gives text panels a bounded share; they scroll inside", () => {
   if (row.cells.length === 1) assert.ok(row.maxHeight !== null && row.maxHeight <= 36 + 132);
 });
 
-test("C-005 landscape fit moves the header into a rail instead of taking height", () => {
-  // Phone portrait and a narrow landscape keep the one-line header.
-  assert.equal(headerRail(361, 780), false);
-  assert.equal(headerRail(400, 380), false, "too narrow for a rail beside a legible panel");
-  // A phone on its side and any wider screen use the rail.
-  assert.equal(headerRail(780, 361), true);
-  assert.equal(headerRail(1000, 500), true);
-  // Square is not landscape.
-  assert.equal(headerRail(500, 500), false);
+test("C-005 landscape fit collapses the header to a compact line instead of taking height", () => {
+  // Portrait and square keep the normal header.
+  assert.equal(headerCompact(361, 780), false);
+  assert.equal(headerCompact(500, 500), false);
+  // A phone on its side and any wider screen collapse the bar.
+  assert.equal(headerCompact(780, 361), true);
+  assert.equal(headerCompact(1000, 500), true);
+  assert.equal(headerCompact(891, 411), true);
 });

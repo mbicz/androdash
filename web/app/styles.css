@@ -1564,65 +1564,38 @@ html[data-layout="fit"] body {
 }
 
 /*
- * Landscape rail: with less height than width the header turns 90° and runs
- * down the left edge, so the host name and controls cost panels no height at
- * all. The rail is fixed and the grid keeps a matching left inset; the title
- * is rotated bottom-to-top and ellipsised along its own axis.
+ * Compact header (landscape fit): the bar stays in flow and horizontal — the
+ * host name is never rotated — but drops to one tight line: no extra top
+ * padding beyond the cutout, a 15 px title, and 26 px buttons. Everything it
+ * gives up goes to panels (C-005 "Header").
  */
-[data-layout-mode="fit"][data-header-rail="true"] {
-  --rail-w: 44px;
+[data-layout-mode="fit"][data-header-compact="true"] .app-header {
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  gap: 8px;
+  padding: env(safe-area-inset-top) var(--gutter) 2px;
 }
 
-[data-layout-mode="fit"][data-header-rail="true"] .app-header {
-  position: fixed;
-  inset: 0 auto 0 0;
-  z-index: 20;
-  width: var(--rail-w);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: flex-start;
-  gap: 10px;
-  margin: 0;
-  padding: max(10px, env(safe-area-inset-top)) 0 max(10px, env(safe-area-inset-bottom));
-  background: var(--bg);
-}
-
-[data-layout-mode="fit"][data-header-rail="true"] .app-title {
-  flex: 1 1 auto;
-  min-height: 0;
-  max-height: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  writing-mode: vertical-rl;
-  transform: rotate(180deg);
+[data-layout-mode="fit"][data-header-compact="true"] .app-title {
   font-size: 15px;
-  line-height: 1;
-  letter-spacing: 0;
 }
 
-[data-layout-mode="fit"][data-header-rail="true"] .dashboard-dots,
-[data-layout-mode="fit"][data-header-rail="true"] .header-actions {
-  flex-direction: column;
-  gap: 4px;
-  margin: 0;
-  padding: 0;
+[data-layout-mode="fit"][data-header-compact="true"] .app-status {
+  margin-right: -2px;
 }
 
-[data-layout-mode="fit"][data-header-rail="true"] .dashboard-dot {
-  width: 24px;
-  height: 16px;
+[data-layout-mode="fit"][data-header-compact="true"] .dashboard-dot {
+  width: 14px;
+  height: 20px;
 }
 
-[data-layout-mode="fit"][data-header-rail="true"] .fit-grid {
-  margin-left: calc(var(--rail-w) - var(--gutter) + 8px);
+[data-layout-mode="fit"][data-header-compact="true"] .icon-button {
+  width: 26px;
+  height: 26px;
 }
 
-/* A zoomed panel starts beside the rail, not under it. */
-[data-layout-mode="fit"][data-header-rail="true"] .panel.is-zoomed {
-  top: max(12px, env(safe-area-inset-top));
-  left: calc(var(--rail-w) + 8px);
+[data-layout-mode="fit"][data-header-compact="true"] .icon-button svg {
+  width: 15px;
+  height: 15px;
 }
 
 .fit-grid {

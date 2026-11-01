@@ -5,16 +5,16 @@ export function resolveLayoutMode(mode, width) {
 }
 
 /**
- * Fit layout with less height than width (C-005 "Header"): the header turns
- * into a rail down the left edge, so its height costs panels nothing. Returns
- * true only for a clearly landscape viewport (`width ≥ 1.3 × height`), wide
- * enough that a 44 px rail still leaves a panel at the planner's minimum width.
- * A near-square screen keeps the one-line header: rotating a title there costs
- * more width than the header costs height.
+ * Fit layout with less height than width (C-005 "Header"): the header stays in
+ * flow and horizontal, but collapses to a compact single line so it costs
+ * landscape panels as little height as possible — roughly half of the portrait
+ * header. Landscape is where height is scarce, so every pixel the bar gives up
+ * goes to panels. Returns true only for a clearly landscape viewport
+ * (`width ≥ 1.3 × height`); portrait and near-square screens keep the normal
+ * header.
  */
-export function headerRail(width, height, { rail = 44, minContent = 150, gutter = 16 } = {}) {
-  if (!(width >= height * 1.3)) return false;
-  return width - rail >= minContent + 2 * gutter;
+export function headerCompact(width, height) {
+  return width >= height * 1.3;
 }
 
 /**

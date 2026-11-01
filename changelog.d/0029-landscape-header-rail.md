@@ -1,10 +1,11 @@
 ---
 id: 0029
 date: 2026-11-01
-status: accepted
+status: superseded
 kind: contract
 scope: web, docs
 supersedes: []
+superseded-by: [0030]
 ---
 
 # Fit layout in landscape moves the header into a left rail
