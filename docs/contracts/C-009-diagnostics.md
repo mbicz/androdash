@@ -7,7 +7,9 @@
   0017); amended 2026-10-28 (dashboard `source`/`storedAt`,
   `W_STORED_DASHBOARD_INVALID`, `W_DASHBOARD_NOT_STORED`; decision 0018);
   amended 2026-10-29 (header status is the dot only; decision 0022);
-  amended 2026-10-30 (`E_IGNITION`, `E_IGNITION_FETCH`; decision 0024)
+  amended 2026-10-30 (`E_IGNITION`, `E_IGNITION_FETCH`; decision 0024);
+  amended 2026-11-01 (`E_IGNITION_FETCH` also covers a rejected provisioning
+  URL template; the unprovisioned screen is a state, not a code; decision 0027)
 - **Consumers:** Web renderer (W2), Android shell (W1)
 - **Machine-readable:** [`contracts/diagnostics.schema.json`](../../contracts/diagnostics.schema.json)
 - **Fixture:** [`diagnostics.example.json`](../../contracts/fixtures/diagnostics.example.json)
@@ -27,7 +29,7 @@ the snapshot must explain what is happening without leaking secrets.
 |---|---|
 | `E_CONFIG` | Invalid/missing launch configuration (C-001) |
 | `E_IGNITION` | An Ignition document is invalid or would not merge into a valid config (C-001 [Ignition](C-001-launch-config.md#ignition)) |
-| `E_IGNITION_FETCH` | The `ignition_url` document could not be fetched (scheme, status, size, timeout) |
+| `E_IGNITION_FETCH` | The `ignition_url` document could not be fetched (scheme, status, size, timeout), or the `ignition_url` template is invalid (unknown `{token}`, fragment, over-long result; C-001 [Device identity](C-001-launch-config.md#device-identity)) |
 | `E_ASSET_LOAD` | The local renderer asset failed to load (native) |
 | `E_DASHBOARD_FETCH` | Dashboard request failed (C-002) |
 | `E_DASHBOARD_PARSE` | Response is not an accepted Perses dashboard shape |
@@ -78,6 +80,24 @@ Warnings are non-fatal and recorded in diagnostics:
 | `W_FIT_OVERFLOW` | Fit layout (C-005) cannot place every panel on one screen at the rigid height (a chart's plot floor, every other panel's minimum); the grid scrolls. Detail: `<N> panels` |
 
 Do not invent ad-hoc codes. Add a contract update for a new code.
+
+### Unprovisioned state (native)
+
+With `ignition_wait` (C-001 [One-shot and wait mode](C-001-launch-config.md#one-shot-and-wait-mode))
+a phone that has no Ignition document yet is **not** in an error state and shows
+no error code. It shows the provisioning screen:
+
+- the six-digit device code, large and selectable;
+- the resolved `ignition_url` with scheme, host, port, path, and query parameter
+  *names* only — identity values are never printed;
+- the last attempt's outcome (`HTTP 404 — not provisioned yet`, a transport
+  failure, or `Requesting…`);
+- the attempt count and the retry interval;
+- a Retry button.
+
+A document that arrives and does not parse is `E_IGNITION` and does move to the
+fatal screen. A device that already has a config keeps rendering it while a
+wait-mode re-fetch fails; it logs the failure and does not switch screens.
 
 ## Diagnostics snapshot
 

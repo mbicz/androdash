@@ -12,6 +12,8 @@ tools/mock_prometheus.py
 tools/serve_demo.py
 tools/check_docs.py
 tools/discover_hosts.py
+tools/provisioning.py
+tools/provision.py
 ```
 
 You do **not** own the renderer (`web/app/`) or Android shell (`app/`). Tools
@@ -19,8 +21,9 @@ serve/observe them; they do not patch them.
 
 ## Current state
 
-`tools/check_docs.py`, `tools/mock_prometheus.py`, `tools/serve_demo.py`, and
-`tools/discover_hosts.py` are implemented. `tools/test_mock_prometheus.py` verifies that every query in the
+`tools/check_docs.py`, `tools/mock_prometheus.py`, `tools/serve_demo.py`,
+`tools/discover_hosts.py`, and the provisioning pair (`tools/provisioning.py`,
+`tools/provision.py`) are implemented. `tools/test_mock_prometheus.py` verifies that every query in the
 Spark dashboard fixture is recognized and returns data. M3 may add more fixtures;
 the mock remains deterministic and dependency-free.
 
@@ -77,6 +80,10 @@ the mock remains deterministic and dependency-free.
   dashboard fetches need this.
 - No directory listing by default; no cache headers for JSON/JS in dev.
 - Bind localhost by default; `--host` for device testing.
+- Serve the provisioning directory under `/ignition/`: `/ignition/<code>.json`
+  is `<code>.json` from `--provisioning-dir` (default `provisioning/`), a
+  missing file is a 404, and every poll is appended to `requests.jsonl`
+  (decision 0027).
 - Standard library only.
 
 ### `check_docs.py`
@@ -101,11 +108,22 @@ the mock remains deterministic and dependency-free.
 - Bounded: 1.5 s per probe, 4 MiB per `/metrics`, at most 32 targets and 8
   dashboards. Standard library only; deterministic output for a given network.
 
+### `provisioning.py` and `provision.py`
+
+- The server side of decision 0027: a device code is exactly six digits and can
+  never become a path; a document is validated with `validate_ignition` before
+  it is written, atomically; `pending` lists codes that polled and have no
+  document, newest first.
+- Never contacts a phone: the phone polls, the server answers (C-008).
+- `requests.jsonl` is bounded to the last 500 lines.
+- Standard library only.
+
 ## Commands
 
 ```sh
 python3 tools/mock_prometheus.py --port 9091
 python3 tools/serve_demo.py --port 8099
+python3 tools/provision.py pending
 python3 tools/check_docs.py
 python3 -m unittest discover -s tools -p 'test_*.py' -v
 curl -s http://localhost:9091/api/v1/status/buildinfo | jq

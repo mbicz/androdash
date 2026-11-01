@@ -41,9 +41,10 @@ app/
     │   │   ├── MainActivity.kt   # activity, WebView setup, kiosk/lock-screen, bridge
     │   │   ├── AppConfig.kt      # C-001 data model + JSON persistence shape
     │   │   ├── ConfigParser.kt   # Intent/persisted parsing, validation, launch URL
-    │   │   ├── ConfigStore.kt    # SharedPreferences persistence (+ show_when_locked)
+    │   │   ├── ConfigStore.kt    # SharedPreferences persistence (+ show_when_locked, device_code, provisioning)
     │   │   ├── AssetServer.kt    # virtual-origin routes: renderer, bundled + stored dashboards
     │   │   ├── DashboardStore.kt # stored remote-dashboard slots (fixed files, atomic)
+    │   │   ├── Provisioning.kt   # pure: device-code identity, {device}/{deviceId} tokens, identity params
     │   │   ├── LockRelightPolicy.kt # pure power-button re-light state machine
     │   │   ├── CollectorConfig.kt   # pure: collector_targets grammar, phone job, prometheus.yml, arguments
     │   │   ├── CollectorService.kt  # foreground service running/supervising libprometheus.so + PhoneExporter
@@ -68,6 +69,7 @@ app/
         ├── LockRelightPolicyTest.kt
         ├── MiniHttpTest.kt
         ├── PhoneMetricsTest.kt
+        ├── ProvisioningTest.kt
         └── RestartPolicyTest.kt
 ```
 
@@ -148,6 +150,9 @@ one-to-one:
 | `collector_scrape_seconds` | — | int (native-only; in AppConfig) |
 | `collector_retention` | — | string (native-only; in AppConfig) |
 | `collector_phone` | — | boolean (native-only; in AppConfig; default `true`) |
+| `ignition_url` | — | string (native-only; http(s) URL template for Ignition; never in the renderer URL) |
+| `ignition_wait` | — | boolean (native-only; wait mode, persisted as its own preference) |
+| `ignition_wait_seconds` | — | int (`1–300`; retry interval in wait mode) |
 
 Boolean Intent extras use `--ez`, integers `--ei`, strings `--es` when launching
 with `adb`.
@@ -187,6 +192,26 @@ reloads the WebView. Pasted dashboards are kept by `InlineDashboards` in
 `<filesDir>/inline/<sha256-prefix>.json` and pruned when they leave
 `dashboard_urls` (decision 0023). Do not
 persist secrets if auth is added later; record the storage decision first.
+
+### Ignition and provisioning
+
+`ignition_url` (or `<filesDir>/ignition.json` without it) seeds the config once
+(decision 0024). `applyIntent` resolves the URL template first: `{device}` is
+the six-digit code in `device_code`, `{deviceId}` the first 8 hex of SHA-256 of
+`ANDROID_ID`, and `device_code`/`device_model`/`device_ip` are appended
+(`Provisioning.kt`, decision 0027). One fetch is a `FetchOutcome`: a 2xx body, a
+pending response (404/410/204), or a failure.
+
+- One-shot: a pending response or failure is `E_IGNITION_FETCH`; a parsed
+  document is merged, the file deleted, the extra dropped.
+- `ignition_wait`: the template and interval are persisted **before** the first
+  attempt, so a failed document never strands the appliance. A device with no
+  config shows the provisioning screen (code, redacted URL, last outcome,
+  attempts, Retry) and retries every `ignition_wait_seconds`; a device that
+  already has a config keeps rendering it and logs the failure. A parsed
+  document is applied like a one-shot seed, and the extra is dropped so the next
+  launch re-fetches from the stored template. The retry timer stops in
+  `onStop` and resumes in `onStart`.
 
 ### New intents
 
