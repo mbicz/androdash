@@ -20,6 +20,9 @@ const agenticFixture = JSON.parse(
 const phoneFixture = JSON.parse(
   await fs.readFile(new URL("../../../contracts/fixtures/phone-dashboard.json", import.meta.url)),
 );
+const fleetFixture = JSON.parse(
+  await fs.readFile(new URL("../../../contracts/fixtures/inference-fleet-dashboard.json", import.meta.url)),
+);
 const url = "http://localhost:8099/contracts/fixtures/demo-dashboard.json";
 const baseConfig = parseConfig(
   `?dashboard_url=${encodeURIComponent(url)}&prometheus_url=http%3A%2F%2Flocalhost%3A9091`,
@@ -98,6 +101,35 @@ for (const [name, doc] of [
   assert.deepEqual(warnings, []);
   assert.equal(filtered.counts.hidden, 0);
   assert.equal(filtered.counts.rendered, filtered.counts.total);
+});
+
+test("C-004 inference fleet dashboard is fully eligible without warnings", async () => {
+  const warnings = [];
+  const dashboard = normalizeDashboard(structuredClone(fleetFixture), url, null, (code) =>
+    warnings.push(code),
+  );
+  const variables = await resolveVariables(dashboard, {
+    config: baseConfig,
+    advertisedCapabilities: ["prometheus"],
+    labelValues: async () => ["prom"],
+    warn: (code) => warnings.push(code),
+  });
+  const filtered = filterDashboard(dashboard, {
+    config: baseConfig,
+    advertised: ["prometheus"],
+    variables,
+    probes: [{ baseUrl: "http://localhost:9091", ok: true }],
+  });
+  assert.deepEqual(warnings, []);
+  assert.equal(filtered.counts.total, 10);
+  assert.equal(filtered.counts.rendered, 10);
+  assert.equal(filtered.counts.hidden, 0);
+  // The fleet page is data-only: every panel reads Prometheus.
+  const kinds = [...filtered.visible.values()].map((entry) => entry.panel.panelKind);
+  assert.equal(kinds.filter((kind) => kind === "TimeSeriesChart").length, 3);
+  assert.equal(kinds.filter((kind) => kind === "GaugeChart").length, 2);
+  assert.equal(kinds.filter((kind) => kind === "StatChart").length, 3);
+  assert.equal(kinds.filter((kind) => kind === "Table").length, 2);
 });
 
 test("C-004 macOS node_exporter dashboard is fully eligible without warnings", async () => {

@@ -276,6 +276,11 @@ discovered exporter, and enables the collector with canonical targets:
 | 9091 | demo/mock Prometheus | `demo-dashboard.json` | same |
 | 9400 | spark-exporter | `spark-dashboard.json` | same |
 
+`inference-fleet-dashboard.json` is not discovered: it spans several jobs at
+once (`spark` plus `agenticmac`), so it is launched explicitly rather than
+generated from a single exporter probe. See
+[`integrations/inference-fleet.md`](integrations/inference-fleet.md).
+
 A host is listed only when its `/metrics` proves it: the macOS dashboard needs
 `sysname="Darwin"`, the others need their own metric family. Candidates come
 from `--host`, a Prometheus's active targets, the ARP table, and
