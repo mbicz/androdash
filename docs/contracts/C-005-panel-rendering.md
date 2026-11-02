@@ -422,6 +422,27 @@ carries a short name (`gpu`, `hbm`, `zone`, `hwmon`, `sm`, `mem`, `cpu`, `draw`,
 `limit`). When present, the display name is the `reading` value alone — a
 `reading=` prefix would consume a third of a 168 px tile.
 
+### Repeated names in one panel
+
+Two scrape targets exporting the same metric share every label the display name
+favors (`gpu="0"`, `device="rocep1s0f0"`, `reading="gpu"`), so their names
+collide and a tile, gauge, legend entry, or table row cannot be attributed to a
+machine.
+
+`disambiguateDisplayNames(names, labelsList)` puts the series `instance` label
+in front of any display name that occurs **more than once within one panel**,
+separated by ` · ` (`gpu` → `gx10-5cc5 · gpu`, `gx10-e185 · gpu`). The target
+goes first because stat labels and chart legends ellipsise their tail; a suffix
+would be cut off on a narrow tile, losing the one fact the rule exists to show.
+It is applied per rendered slice — the tiles, gauges, legend entries, or rows
+actually drawn — so a truncated list never carries a target it does not need. A
+name that occurs once is returned untouched, so single-target panels keep their
+short labels. A collision without an `instance` label is left as-is rather than
+invented.
+
+The canonical series key (`seriesKey`) is unchanged; this is a presentation rule
+only, exactly as the display name itself is.
+
 ## Panel-specific rules
 
 ### Markdown
@@ -566,6 +587,10 @@ carries a short name (`gpu`, `hbm`, `zone`, `hwmon`, `sm`, `mem`, `cpu`, `draw`,
   (heading `collector`, cells `cpu`, `disk`; heading `code`, cell `200`). This
   applies in every layout, but the fit layout hides the header row, so there
   the cells show the bare values.
+- Repeated cells: when two rows collapse to the same cell text (the same
+  `collector`, `code`, or compact label from different targets), the cell gains
+  a `<instance> · ` prefix (see "Repeated names in one panel"). Cells that are
+  unique keep their short form.
 - Fit layout: rows are 18 px and the header row is hidden; all rows are
   rendered and scroll inside the panel (Panel scrolling).
 - Max 100 rows; extra → `W_ROWS_TRUNCATED`.

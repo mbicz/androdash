@@ -1,5 +1,5 @@
 import { calculations, formatValue, sortedThresholds, splitUnit, thresholdState } from "./format.js";
-import { seriesDisplayName } from "../prometheus.js";
+import { disambiguateDisplayNames, seriesDisplayName } from "../prometheus.js";
 import { arcPath, polar, svgEl } from "./svg.js";
 import { bestCellGrid } from "../fit.js";
 
@@ -160,9 +160,16 @@ export function renderGauge(panel, series, { warn = null, size = null } = {}) {
         : Math.max(1, ...steps.map((step) => step.value), Number(gauge.value) || 0) * 1.12,
   }));
   const single = kept.length === 1;
+  const gaugeNames = disambiguateDisplayNames(
+    kept.map((gauge) => seriesDisplayName(gauge.item.labels)),
+    kept.map((gauge) => gauge.item.labels),
+  );
   const grid = document.createElement("div");
   grid.className = `gauge-grid${single ? " single" : ""}`;
   const box = { width: size?.width ?? 338, height: size?.height ?? 120 };
+  // A label that carries a scrape target can wrap to two lines, so the space
+  // reserved above the ring is measured, not assumed.
+  let labelReserve = LABEL_HEIGHT;
 
   /**
    * Arrange the rings for the box they were given: a single gauge sits beside
@@ -181,12 +188,21 @@ export function renderGauge(panel, series, { warn = null, size = null } = {}) {
       columns: layout.columns,
       cell: {
         width: (box.width - GAP * (layout.columns - 1)) / layout.columns,
-        height: (box.height - GAP * (layout.rows - 1)) / layout.rows - LABEL_HEIGHT,
+        height: (box.height - GAP * (layout.rows - 1)) / layout.rows - labelReserve,
       },
     };
   }
 
   let shape = arrangement();
+
+  function measureLabelReserve() {
+    let tallest = 0;
+    for (const label of grid.querySelectorAll(".gauge-label")) {
+      const rect = label.getBoundingClientRect?.();
+      if (rect && rect.height > 0) tallest = Math.max(tallest, rect.height);
+    }
+    return tallest > 0 ? Math.ceil(tallest) : LABEL_HEIGHT;
+  }
 
   function dial(gauge) {
     return ring({
@@ -206,9 +222,19 @@ export function renderGauge(panel, series, { warn = null, size = null } = {}) {
     grid.style.gridTemplateColumns = `repeat(${shape.columns}, minmax(0, 1fr))`;
     grid.classList.toggle("inline", shape.inline);
   }
+
+  function relayout() {
+    shape = arrangement();
+    applyShape();
+    [...grid.children].forEach((cell, index) => {
+      cell.firstChild.replaceWith(dial(kept[index]));
+      if (single) cell.lastChild.hidden = !shape.inline;
+    });
+  }
+
   applyShape();
 
-  for (const gauge of kept) {
+  for (const [index, gauge] of kept.entries()) {
     const cell = document.createElement("div");
     cell.className = `gauge-cell state-${gauge.state.state}`;
     cell.append(dial(gauge));
@@ -219,7 +245,7 @@ export function renderGauge(panel, series, { warn = null, size = null } = {}) {
     } else {
       const label = document.createElement("div");
       label.className = "gauge-label";
-      label.textContent = seriesDisplayName(gauge.item.labels);
+      label.textContent = gaugeNames[index];
       if (attention(gauge.state)) {
         const stateEl = document.createElement("span");
         stateEl.className = "metric-state";
@@ -231,6 +257,16 @@ export function renderGauge(panel, series, { warn = null, size = null } = {}) {
     grid.append(cell);
   }
   wrapper.append(grid);
+
+  // The labels are in the DOM now; re-reserve the ring space from their real
+  // height so a two-line label is not clipped by the panel body.
+  if (!single) {
+    const measured = measureLabelReserve();
+    if (measured > labelReserve) {
+      labelReserve = measured;
+      relayout();
+    }
+  }
 
   if (typeof ResizeObserver === "function") {
     const observer = new ResizeObserver(() => {
@@ -244,12 +280,9 @@ export function renderGauge(panel, series, { warn = null, size = null } = {}) {
       if (Math.abs(next.width - box.width) < 1 && Math.abs(next.height - box.height) < 1) return;
       box.width = next.width;
       box.height = next.height;
-      shape = arrangement();
-      applyShape();
-      [...grid.children].forEach((cell, index) => {
-        cell.firstChild.replaceWith(dial(kept[index]));
-        if (single) cell.lastChild.hidden = !shape.inline;
-      });
+      const remeasured = measureLabelReserve();
+      if (remeasured > 0) labelReserve = remeasured;
+      relayout();
     });
     observer.observe(wrapper);
   }

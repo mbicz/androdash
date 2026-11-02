@@ -116,6 +116,30 @@ export function seriesDisplayName(labels) {
   return fallback.length ? `${name} · ${fallback.join(" · ")}` : name;
 }
 
+/**
+ * Prefix repeated display names with their scrape target.
+ *
+ * Two hosts exporting the same metric share every label the display name
+ * favors (`gpu="0"`, `device="rocep1s0f0"`, `reading="gpu"`), so the names
+ * collide and a tile or legend row cannot be attributed to a machine. When a
+ * name occurs more than once, the series `instance` label is put in front
+ * (`gx10-5cc5 · gpu`). A name that is unique is left untouched, so
+ * single-target panels keep their short labels.
+ *
+ * The target goes first because stat labels and chart legends ellipsise their
+ * tail: a suffix would be cut off on a narrow tile, taking the one fact the
+ * disambiguation exists to show.
+ */
+export function disambiguateDisplayNames(names, labelsList) {
+  const counts = new Map();
+  for (const name of names) counts.set(name, (counts.get(name) ?? 0) + 1);
+  return names.map((name, index) => {
+    if ((counts.get(name) ?? 0) < 2) return name;
+    const instance = labelsList[index]?.instance;
+    return instance ? `${instance} · ${name}` : name;
+  });
+}
+
 export const SERIES_COLORS = 8;
 
 /**

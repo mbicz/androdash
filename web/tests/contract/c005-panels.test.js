@@ -231,3 +231,64 @@ test("C-005 empty series produce an empty state, not fabricated data", () => {
   const emptyTable = renderTable(panel("Table"), []);
   assert.equal(emptyTable.dataset.empty, "true");
 });
+
+test("C-005 repeated series names carry the scrape target, unique names stay short", () => {
+  // Two hosts export the same reading; `gpu="0"` is identical on both, so the
+  // tile labels would collide without the instance.
+  const twoHosts = [
+    {
+      labels: { __name__: "spark_gpu_temperature_celsius", gpu: "0", instance: "gx10-5cc5", reading: "gpu" },
+      points: [{ t: 1, v: 72 }],
+    },
+    {
+      labels: { __name__: "spark_gpu_temperature_celsius", gpu: "0", instance: "gx10-e185", reading: "gpu" },
+      points: [{ t: 1, v: 62 }],
+    },
+  ];
+  const stats = renderStat(
+    panel("StatChart", { calculation: "last-number", format: { unit: "celsius", decimalPlaces: 1 } }),
+    twoHosts,
+  );
+  const labels = stats.querySelectorAll(".metric-label").map((node) => node.textContent);
+  assert.deepEqual(labels, ["gx10-5cc5 · gpu", "gx10-e185 · gpu"]);
+
+  const legend = renderTimeSeries(panel("TimeSeriesChart"), twoHosts).querySelectorAll(".legend-label");
+  assert.deepEqual(
+    legend.map((node) => node.textContent),
+    ["gx10-5cc5 · gpu", "gx10-e185 · gpu"],
+  );
+
+  const gauges = renderGauge(
+    panel("GaugeChart", { calculation: "last-number", format: { unit: "percent" } }),
+    [
+      { ...twoHosts[0], labels: { __name__: "spark_gpu_utilization_ratio", gpu: "0", instance: "gx10-5cc5" } },
+      { ...twoHosts[1], labels: { __name__: "spark_gpu_utilization_ratio", gpu: "0", instance: "gx10-e185" } },
+    ],
+  );
+  assert.deepEqual(
+    gauges.querySelectorAll(".gauge-label").map((node) => node.textContent),
+    ["gx10-5cc5 · gpu=0", "gx10-e185 · gpu=0"],
+  );
+
+  // One host: the label stays exactly as before, with no scrape-target suffix.
+  const single = renderStat(
+    panel("StatChart", { calculation: "last-number", format: { unit: "celsius", decimalPlaces: 1 } }),
+    [twoHosts[0]],
+  );
+  assert.equal(single.querySelector(".stat-tile").getAttribute("data-series-label"), "gpu");
+});
+
+test("C-005 repeated table cells carry the scrape target", () => {
+  const element = renderTable(panel("Table"), [
+    {
+      labels: { __name__: "spark_collector_success", collector: "cpu", instance: "gx10-5cc5" },
+      points: [{ t: 1, v: 1 }],
+    },
+    {
+      labels: { __name__: "spark_collector_success", collector: "cpu", instance: "gx10-e185" },
+      points: [{ t: 1, v: 1 }],
+    },
+  ]);
+  const cells = element.querySelectorAll("tbody tr").map((row) => row.querySelector(".series-cell").textContent);
+  assert.deepEqual(cells, ["gx10-5cc5 · cpu", "gx10-e185 · cpu"]);
+});

@@ -1,4 +1,4 @@
-import { seriesColor, seriesDisplayName } from "../prometheus.js";
+import { disambiguateDisplayNames, seriesColor, seriesDisplayName } from "../prometheus.js";
 import { formatAxis, formatValue, sortedThresholds, thresholdState } from "./format.js";
 import { niceTicks, timeTickLabel, timeTicks } from "./scale.js";
 import { linePath, svgEl, svgText } from "./svg.js";
@@ -209,7 +209,12 @@ export function renderTimeSeries(panel, series, { warn = null, size = null, time
   const legend = document.createElement("div");
   legend.className = "chart-legend";
   const maxLegend = 8;
-  present.slice(0, maxLegend).forEach((item, index) => {
+  const legendSeries = present.slice(0, maxLegend);
+  const legendNames = disambiguateDisplayNames(
+    legendSeries.map((item) => seriesDisplayName(item.labels)),
+    legendSeries.map((item) => item.labels),
+  );
+  legendSeries.forEach((item, index) => {
     const entry = document.createElement("div");
     entry.className = "legend-entry";
     const dot = document.createElement("span");
@@ -218,7 +223,7 @@ export function renderTimeSeries(panel, series, { warn = null, size = null, time
     dot.style.background = seriesColor(index);
     const label = document.createElement("span");
     label.className = "legend-label";
-    label.textContent = seriesDisplayName(item.labels);
+    label.textContent = legendNames[index];
     const value = document.createElement("span");
     value.className = "legend-value";
     const last = item.points.filter((point) => point.v !== null).at(-1);

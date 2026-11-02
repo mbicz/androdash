@@ -88,6 +88,28 @@ the `reading` label instead of a per-sensor breakdown.
 Do not group across units. A °C reading and a W reading in one panel share one
 `format.unit`, so the formatter would mislabel one of them.
 
+### Two hosts in one dashboard
+
+`collector_targets` can scrape several Spark hosts under the same `spark` job
+(e.g. `spark:gx10-5cc5=192.168.192.48:9400,spark:gx10-e185=192.168.192.45:9400`).
+Every per-host panel then renders one series per machine, and C-005 prefixes
+repeated display names with the scrape target so each tile, gauge, legend row,
+and table row reads `gx10-5cc5 · gpu`, `gx10-e185 · gpu` (see
+[decision 0031](../../changelog.d/0031-instance-disambiguated-labels.md)).
+
+Two consequences follow from the dashboard definition, not from the renderer:
+
+- The `zone` and `hwmon` queries are `max(...)`, so they reduce **across all
+  scraped hosts** into a single unattributed "hottest sensor" tile. That is what
+  the panel says it shows; if per-host zone readings are wanted, split the query
+  by `instance` (`max by (instance) (...)`) and let the prefix attribute them.
+- The `gpu` and `engine` variables are resolved once per dashboard from the
+  label-values API, so every host must share the same `gpu` label value (both
+  GX10s report `gpu="0"`) and the `engine` default applies to all of them. A
+  host that exports no `spark_engine_*` family (a worker with no inference
+  engine) contributes nothing to the engine panels; those panels show the other
+  host's series, not a fabricated zero.
+
 Variables:
 
 - `ds` selects the Prometheus datasource.
