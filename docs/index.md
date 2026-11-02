@@ -31,6 +31,7 @@ If you are new, read [`AGENTS.md`](../AGENTS.md) first.
 | [`architecture/testing.md`](architecture/testing.md) | What is tested at which layer? What is the emulator demo recipe? |
 | [`integrations/spark-exporter.md`](integrations/spark-exporter.md) | How are Spark Exporter metrics queried, formatted, and demonstrated? |
 | [`integrations/phone-exporter.md`](integrations/phone-exporter.md) | Which phone metrics does the in-app exporter serve to the on-phone collector? |
+| [`integrations/inference-fleet.md`](integrations/inference-fleet.md) | Which panels put both GX10s and the Mac on one page, and what do they read? |
 
 ## Contracts
 
@@ -67,6 +68,7 @@ The index is [`contracts/README.md`](contracts/README.md).
 | [`../contracts/fixtures/demo-dashboard.json`](../contracts/fixtures/demo-dashboard.json) | Small Perses dashboard used by the demo and tests |
 | [`../contracts/fixtures/spark-dashboard.json`](../contracts/fixtures/spark-dashboard.json) | Spark Exporter host, inference, fabric, and health dashboard |
 | [`../contracts/fixtures/macos-node-dashboard.json`](../contracts/fixtures/macos-node-dashboard.json) | Live macOS host dashboard (node_exporter + real Prometheus) |
+| [`../contracts/fixtures/inference-fleet-dashboard.json`](../contracts/fixtures/inference-fleet-dashboard.json) | Both GX10s and the Mac on one page: inference utilization, temperatures, engine throughput, models |
 | [`integrations/agenticmac-exporter.md`](integrations/agenticmac-exporter.md) | AI coding harnesses and macOS health on the Mac (agenticmac-exporter) |
 | [`../contracts/fixtures/app-config.example.json`](../contracts/fixtures/app-config.example.json) | Example canonical config |
 | [`../contracts/fixtures/prometheus/`](../contracts/fixtures/prometheus/) | Deterministic Prometheus API responses |

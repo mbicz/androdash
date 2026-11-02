@@ -1,0 +1,596 @@
+{
+  "kind": "Dashboard",
+  "metadata": {
+    "name": "Inference fleet",
+    "project": "androdash",
+    "createdAt": "2026-11-02T00:00:00Z",
+    "updatedAt": "2026-11-02T00:00:00Z",
+    "version": 1
+  },
+  "spec": {
+    "display": {
+      "name": "Inference fleet",
+      "description": "Both GX10s and the Mac: reachability, GPU utilization, temperatures, KV cache, throughput, time to first token, memory, power, model lanes. HBM temperature and engine panels stay absent on a host that exports no sample. See docs/integrations/inference-fleet.md."
+    },
+    "duration": "1h",
+    "refreshInterval": "15s",
+    "datasources": {
+      "prom": {
+        "default": true,
+        "plugin": {
+          "kind": "PrometheusDatasource",
+          "spec": {
+            "directUrl": "http://localhost:9090"
+          }
+        }
+      }
+    },
+    "variables": [
+      {
+        "kind": "ListVariable",
+        "spec": {
+          "name": "ds",
+          "defaultValue": "prom",
+          "allowMultiple": false,
+          "allowAllValue": false,
+          "plugin": {
+            "kind": "DatasourceVariable",
+            "spec": {
+              "datasourcePluginKind": "PrometheusDatasource"
+            }
+          }
+        }
+      }
+    ],
+    "panels": {
+      "hosts": {
+        "kind": "Panel",
+        "spec": {
+          "display": {
+            "name": "Inference hosts",
+            "description": "1 = the host's inference exporter is being scraped successfully"
+          },
+          "plugin": {
+            "kind": "StatChart",
+            "spec": {
+              "calculation": "last-number",
+              "format": {
+                "unit": "none",
+                "decimalPlaces": 0
+              },
+              "thresholds": {
+                "steps": [
+                  {
+                    "value": 1,
+                    "name": "Up"
+                  }
+                ]
+              }
+            }
+          },
+          "queries": [
+            {
+              "kind": "TimeSeriesQuery",
+              "spec": {
+                "plugin": {
+                  "kind": "PrometheusTimeSeriesQuery",
+                  "spec": {
+                    "datasource": "$ds",
+                    "query": "label_replace(up{job=~\"spark|agenticmac\"}, \"reading\", \"$1\", \"instance\", \"(.*)\")"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "temperatures": {
+        "kind": "Panel",
+        "spec": {
+          "display": {
+            "name": "Temperatures",
+            "description": "GB10 GPU edge on both GX10s and the Mac SoC sensors; all °C"
+          },
+          "plugin": {
+            "kind": "StatChart",
+            "spec": {
+              "calculation": "last-number",
+              "format": {
+                "unit": "celsius",
+                "decimalPlaces": 0
+              },
+              "thresholds": {
+                "steps": [
+                  {
+                    "value": 80,
+                    "name": "Hot"
+                  },
+                  {
+                    "value": 90,
+                    "name": "Critical"
+                  }
+                ]
+              }
+            }
+          },
+          "queries": [
+            {
+              "kind": "TimeSeriesQuery",
+              "spec": {
+                "plugin": {
+                  "kind": "PrometheusTimeSeriesQuery",
+                  "spec": {
+                    "datasource": "$ds",
+                    "query": "label_join(spark_gpu_temperature_celsius, \"reading\", \" · \", \"instance\", \"gpu\") or label_join(macos_soc_temperature_celsius, \"reading\", \" · \", \"instance\", \"sensor\")"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "gpu-utilization": {
+        "kind": "Panel",
+        "spec": {
+          "display": {
+            "name": "GPU utilization",
+            "description": "GB10 driver ratio on each GX10 and the Mac GPU active ratio"
+          },
+          "plugin": {
+            "kind": "GaugeChart",
+            "spec": {
+              "calculation": "last-number",
+              "format": {
+                "unit": "percent",
+                "decimalPlaces": 0
+              },
+              "thresholds": {
+                "steps": [
+                  {
+                    "value": 85,
+                    "name": "Busy"
+                  },
+                  {
+                    "value": 95,
+                    "name": "Saturated"
+                  }
+                ]
+              }
+            }
+          },
+          "queries": [
+            {
+              "kind": "TimeSeriesQuery",
+              "spec": {
+                "plugin": {
+                  "kind": "PrometheusTimeSeriesQuery",
+                  "spec": {
+                    "datasource": "$ds",
+                    "query": "label_replace(spark_gpu_utilization_ratio * 100, \"reading\", \"$1\", \"instance\", \"(.*)\") or label_replace(macos_gpu_active_ratio * 100, \"reading\", \"$1\", \"instance\", \"(.*)\")"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "kv-cache": {
+        "kind": "Panel",
+        "spec": {
+          "display": {
+            "name": "KV cache",
+            "description": "Engine KV-cache occupancy on the GX10 running inference"
+          },
+          "plugin": {
+            "kind": "GaugeChart",
+            "spec": {
+              "calculation": "last-number",
+              "format": {
+                "unit": "percent",
+                "decimalPlaces": 0
+              },
+              "thresholds": {
+                "steps": [
+                  {
+                    "value": 85,
+                    "name": "Tight"
+                  },
+                  {
+                    "value": 95,
+                    "name": "Full"
+                  }
+                ]
+              }
+            }
+          },
+          "queries": [
+            {
+              "kind": "TimeSeriesQuery",
+              "spec": {
+                "plugin": {
+                  "kind": "PrometheusTimeSeriesQuery",
+                  "spec": {
+                    "datasource": "$ds",
+                    "query": "label_replace(spark_engine_kv_cache_usage_ratio * 100, \"reading\", \"$1\", \"instance\", \"(.*)\")"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "throughput": {
+        "kind": "Panel",
+        "spec": {
+          "display": {
+            "name": "Output tokens per second",
+            "description": "Engine generated-token counter rate on the serving GX10"
+          },
+          "plugin": {
+            "kind": "TimeSeriesChart",
+            "spec": {
+              "legend": {
+                "position": "bottom"
+              },
+              "format": {
+                "unit": "tokens",
+                "decimalPlaces": 1
+              }
+            }
+          },
+          "queries": [
+            {
+              "kind": "TimeSeriesQuery",
+              "spec": {
+                "plugin": {
+                  "kind": "PrometheusTimeSeriesQuery",
+                  "spec": {
+                    "datasource": "$ds",
+                    "query": "label_join(spark_engine_tokens_per_second{direction=\"output\"}, \"reading\", \" · \", \"instance\", \"engine\")"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "ttft": {
+        "kind": "Panel",
+        "spec": {
+          "display": {
+            "name": "Time to first token",
+            "description": "Engine mean on the GX10 and per-model means on the Mac; ms"
+          },
+          "plugin": {
+            "kind": "TimeSeriesChart",
+            "spec": {
+              "legend": {
+                "position": "bottom"
+              },
+              "yAxis": {
+                "format": {
+                  "unit": "milliseconds",
+                  "decimalPlaces": 0
+                }
+              }
+            }
+          },
+          "queries": [
+            {
+              "kind": "TimeSeriesQuery",
+              "spec": {
+                "plugin": {
+                  "kind": "PrometheusTimeSeriesQuery",
+                  "spec": {
+                    "datasource": "$ds",
+                    "query": "label_join(spark_engine_time_to_first_token_seconds_mean * 1000, \"reading\", \" · \", \"instance\", \"engine\")"
+                  }
+                }
+              }
+            },
+            {
+              "kind": "TimeSeriesQuery",
+              "spec": {
+                "plugin": {
+                  "kind": "PrometheusTimeSeriesQuery",
+                  "spec": {
+                    "datasource": "$ds",
+                    "query": "topk(3, label_replace(agent_model_time_to_first_token_seconds * 1000, \"reading\", \"$1\", \"model\", \"(.*)\"))"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "memory": {
+        "kind": "Panel",
+        "spec": {
+          "display": {
+            "name": "Memory pressure",
+            "description": "Used share of system memory: unified memory on GB10, free ratio on the Mac"
+          },
+          "plugin": {
+            "kind": "StatChart",
+            "spec": {
+              "calculation": "last-number",
+              "format": {
+                "unit": "percent",
+                "decimalPlaces": 0
+              },
+              "thresholds": {
+                "steps": [
+                  {
+                    "value": 90,
+                    "name": "Tight"
+                  },
+                  {
+                    "value": 97,
+                    "name": "Critical"
+                  }
+                ]
+              }
+            }
+          },
+          "queries": [
+            {
+              "kind": "TimeSeriesQuery",
+              "spec": {
+                "plugin": {
+                  "kind": "PrometheusTimeSeriesQuery",
+                  "spec": {
+                    "datasource": "$ds",
+                    "query": "label_replace(100 * (1 - spark_system_memory_available_bytes / spark_system_memory_total_bytes), \"reading\", \"$1\", \"instance\", \"(.*)\") or label_replace(100 * (1 - macos_memory_free_ratio), \"reading\", \"$1\", \"instance\", \"(.*)\")"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "power": {
+        "kind": "Panel",
+        "spec": {
+          "display": {
+            "name": "Power",
+            "description": "GB10 GPU draw on both GX10s and the Mac SoC system power; all W"
+          },
+          "plugin": {
+            "kind": "TimeSeriesChart",
+            "spec": {
+              "legend": {
+                "position": "bottom"
+              },
+              "format": {
+                "unit": "watts",
+                "decimalPlaces": 1
+              }
+            }
+          },
+          "queries": [
+            {
+              "kind": "TimeSeriesQuery",
+              "spec": {
+                "plugin": {
+                  "kind": "PrometheusTimeSeriesQuery",
+                  "spec": {
+                    "datasource": "$ds",
+                    "query": "label_join(spark_gpu_power_watts, \"reading\", \" · \", \"instance\", \"gpu\") or label_join(macos_soc_power_watts{component=\"sys\"}, \"reading\", \" · \", \"instance\", \"component\")"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "lanes": {
+        "kind": "Panel",
+        "spec": {
+          "display": {
+            "name": "Model lanes",
+            "description": "Supervisor lanes on the GX10 that hosts them: 1 = ready, 0 = stopped"
+          },
+          "plugin": {
+            "kind": "Table",
+            "spec": {
+              "format": {
+                "unit": "none",
+                "decimalPlaces": 0
+              }
+            }
+          },
+          "queries": [
+            {
+              "kind": "TimeSeriesQuery",
+              "spec": {
+                "plugin": {
+                  "kind": "PrometheusTimeSeriesQuery",
+                  "spec": {
+                    "datasource": "$ds",
+                    "query": "max by (model) (spark_supervisor_lane_state{state=\"ready\"}) or 0 * max by (model) (spark_supervisor_lane_state{state=\"stopped\"})"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "model-speed": {
+        "kind": "Panel",
+        "spec": {
+          "display": {
+            "name": "Model speed on the Mac",
+            "description": "Recent output tokens per second per model (agenticmac decayed average)"
+          },
+          "plugin": {
+            "kind": "Table",
+            "spec": {
+              "format": {
+                "unit": "tokens",
+                "decimalPlaces": 0
+              }
+            }
+          },
+          "queries": [
+            {
+              "kind": "TimeSeriesQuery",
+              "spec": {
+                "plugin": {
+                  "kind": "PrometheusTimeSeriesQuery",
+                  "spec": {
+                    "datasource": "$ds",
+                    "query": "topk(8, max by (model) (agent_model_output_tokens_per_second))"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "layouts": [
+      {
+        "kind": "Grid",
+        "spec": {
+          "display": {
+            "title": "Fleet",
+            "collapse": {
+              "open": true
+            }
+          },
+          "items": [
+            {
+              "x": 0,
+              "y": 0,
+              "width": 8,
+              "height": 4,
+              "content": {
+                "$ref": "#/spec/panels/hosts"
+              }
+            },
+            {
+              "x": 8,
+              "y": 0,
+              "width": 16,
+              "height": 4,
+              "content": {
+                "$ref": "#/spec/panels/temperatures"
+              }
+            },
+            {
+              "x": 0,
+              "y": 4,
+              "width": 24,
+              "height": 6,
+              "content": {
+                "$ref": "#/spec/panels/gpu-utilization"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "kind": "Grid",
+        "spec": {
+          "display": {
+            "title": "Inference",
+            "collapse": {
+              "open": true
+            }
+          },
+          "items": [
+            {
+              "x": 0,
+              "y": 0,
+              "width": 8,
+              "height": 6,
+              "content": {
+                "$ref": "#/spec/panels/kv-cache"
+              }
+            },
+            {
+              "x": 8,
+              "y": 0,
+              "width": 16,
+              "height": 6,
+              "content": {
+                "$ref": "#/spec/panels/throughput"
+              }
+            },
+            {
+              "x": 0,
+              "y": 6,
+              "width": 24,
+              "height": 6,
+              "content": {
+                "$ref": "#/spec/panels/ttft"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "kind": "Grid",
+        "spec": {
+          "display": {
+            "title": "Headroom",
+            "collapse": {
+              "open": true
+            }
+          },
+          "items": [
+            {
+              "x": 0,
+              "y": 0,
+              "width": 12,
+              "height": 4,
+              "content": {
+                "$ref": "#/spec/panels/memory"
+              }
+            },
+            {
+              "x": 12,
+              "y": 0,
+              "width": 12,
+              "height": 4,
+              "content": {
+                "$ref": "#/spec/panels/power"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "kind": "Grid",
+        "spec": {
+          "display": {
+            "title": "Models",
+            "collapse": {
+              "open": true
+            }
+          },
+          "items": [
+            {
+              "x": 0,
+              "y": 0,
+              "width": 12,
+              "height": 8,
+              "content": {
+                "$ref": "#/spec/panels/lanes"
+              }
+            },
+            {
+              "x": 12,
+              "y": 0,
+              "width": 12,
+              "height": 8,
+              "content": {
+                "$ref": "#/spec/panels/model-speed"
+              }
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

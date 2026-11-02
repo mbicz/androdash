@@ -10,7 +10,8 @@
   [`spark-dashboard.json`](../../contracts/fixtures/spark-dashboard.json),
   [`macos-node-dashboard.json`](../../contracts/fixtures/macos-node-dashboard.json),
   [`agenticmac-dashboard.json`](../../contracts/fixtures/agenticmac-dashboard.json),
-  [`phone-dashboard.json`](../../contracts/fixtures/phone-dashboard.json)
+  [`phone-dashboard.json`](../../contracts/fixtures/phone-dashboard.json),
+  [`inference-fleet-dashboard.json`](../../contracts/fixtures/inference-fleet-dashboard.json)
 - **Related:** C-001 (URL), C-003 (datasources), C-004 (filtering), C-005 (panels)
 
 ## Purpose

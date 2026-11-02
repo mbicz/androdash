@@ -184,6 +184,14 @@ adb shell am start -n com.mbicz.androdash/.MainActivity \
 Prometheus on `0.0.0.0:9090` has no auth; keep it on a trusted LAN (decision
 0006). `serve_demo.py` serves the repository root, so stop it when done.
 
+### Inference fleet: both GX10s and the Mac on one page
+
+`inference-fleet-dashboard.json` reads spark-exporter on each GX10 and
+agenticmac-exporter on the Mac, all through one Prometheus. The mock does not
+answer it; use the phone's collector or a Prometheus scraping all three hosts.
+See [`integrations/inference-fleet.md`](integrations/inference-fleet.md) for the
+panel table and the target string.
+
 The default `dashboard_source=stored` keeps a copy of the dashboard on the phone
 after the first successful load, so later launches and reboots do not need
 `serve_demo.py` at all (C-002 "Dashboard sources", decision 0018). Settings →
