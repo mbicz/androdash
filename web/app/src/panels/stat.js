@@ -1,5 +1,5 @@
 import { calculations, formatValue, sortedThresholds, splitUnit, thresholdState } from "./format.js";
-import { seriesDisplayName } from "../prometheus.js";
+import { disambiguateDisplayNames, seriesDisplayName } from "../prometheus.js";
 import { bestCellGrid } from "../fit.js";
 
 const TILE_GAP = 6;
@@ -80,9 +80,15 @@ export function renderStat(panel, series, { warn = null, size = null, fit = fals
   let longest = 0;
   let attention = false;
 
-  for (const { item, value } of tiles.slice(0, maxTiles)) {
+  const shown = tiles.slice(0, maxTiles);
+  const names = disambiguateDisplayNames(
+    shown.map(({ item }) => seriesDisplayName(item.labels)),
+    shown.map(({ item }) => item.labels),
+  );
+
+  for (const [index, { item, value }] of shown.entries()) {
     const state = steps.length > 0 ? thresholdState(value, steps) : { state: "none", label: "" };
-    const label = seriesDisplayName(item.labels);
+    const label = names[index];
     const tile = document.createElement("div");
     tile.className = `stat-tile state-${state.state}${single ? " single" : ""}`;
     tile.setAttribute("data-series-label", label);

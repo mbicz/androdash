@@ -285,6 +285,13 @@ target the Mac can reach but the phone cannot is dropped instead of seeded as a
 permanent `0`. The document is validated against the shell's rules before it is
 written.
 
+Run the tool with the system interpreter (`/usr/bin/python3`). A Homebrew or
+`mise` Python is a separately installed binary without macOS's Local Network
+permission, so its `connect()` to a LAN host fails with `Errno 65` ("No route to
+host") in milliseconds while `curl` from the same shell succeeds. Every LAN
+candidate is then reported unreachable and silently dropped, which looks like a
+network fault rather than a permission one.
+
 ### Provision a phone by its own code
 
 A phone launched with `ignition_wait` shows a six-digit device code and keeps

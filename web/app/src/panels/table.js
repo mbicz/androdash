@@ -1,5 +1,5 @@
 import { formatValue } from "./format.js";
-import { seriesLabel } from "../prometheus.js";
+import { disambiguateDisplayNames, seriesLabel } from "../prometheus.js";
 
 const NOISE_LABELS = new Set(["job", "instance"]);
 
@@ -64,6 +64,13 @@ export function renderTable(panel, series, { warn = null } = {}) {
   const names = new Set(rows.map((row) => row.labels.__name__ || ""));
   const includeName = names.size > 1;
   const key = includeName ? null : sharedKey(rows);
+  // Two hosts exporting the same series collapse to identical cells once
+  // `job`/`instance` are dropped. Append the scrape target to repeated cells so
+  // each row can be attributed to a machine.
+  const cells = disambiguateDisplayNames(
+    rows.map((row) => (key ? String(row.labels[key]) : compactLabel(row.labels, { includeName }))),
+    rows.map((row) => row.labels),
+  );
 
   const table = document.createElement("table");
   table.className = "data-table";
@@ -76,11 +83,11 @@ export function renderTable(panel, series, { warn = null } = {}) {
   }
   thead.append(headRow);
   const tbody = document.createElement("tbody");
-  for (const row of rows) {
+  for (const [index, row] of rows.entries()) {
     const tr = document.createElement("tr");
     const label = document.createElement("td");
     label.className = "series-cell";
-    label.textContent = key ? String(row.labels[key]) : compactLabel(row.labels, { includeName });
+    label.textContent = cells[index];
     label.title = row.full;
     const value = document.createElement("td");
     value.className = "value-cell";
