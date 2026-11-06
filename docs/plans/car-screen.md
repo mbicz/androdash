@@ -31,12 +31,53 @@ So the honest feature is: **a templated, glanceable summary of the dashboard on
 the car screen**, with per-tab panels and car-sized content limits — not the SVG
 renderer ported to the car.
 
+## Can we just declare a navigation/POI category and take the Surface?
+
+**Technically yes. Legally and by policy, no.** Verified in the CAL 1.7.0 AAR:
+
+- `ACCESS_SURFACE`, `NAVIGATION_TEMPLATES`, and `MAP_TEMPLATES` are ordinary
+  `uses-permission` entries in the app manifest. They are **not** signature- or
+  privilege-gated: `CarAppPermission` only does a runtime
+  `PackageManager.checkPermission` and throws `SecurityException` if absent. Any
+  app that declares them gets the Surface.
+- So the gate is **not technical, it is the Play review plus the quality
+  guidelines**. `NF-1` requires turn-by-turn navigation; `NF-2` requires the
+  Surface to draw *only map content*; `NF-7` requires a test-drive mode;
+  `NF-6` requires handling navigation intents. A monitoring dashboard declaring
+  `NAVIGATION` fails every one of them, and the review is manual.
+- The same applies to POI (`PF-1`) and weather (`WE-1`/`WE-3`).
+
+Declaring a false category would therefore be a deliberate misrepresentation of
+what the app does — Article 3 of the constitution ("Capability honesty") forbids
+exactly that, and Play review rejects it. It is not a shortcut; it is a defect
+with a rejection attached.
+
+## What Integrated Engineering actually did
+
+They did **not** use Android Auto. The POWERlink Suite release notes and the
+launch material describe **CarPlay**: "Turning on Valet Mode now asks for
+confirmation, on your phone and in CarPlay", "Saved Live View gauges now load
+right away", and a launch video titled "CarPlay Powerlink Live Gauges".
+
+CarPlay has a **Driving task** category that Android Auto has no equivalent for,
+and it permits exactly this use case. But it also caps it:
+
+- `Driving task` apps **must use the provided templates**; custom UI, custom
+  maps, and real-time video "are not possible".
+- **"Do not periodically refresh data items in the CarPlay UI more than once
+  every 10 seconds (for example, no real-time engine data)."**
+
+So even IE's live gauges are template-based and refresh-capped — not a live chart
+surface. That is the closest thing to the requested feature that exists on either
+platform, and it is CarPlay-only (this project is Android-only, and CarPlay needs
+an iPhone plus Apple's entitlement approval).
+
 ## What each option would cost
 
 | Option | What it gives | Blocker |
 |---|---|---|
-| Port the SVG renderer onto a `Surface` | Real charts on the car screen | `Surface` is navigation/POI/weather only; would require declaring a false category, which fails review |
-| IoT category + templates (grid/pane/list) | Glanceable numbers, status words, one-line sparkline-free summaries | No charts; Play distribution required for real cars |
+| Port the SVG renderer onto a `Surface` | Real charts on the car screen | `Surface` needs a navigation/POI/weather category; declaring one falsely fails Play review (`NF-1`, `NF-2`, `PF-1`) and violates Article 3 |
+| IoT category + templates (grid/pane/list) | Glanceable numbers, status words, one-line summaries | No charts; Play distribution required for real cars |
 | Parked app (`CAR_LAUNCHER` activity) | Full-screen custom UI on Android 15+ head units, **while parked** | Only games are supported for Android Auto today; a monitoring dashboard does not qualify |
 | Phone-only mirroring (cast/AA Mirror) | Existing WebView rendered on the car | Not an Android Auto feature; unsupported, brittle, and outside this project's threat model |
 
@@ -120,9 +161,14 @@ Each slice is independently verifiable; later slices assume earlier ones.
 ## Risks
 
 - **Play review.** An IoT monitoring dashboard must satisfy the car app quality
-  guidelines for that category; a debug-only build is untestable on hardware.
-- **Category honesty.** Calling a dashboard "IoT" is defensible (it reports on
-  connected devices) but thin; review may disagree.
+  guidelines for that category (`IT-1`: view device state and simple on/off
+  actions while driving; no setup, no fine-grained control). Reporting
+  inference-host state is a defensible reading of "view the current state of
+  devices", but the manual review is the gate, and a debug-only build is
+  untestable on hardware.
+- **Category honesty.** Declaring `IOT` for a telemetry dashboard is arguable but
+  defensible; declaring `NAVIGATION` or `POI` to obtain the Surface is not, and
+  would fail review on `NF-1`/`NF-2`/`PF-1`.
 - **Duplication.** A second rendering path doubles the surface area for display
   bugs. C-010 must state the projection rules precisely, or the car view will
   drift from the phone view.
