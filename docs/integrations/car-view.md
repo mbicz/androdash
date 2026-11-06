@@ -15,7 +15,7 @@ Contract: [C-010](../contracts/C-010-car-projection.md). Decision:
 | `StatChart` | `label · value unit · state` |
 | `GaugeChart` | `label · value% · state` |
 | `Table` | `label · value` |
-| `TimeSeriesChart` | **omitted**, counted |
+| `TimeSeriesChart` | `label · last value` + a 24-char text sparkline (`▁▂▃▄▅▆▇█`) |
 | `Markdown` | **omitted**, counted |
 
 Every omitted panel is counted and reported in the action strip ("3 chart(s)
@@ -91,14 +91,19 @@ On the AAOS emulator (1024×768) against the mock Prometheus, the fleet dashboar
 projected 7 panels / 5 series:
 
 ```
-Fleet Summary
-Inference hosts     1 · Up
-Temperatures        50 °C · Nominal
-Memory pressure     27% · Nominal
-GPU utilization     54% · Nominal
-KV cache            48% · Nominal
-Model lanes         — · No data
+Fleet / Inference
+Inference hosts           1 · Up
+Temperatures              50 °C · Nominal
+Memory pressure           30% · Nominal
+GPU utilization           57% · Nominal
+KV cache                  58% · Nominal
+spark-gb10 · Output tok/s 4.1K tok/s · Nominal
+                           ▁▁▂▃▄▄▅▆▇█   ← text sparkline
 ```
+
+A sparkline is the shape of the range in block characters, e.g. rising
+`▁▁▂▃▄▄▅▆▇█`, falling `█▇▆▅▄▄▃▂▁▁`, flat `▅▅▅▅▅▅▅▅▅▅`. Charts cannot be drawn in a
+car template, so this is the closest honest rendering.
 
 `Model lanes` is `No data` because no inference engine is scraped in that setup —
 correct behaviour, not a placeholder.
@@ -113,7 +118,8 @@ not block personal testing.
 
 ## Limits
 
-- No charts, no text panels, no custom drawing.
+- No drawn charts, no text panels, no custom drawing. A time series becomes a
+  text sparkline, not a graph.
 - 2–4 tabs, 10 rows per tab, 8 table rows per panel.
 - IoT category only: `IT-1` permits viewing device state while driving. Declaring
   `NAVIGATION` or `POI` to obtain a surface is a misrepresentation and fails
