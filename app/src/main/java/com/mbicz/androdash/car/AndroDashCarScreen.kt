@@ -145,12 +145,10 @@ class AndroDashCarScreen(carContext: CarContext) : Screen(carContext) {
             // A CAL row allows at most two text lines. Charts cannot be drawn,
             // so a chart row spends them on a braille raster (C-010); every other
             // row spends them on the value and its state badge.
-            if (row.sparkLines.size >= 2) {
-                item.addText(row.sparkLines[0])
+            if (row.spark != null) {
+                item.addText(row.spark)
                 item.addText(
                     buildString {
-                        append(row.sparkLines[1])
-                        append("  ")
                         append(row.value)
                         append(' ')
                         append(badge)
