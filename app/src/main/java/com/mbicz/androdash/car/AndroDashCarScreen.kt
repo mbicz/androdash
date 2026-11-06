@@ -207,7 +207,8 @@ class AndroDashCarScreen(carContext: CarContext) : Screen(carContext) {
                 if (result.first != null) lastSuccessMillis = System.currentTimeMillis()
             } finally {
                 refreshing.set(false)
-                invalidate()
+                // Screen.invalidate() must run on the main thread; this executor is not it.
+                android.os.Handler(android.os.Looper.getMainLooper()).post { invalidate() }
             }
         }
     }
