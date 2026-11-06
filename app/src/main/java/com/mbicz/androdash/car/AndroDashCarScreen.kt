@@ -139,18 +139,36 @@ class AndroDashCarScreen(carContext: CarContext) : Screen(carContext) {
         val shown = tab.rows.take(limit)
         val items = ItemList.Builder()
         for (row in shown) {
-            val detail = buildString {
-                append(row.value)
-                append(" · ")
-                append(row.state)
-                if (row.stale) append(" · stale")
-            }
+            val badge = CarProjector.stateBadge(row.state)
             val item = Row.Builder()
                 .setTitle(CarText.create(row.label))
-                .addText(detail)
-            // A chart cannot be drawn in a template, so its shape is a text
-            // sparkline on a second line (C-010).
-            row.spark?.let { item.addText(it) }
+            // A CAL row allows at most two text lines. Charts cannot be drawn,
+            // so a chart row spends them on a braille raster (C-010); every other
+            // row spends them on the value and its state badge.
+            if (row.sparkLines.size >= 2) {
+                item.addText(row.sparkLines[0])
+                item.addText(
+                    buildString {
+                        append(row.sparkLines[1])
+                        append("  ")
+                        append(row.value)
+                        append(' ')
+                        append(badge)
+                        if (row.stale) append(" stale")
+                    },
+                )
+            } else {
+                item.addText(
+                    buildString {
+                        append(row.value)
+                        append(" · ")
+                        append(row.state)
+                        append(' ')
+                        append(badge)
+                        if (row.stale) append(" · stale")
+                    },
+                )
+            }
             items.addItem(item.build())
         }
         builder.setSingleList(items.build())
@@ -282,9 +300,6 @@ class AndroDashCarScreen(carContext: CarContext) : Screen(carContext) {
                 "omittedCharts=${projected.omittedCharts} omittedText=${projected.omittedText} " +
                 "omittedRows=${projected.omittedRows} failed=${projected.failedPanels}",
         )
-        projected.tabs.forEach { tab ->
-            tab.rows.take(4).forEach { android.util.Log.i("AndroDashCar", "  ${tab.title} | ${it.label} = ${it.value} (${it.state})") }
-        }
         return projected to null
     }
 

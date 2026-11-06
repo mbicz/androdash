@@ -45,26 +45,49 @@ into templates.
 | `StatChart` | One row per series: `label · value unit`, state word when a threshold applies | A number and a state word are glanceable |
 | `GaugeChart` | One row per series: `label · value%`, state word | Same; the arc is not reproducible |
 | `Table` | Up to [MAX_TABLE_ROWS] rows: `label` + formatted value | Already row-shaped |
-| `TimeSeriesChart` | One row per series: `label · last value`, plus a fixed-width **text sparkline** of the range | No chart template, but the shape is the glanceable part; block glyphs are text, so `IU-1`/`SA-1` still hold. A series with no range data is counted as an omitted chart |
+| `TimeSeriesChart` | One row per series: a fixed-width **braille raster** (48×8 dots over two lines) plus the last value and a state badge | No chart template, but the shape is the glanceable part; braille and emoji are text, so `IU-1`/`SA-1` still hold. A series with no range data is counted as an omitted chart |
 | `Markdown` | **Omitted.** Reported as "text omitted" | Not glanceable; `AC-1` caps a task at five screens |
 
 Every omitted panel is counted and reported, so the driver knows the view is a
 summary, not the whole dashboard.
 
-### Sparklines
+### Braille rasters and state badges
 
 A `TimeSeriesChart` cannot be drawn (no chart template), but its *shape* is the
-glanceable part. Each series becomes a row with a fixed-width text sparkline
-(`SPARK_WIDTH` = 24 characters) built from block glyphs `▁▂▃▄▅▆▇█`:
+glanceable part. Each series becomes a row carrying a **braille raster**.
 
-- The range is bucketed into `SPARK_WIDTH` equal slices and averaged, so a long
-  range keeps its shape.
-- A flat series renders mid-height (`▅`) rather than collapsing to the baseline,
-  which would read as zero.
+Measured on the car host font (`Paint.measureText` at 32 px, AAOS):
+
+| Alphabet | Fixed width | Advance |
+|---|---|---|
+| Braille `U+2800..U+28FF` | **yes** | 22.00 px |
+| Block elements `▁▂▃▄▅▆▇█` | yes | 23.00 px |
+| Box drawing `▏▎▍▌▋▊▉█` | yes | 23.00 px |
+| Emoji | **no** | 30 / 33 / 40 px |
+
+Braille packs a 2×4 dot grid into one code point, so it is the densest
+fixed-width glyph available:
+
+- `SPARK_WIDTH` = 24 characters per line; each character is 2 dot columns.
+- A CAL row allows **at most two text lines** (`RowConstraints.maxTextLinesPerRow`
+  = 2; a third throws `IllegalArgumentException`).
+- Two lines × 4 dot rows = an 8-row plot, so the raster is **48 × 8 dots**.
+- The range is bucketed per dot column and averaged, so a long range keeps its
+  shape. A cell is filled when its dot row is at or below the series level, so
+  the plot reads as a filled area.
+- A flat series fills mid-height rather than collapsing to the baseline, which
+  would read as zero.
 - An empty range yields no row and counts as an omitted chart.
 
-Block glyphs are text, so `SA-1` (no animation) and `IU-1` (no images) still
-hold.
+**Emoji are badges, not pixels.** Because emoji advance widths are not fixed,
+they may only appear at the end of a line, where alignment does not matter:
+
+| State | Badge |
+|---|---|
+| `Nominal` | 🟢 |
+| `Warning` | 🟡 |
+| `Critical` | 🔴 |
+| `No data` | ⚪ |
 
 ### Tabs
 

@@ -29,11 +29,11 @@ object CarProjector {
         /** True when the last successful fetch is older than the refresh budget. */
         val stale: Boolean = false,
         /**
-         * A text sparkline (C-010): one of the [SPARK] characters per sample, or
-         * null when the panel has no range data. Charts cannot be drawn in a car
-         * template, so this is the only shape available.
+         * A braille raster (C-010): [SPARK_LINES] strings of [SPARK_WIDTH]
+         * characters, or empty when the panel has no range data. Charts cannot
+         * be drawn in a car template, so this is the only shape available.
          */
-        val spark: String? = null,
+        val sparkLines: List<String> = emptyList(),
     )
 
     /** One car tab: a title and the rows it holds. */
@@ -192,33 +192,67 @@ object CarProjector {
      */
     private fun sparkRows(panel: PanelRef, series: List<Series>, stale: Boolean): List<Row> =
         series.take(MAX_SERIES).mapNotNull { item ->
-            val spark = sparkline(item.values) ?: return@mapNotNull null
+            val raster = braille(item.values) ?: return@mapNotNull null
             val value = calculation(item.values, panel.calculation)
             val formatted = formatValue(value, panel.format)
             val label = rowLabel(panel.title, item.labels, series.size)
-            Row(label, formatted, thresholdState(value, panel.thresholds), stale, spark)
+            Row(label, formatted, thresholdState(value, panel.thresholds), stale, raster)
         }
 
-    /** Block characters from low to high; [SPARK] has one glyph per bucket. */
-    val SPARK = charArrayOf('▁', '▂', '▃', '▄', '▅', '▆', '▇', '█')
+    /**
+     * Braille dot bit per cell, indexed by (row, column). Unicode braille packs a
+     * 2-wide by 4-tall grid into one code point, which makes it the densest
+     * fixed-width glyph available for ASCII art (C-010).
+     *
+     * Measured on the car host font: braille advances 22.00 px for every glyph
+     * (fixed), blocks 23.00 (fixed), emoji 30/33/40 (NOT fixed).
+     */
+    private val BRAILLE_DOTS = arrayOf(
+        intArrayOf(0x01, 0x08),
+        intArrayOf(0x02, 0x10),
+        intArrayOf(0x04, 0x20),
+        intArrayOf(0x40, 0x80),
+    )
 
-    /** Width of a sparkline in characters; fits a car row next to its value. */
+    /** Braille raster width in characters; each character is 2 dot columns. */
     const val SPARK_WIDTH = 24
 
+    /** Rows per line: braille gives 4 dot rows, and a CAL row allows 2 text lines. */
+    const val SPARK_LINES = 2
+    const val SPARK_DOT_ROWS = 4
+
     /**
-     * Render [values] as a fixed-width text sparkline. The range is bucketed into
-     * [SPARK_WIDTH] equal slices and each slice is averaged, so a long range
-     * keeps its shape. A flat series renders mid-height rather than collapsing
-     * to the baseline, which would look like zero. Null when there is no data.
+     * Status badge, not a graph pixel. Emoji advance widths are NOT fixed
+     * (measured 30/33/40 px), so they can only sit at the end of a line where
+     * alignment does not matter. Never use them inside a raster.
      */
-    fun sparkline(values: List<Double>, width: Int = SPARK_WIDTH): String? {
+    fun stateBadge(state: String): String = when (state) {
+        "Critical" -> "\uD83D\uDD34" // red circle
+        "Warning" -> "\uD83D\uDFE1" // orange circle
+        "No data" -> "\u26AA" // white circle
+        else -> "\uD83D\uDFE2" // green circle
+    }
+
+    /**
+     * Render [values] as a fixed-width braille raster, returned as
+     * [SPARK_LINES] strings of [SPARK_WIDTH] characters.
+     *
+     * Each line is [SPARK_DOT_ROWS] dot rows tall, so the full plot is
+     * `SPARK_WIDTH * 2` by `SPARK_DOT_ROWS * SPARK_LINES` dots — 48 x 8. The
+     * range is bucketed per dot column and averaged, so a long range keeps its
+     * shape. A flat series fills mid-height rather than collapsing to the
+     * baseline, which would read as zero. Null when there is no data.
+     */
+    fun braille(values: List<Double>, width: Int = SPARK_WIDTH): List<String>? {
         val finite = values.filter { it.isFinite() }
         if (finite.isEmpty() || width <= 0) return null
 
-        val buckets = ArrayList<Double>(width)
-        for (slot in 0 until width) {
-            val start = slot * finite.size / width
-            val end = maxOf(start + 1, (slot + 1) * finite.size / width)
+        val dotColumns = width * 2
+        val dotRows = SPARK_DOT_ROWS * SPARK_LINES
+        val buckets = ArrayList<Double>(dotColumns)
+        for (slot in 0 until dotColumns) {
+            val start = slot * finite.size / dotColumns
+            val end = maxOf(start + 1, (slot + 1) * finite.size / dotColumns)
             val slice = finite.subList(start.coerceAtMost(finite.size), end.coerceAtMost(finite.size))
             buckets.add(if (slice.isEmpty()) finite.last() else slice.average())
         }
@@ -226,16 +260,36 @@ object CarProjector {
         val low = buckets.min()
         val high = buckets.max()
         val span = high - low
-        val builder = StringBuilder(width)
-        for (bucket in buckets) {
+
+        // Fill a cell when its dot row is at or below the series level, so the
+        // plot reads as a filled area rather than a scatter of isolated dots.
+        fun filled(column: Int, rowFromTop: Int): Boolean {
             val level = if (span <= 0.0) {
-                SPARK.size / 2
+                (dotRows - 1) / 2
             } else {
-                (((bucket - low) / span) * (SPARK.size - 1)).toInt().coerceIn(0, SPARK.size - 1)
+                (((buckets[column] - low) / span) * (dotRows - 1)).toInt().coerceIn(0, dotRows - 1)
             }
-            builder.append(SPARK[level])
+            return rowFromTop >= dotRows - 1 - level
         }
-        return builder.toString()
+
+        val lines = ArrayList<String>(SPARK_LINES)
+        for (line in 0 until SPARK_LINES) {
+            val builder = StringBuilder(width)
+            for (cell in 0 until width) {
+                var bits = 0
+                for (dotRow in 0 until SPARK_DOT_ROWS) {
+                    val absoluteRow = line * SPARK_DOT_ROWS + dotRow
+                    for (dotColumn in 0 until 2) {
+                        val column = cell * 2 + dotColumn
+                        if (filled(column, absoluteRow)) bits = bits or BRAILLE_DOTS[dotRow][dotColumn]
+                    }
+                }
+                // U+2800 is the empty braille cell; a blank is not the same glyph.
+                builder.append(if (bits == 0) ' ' else (0x2800 + bits).toChar())
+            }
+            lines.add(builder.toString())
+        }
+        return lines
     }
 
     /** `instance · title` when there is more than one series, else the panel title. */
