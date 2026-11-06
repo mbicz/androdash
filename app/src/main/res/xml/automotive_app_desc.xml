@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Android Auto capability declaration (C-010). CAL apps must declare
+  <uses name="template"/>; without it Android Auto logs
+  "Package DENIED; Uses for TEMPLATE not defined" and never launches the app.
+-->
+<automotiveApp>
+    <uses name="template" />
+</automotiveApp>

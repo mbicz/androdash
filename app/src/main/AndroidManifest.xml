@@ -13,6 +13,13 @@
          Wi-Fi RSSI/link speed (normal permissions; never location). -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <!-- C-010: AAOS apps require a template host to render. -->
+    <uses-feature
+        android:name="android.software.car.templates_host"
+        android:required="true" />
+    <uses-feature
+        android:name="android.hardware.type.automotive"
+        android:required="false" />
 
     <application
         android:allowBackup="false"
@@ -44,6 +51,57 @@
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="Runs a local Prometheus that scrapes LAN exporters on loopback for the on-device dashboard" />
         </service>
+
+        <!-- C-010: Android Auto templated app, IOT category. CAL grants templates
+             only; no drawing surface is requested or available to this category. -->
+        <meta-data
+            android:name="com.google.android.gms.car.application"
+            android:resource="@xml/automotive_app_desc" />
+        <!-- AAOS declaration (app-automotive): the Templates Host reads this. -->
+        <meta-data
+            android:name="com.android.automotive"
+            android:resource="@xml/automotive_app_desc" />
+        <meta-data
+            android:name="androidx.car.app.minCarApiLevel"
+            android:value="1" />
+        <!-- app-automotive and app-projected both declare a CAR_HARDWARE_MANAGER
+             value on CarAppMetadataHolderService; the automotive one is correct
+             when both artifacts are present, so override inside the service. -->
+        <service
+            android:name="androidx.car.app.CarAppMetadataHolderService"
+            android:enabled="false"
+            android:exported="false"
+            tools:ignore="Instantiatable"
+            tools:node="merge">
+            <meta-data
+                android:name="androidx.car.app.CarAppMetadataHolderService.CAR_HARDWARE_MANAGER"
+                android:value="androidx.car.app.hardware.AutomotiveCarHardwareManager"
+                tools:replace="android:value" />
+        </service>
+        <service
+            android:name=".car.AndroDashCarService"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="androidx.car.app.CarAppService" />
+                <category android:name="androidx.car.app.category.IOT" />
+            </intent-filter>
+        </service>
+        <!-- AAOS entry point from androidx.car.app:app-automotive (C-010). -->
+        <activity
+            android:name="androidx.car.app.activity.CarAppActivity"
+            android:exported="true"
+            android:label="@string/app_name"
+            android:launchMode="singleTask"
+            android:theme="@android:style/Theme.DeviceDefault.NoActionBar"
+            tools:ignore="Instantiatable">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <meta-data
+                android:name="distractionOptimized"
+                android:value="true" />
+        </activity>
     </application>
 
 </manifest>

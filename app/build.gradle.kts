@@ -211,7 +211,8 @@ android {
 
     defaultConfig {
         applicationId = "com.mbicz.androdash"
-        minSdk = 26
+        // C-010: androidx.car.app:app-automotive requires API 29 (decision 0033).
+        minSdk = 29
         targetSdk = 35
         versionCode = 1
         versionName = "0.1.0"
@@ -275,6 +276,12 @@ kotlin {
 }
 
 dependencies {
+    // C-010: Android for Cars App Library (templates only, IOT category).
+    implementation("androidx.car.app:app:1.7.0")
+    implementation("androidx.car.app:app-projected:1.7.0")
+    // AAOS entry point (CarAppActivity) lives in app-automotive.
+    implementation("androidx.car.app:app-automotive:1.7.0")
+
     testImplementation("junit:junit:4.13.2")
     // android.jar's org.json is a stub on the JVM; AppConfig persistence tests need the real one.
     testImplementation("org.json:json:20260814")
