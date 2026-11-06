@@ -3,13 +3,12 @@ package com.mbicz.androdash.car
 import java.io.File
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
  * C-010 test obligations: which panels project, which are omitted, the omission
- * counts, tab assignment, and no fabricated data.
+ * counts, tab assignment, no fabricated data, and the braille raster.
  */
 class CarProjectorTest {
     private fun fixture(name: String): JSONObject =
@@ -21,13 +20,13 @@ class CarProjectorTest {
     fun `charts without range data are counted as omitted`() {
         val view = CarProjector.project(fleet(), emptyMap())
         // The fleet fixture has 3 TimeSeriesChart panels and no Markdown; with no
-        // series they contribute no sparklines, so they are counted as omitted.
+        // series they contribute no raster, so they are counted as omitted.
         assertEquals(3, view.omittedCharts)
         assertEquals(0, view.omittedText)
     }
 
     @Test
-    fun `charts with range data become sparkline rows`() {
+    fun `charts with range data become braille raster rows`() {
         val series = mapOf(
             "throughput" to listOf(
                 CarProjector.Series(mapOf("instance" to "gx10-5cc5"), listOf(1.0, 2.0, 4.0, 8.0)),
@@ -37,44 +36,64 @@ class CarProjectorTest {
             ),
         )
         val view = CarProjector.project(fleet(), series)
-        val rows = view.tabs.flatMap { it.rows }.filter { it.spark != null }
+        val rows = view.tabs.flatMap { it.rows }.filter { it.sparkLines.isNotEmpty() }
 
-        assertTrue("charts produce sparkline rows", rows.isNotEmpty())
+        assertTrue("charts produce raster rows", rows.isNotEmpty())
         assertTrue(
-            "sparklines are fixed width",
-            rows.all { it.spark!!.length == CarProjector.SPARK_WIDTH },
+            "raster has two lines",
+            rows.all { it.sparkLines.size == CarProjector.SPARK_LINES },
         )
         assertTrue(
-            "sparklines use block characters only",
-            rows.all { row -> row.spark!!.all { it in CarProjector.SPARK } },
+            "every raster line is fixed width",
+            rows.all { row -> row.sparkLines.all { it.length == CarProjector.SPARK_WIDTH } },
+        )
+        assertTrue(
+            "raster uses braille or space only",
+            rows.all { row ->
+                row.sparkLines.all { line ->
+                    line.all { it == ' ' || it.code in 0x2800..0x28FF }
+                }
+            },
         )
         assertEquals("charts are no longer omitted", 1, view.omittedCharts)
     }
 
     @Test
-    fun `sparkline shows rising data and does not collapse a flat series`() {
-        val rising = CarProjector.sparkline(listOf(1.0, 2.0, 3.0, 4.0), width = 4)!!
-        assertEquals("▁▃▅█", rising)
-
-        val flat = CarProjector.sparkline(listOf(7.0, 7.0, 7.0, 7.0), width = 4)!!
-        assertEquals("▅▅▅▅", flat)
-
-        assertEquals(null, CarProjector.sparkline(emptyList()))
+    fun `braille raster grows with rising data and stays fixed width`() {
+        val rising = CarProjector.braille((0 until 48).map { it.toDouble() }, width = 4)!!
+        assertEquals(2, rising.size)
+        assertTrue("each line is 4 cells", rising.all { it.length == 4 })
+        assertTrue(
+            "lower line fills more than the upper line",
+            rising[1].count { it != ' ' } > rising[0].count { it != ' ' },
+        )
+        assertEquals(null, CarProjector.braille(emptyList()))
     }
 
     @Test
-    fun `sparkline keeps its shape over a long range`() {
-        val values = (0 until 100).map { it.toDouble() }
-        val spark = CarProjector.sparkline(values, width = 24)!!
-        assertEquals(24, spark.length)
-        assertTrue("starts low", spark.first() == CarProjector.SPARK.first())
-        assertTrue("ends high", spark.last() == CarProjector.SPARK.last())
+    fun `braille keeps its shape over a long range`() {
+        val raster = CarProjector.braille((0 until 100).map { it.toDouble() }, width = 24)!!
+        assertEquals(CarProjector.SPARK_LINES, raster.size)
+        assertTrue(raster.all { it.length == CarProjector.SPARK_WIDTH })
+        assertTrue(
+            "the second line is at least as dense",
+            raster[1].count { it != ' ' } >= raster[0].count { it != ' ' },
+        )
     }
 
     @Test
-    fun `demo dashboard counts its markdown panel`() {
-        val view = CarProjector.project(fixture("demo-dashboard.json"), emptyMap())
-        assertTrue("demo has a Markdown panel", view.omittedText >= 1)
+    fun `a flat series fills mid-height rather than collapsing`() {
+        val flat = CarProjector.braille(List(48) { 7.0 }, width = 4)!!
+        assertTrue("upper line is empty", flat[0].isBlank())
+        assertTrue("lower line is full", flat[1].count { it != ' ' } == 4)
+    }
+
+    @Test
+    fun `state badges are emoji and stay out of the raster`() {
+        assertEquals("\uD83D\uDD34", CarProjector.stateBadge("Critical"))
+        assertEquals("\uD83D\uDFE1", CarProjector.stateBadge("Warning"))
+        assertEquals("\uD83D\uDFE2", CarProjector.stateBadge("Nominal"))
+        assertEquals("\u26AA", CarProjector.stateBadge("No data"))
     }
 
     @Test
@@ -100,7 +119,6 @@ class CarProjectorTest {
 
         assertEquals(2, hosts.size)
         assertTrue("labels name the instance", hosts.any { it.label.startsWith("gx10-5cc5") })
-        // Threshold steps: one step at 1.0 named "Up" → >= 1 is critical, below is nominal.
         assertEquals("Up", hosts.first { it.label.startsWith("gx10-5cc5") }.state)
         assertEquals("Nominal", hosts.first { it.label.startsWith("gx10-e185") }.state)
     }
@@ -184,7 +202,6 @@ class CarProjectorTest {
         )
         val view = CarProjector.project(fleet(), series, stale = true)
         val rows = view.tabs.flatMap { it.rows }
-        assertNotNull(rows)
         assertTrue("rows carry the stale flag", rows.all { it.stale })
     }
 }

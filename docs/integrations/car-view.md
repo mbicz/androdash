@@ -15,7 +15,7 @@ Contract: [C-010](../contracts/C-010-car-projection.md). Decision:
 | `StatChart` | `label · value unit · state` |
 | `GaugeChart` | `label · value% · state` |
 | `Table` | `label · value` |
-| `TimeSeriesChart` | `label · last value` + a 24-char text sparkline (`▁▂▃▄▅▆▇█`) |
+| `TimeSeriesChart` | 48×8-dot **braille raster** over two lines, plus last value and state badge |
 | `Markdown` | **omitted**, counted |
 
 Every omitted panel is counted and reported in the action strip ("3 chart(s)
@@ -92,18 +92,20 @@ projected 7 panels / 5 series:
 
 ```
 Fleet / Inference
-Inference hosts           1 · Up
-Temperatures              50 °C · Nominal
-Memory pressure           30% · Nominal
-GPU utilization           57% · Nominal
-KV cache                  58% · Nominal
-spark-gb10 · Output tok/s 4.1K tok/s · Nominal
-                           ▁▁▂▃▄▄▅▆▇█   ← text sparkline
+Inference hosts           1 · Up 🟢
+Temperatures              52 °C · Nominal 🟢
+Memory pressure           27% · Nominal 🟢
+GPU utilization           60% · Nominal 🟢
+KV cache                  61% · Nominal 🟢
+spark-gb10 · Output tok/s
+⣶⣦⣄⡀         ⣀⣤⣶⣶⣷⣶⣦⣄
+⣿⣿⣿⣿⣷⣤⣀⣀⣀⣀⣠⣴⣾⣿⣿⣿⣿⣿⣿⣿⣿⣿⣦⣄   3.2K tok/s 🟢
 ```
 
-A sparkline is the shape of the range in block characters, e.g. rising
-`▁▁▂▃▄▄▅▆▇█`, falling `█▇▆▅▄▄▃▂▁▁`, flat `▅▅▅▅▅▅▅▅▅▅`. Charts cannot be drawn in a
-car template, so this is the closest honest rendering.
+The raster is braille: each character is a 2×4 dot cell, so 24 characters over
+two lines is a **48×8 dot plot**. Braille and block glyphs are fixed-width on
+the car font (measured 22.00 and 23.00 px); emoji are **not** (30/33/40 px), so
+they are only used as trailing status badges, never as graph pixels.
 
 `Model lanes` is `No data` because no inference engine is scraped in that setup —
 correct behaviour, not a placeholder.
