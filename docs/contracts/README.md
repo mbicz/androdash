@@ -22,6 +22,7 @@ here, add a contract change and a `changelog.d` entry first.
 | C-007 | [Kiosk and lifecycle](C-007-kiosk-lifecycle.md) | 6 | W1 | — |
 | C-008 | [WebView security](C-008-webview-security.md) | 3 | W1, W2 | — |
 | C-009 | [Diagnostics and errors](C-009-diagnostics.md) | 1 | W1, W2 | `contracts/diagnostics.schema.json`, `fixtures/diagnostics.example.json` |
+| C-010 | [Car projection](C-010-car-projection.md) | 1 | W1 | `fixtures/inference-fleet-dashboard.json`, `fixtures/demo-dashboard.json` |
 
 ## How to read a contract
 

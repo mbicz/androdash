@@ -33,6 +33,7 @@ If you are new, read [`AGENTS.md`](../AGENTS.md) first.
 | [`integrations/phone-exporter.md`](integrations/phone-exporter.md) | Which phone metrics does the in-app exporter serve to the on-phone collector? |
 | [`integrations/inference-fleet.md`](integrations/inference-fleet.md) | Which panels put both GX10s and the Mac on one page, and what do they read? |
 | [`plans/car-screen.md`](plans/car-screen.md) | Can the dashboard run on an Android Auto screen, and what does the Car App Library actually allow? |
+| [`integrations/car-view.md`](integrations/car-view.md) | What does the car screen actually show, and how is it verified in the Desktop Head Unit? |
 
 ## Contracts
 
@@ -49,6 +50,7 @@ The index is [`contracts/README.md`](contracts/README.md).
 | C-007 | [Kiosk and lifecycle](contracts/C-007-kiosk-lifecycle.md) |
 | C-008 | [WebView security](contracts/C-008-webview-security.md) |
 | C-009 | [Diagnostics and errors](contracts/C-009-diagnostics.md) |
+| C-010 | [Car projection](contracts/C-010-car-projection.md) |
 
 ## Process
 
