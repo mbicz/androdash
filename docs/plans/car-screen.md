@@ -122,10 +122,65 @@ each dashboard row to a tab (reading order preserved), and a tab whose content
 exceeds the host's limit spills into the next tab rather than truncating
 silently. That is a paging rule with a contract, not free-form swipe geometry.
 
+## Getting onto a real car
+
+This is the part that determines whether the whole plan is worth starting.
+
+**A Play Console account is required before you can test on a real car.** There
+is no free path. Verified:
+
+| Step | Cost | Notes |
+|---|---|---|
+| Play Console registration | US$25 one-time | Personal or organization; no renewal |
+| Identity verification | free | Government ID + card in the same legal name; **fee is not refunded if verification fails** |
+| Device verification (personal accounts) | free | Must verify an Android device via the Play Console mobile app |
+| Closed test before production (personal accounts created after 2023-11-13) | free | **12 testers opted in continuously for 14 days**, then apply for production access |
+| Android Auto form factor | free | Opt in under **Advanced settings → Form factors**; requires an artifact on a testing track |
+
+**Internal testing reaches real cars and skips review entirely.** Google's
+distribution page gives the review impact per track:
+
+| Track | Car form-factor review |
+|---|---|
+| Internal app sharing (Android Auto only) | **None** |
+| Internal testing | **None** |
+| Closed testing | Non-blocking (warned, still approved) |
+| Open testing | Blocking |
+| Production | Blocking |
+
+So the minimal route to a real car is: register, verify identity, upload a
+release-signed AAB/APK to internal app sharing (or an internal test track), enable
+"Internal app sharing" in Play Store settings on the phone (tap the Play Store
+version 7 times), install from the link, connect to the car. **No car review, no
+12 testers, no production access.**
+
+Consequences worth stating plainly:
+
+- **You do not need production access to see the dashboard in your own car.**
+  The 12-tester/14-day rule gates only *public* distribution. It does not gate
+  internal testing or internal app sharing.
+- **You do not need a car review to iterate.** Internal testing is exempt from
+  form-factor review, so an IoT-category build can be tested on hardware without
+  passing the `IT-1` judgement first. Review only becomes blocking when you
+  promote to open testing or production.
+- **Internal app sharing artifacts are re-signed by Google** with a per-app
+  internal key, and links expire after 60 days / 100 downloads. Fine for a
+  personal test loop, not for a distribution channel.
+- **`adb install` alone is not enough.** Sideloaded CAL apps appear in the DHU
+  but not in a real car launcher — confirmed by Google's testing doc ("Allow
+  unknown sources" does not apply to CAL apps) and by a 2026 field report where
+  DHU worked and the real car did not until internal app sharing was used.
+
+**Recommendation:** register the account. US$25 is the entire entry cost, the
+identity check is one-time, and without it there is no way to test on a real car
+at all. But register *before* writing the car code, not after — the verification
+can take days, and it is the only long-lead item in the plan.
+
 ## What must be decided before code
 
-1. **Distribution.** Without Play (internal test track) this cannot run on a real
-   car at all. Decide whether that is acceptable before building anything.
+1. **Distribution.** A Play Console account is required even to *test* on a real
+   car — see "Getting onto a real car" above. Decide whether to spend the US$25
+   and the identity verification before building anything.
 2. **Content contract.** A car projection is a *different rendering target* for
    the same dashboard. It needs its own contract (call it C-010) defining which
    panel kinds project to which template, how numbers are formatted for glance
