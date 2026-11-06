@@ -139,12 +139,19 @@ class AndroDashCarScreen(carContext: CarContext) : Screen(carContext) {
         val shown = tab.rows.take(limit)
         val items = ItemList.Builder()
         for (row in shown) {
-            items.addItem(
-                Row.Builder()
-                    .setTitle(CarText.create(row.label))
-                    .addText("${row.value} · ${row.state}${if (row.stale) " · stale" else ""}")
-                    .build(),
-            )
+            val detail = buildString {
+                append(row.value)
+                append(" · ")
+                append(row.state)
+                if (row.stale) append(" · stale")
+            }
+            val item = Row.Builder()
+                .setTitle(CarText.create(row.label))
+                .addText(detail)
+            // A chart cannot be drawn in a template, so its shape is a text
+            // sparkline on a second line (C-010).
+            row.spark?.let { item.addText(it) }
+            items.addItem(item.build())
         }
         builder.setSingleList(items.build())
 
@@ -247,7 +254,7 @@ class AndroDashCarScreen(carContext: CarContext) : Screen(carContext) {
                 ?.optJSONObject("plugin")
                 ?.optString("kind")
                 ?: continue
-            if (kind != "StatChart" && kind != "GaugeChart" && kind != "Table") continue
+            if (kind != "StatChart" && kind != "GaugeChart" && kind != "Table" && kind != "TimeSeriesChart") continue
 
             val query = panel.optJSONObject("spec")
                 ?.optJSONArray("queries")

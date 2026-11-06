@@ -28,6 +28,12 @@ object CarProjector {
         val state: String,
         /** True when the last successful fetch is older than the refresh budget. */
         val stale: Boolean = false,
+        /**
+         * A text sparkline (C-010): one of the [SPARK] characters per sample, or
+         * null when the panel has no range data. Charts cannot be drawn in a car
+         * template, so this is the only shape available.
+         */
+        val spark: String? = null,
     )
 
     /** One car tab: a title and the rows it holds. */
@@ -65,6 +71,7 @@ object CarProjector {
         val panels = panelsInReadingOrder(dashboard)
         val statRows = ArrayList<Row>()
         val gaugeRows = ArrayList<Row>()
+        val chartRows = ArrayList<Row>()
         val tableRows = ArrayList<Row>()
         var omittedCharts = 0
         var omittedText = 0
@@ -73,7 +80,13 @@ object CarProjector {
         for (panel in panels) {
             val kind = panel.panelKind
             when {
-                kind == "TimeSeriesChart" -> omittedCharts++
+                kind == "TimeSeriesChart" -> {
+                    // A chart cannot be drawn in a template, but its shape can be
+                    // shown as a text sparkline, which is honest and glanceable.
+                    val rows = sparkRows(panel, seriesByPanel[panel.id].orEmpty(), stale)
+                    if (rows.isEmpty() && seriesByPanel.containsKey(panel.id)) failedPanels++
+                    if (rows.isEmpty()) omittedCharts++ else chartRows.addAll(rows)
+                }
                 kind == "Markdown" -> omittedText++
                 kind == "StatChart" || kind == "GaugeChart" -> {
                     val rows = valueRows(panel, seriesByPanel[panel.id].orEmpty(), stale)
@@ -91,7 +104,7 @@ object CarProjector {
             }
         }
 
-        val ordered = statRows + gaugeRows
+        val ordered = statRows + gaugeRows + chartRows
         val (tabs, spilled) = packTabs(ordered, tableRows)
 
         return CarView(
@@ -169,6 +182,60 @@ object CarProjector {
             val label = rowLabel(panel.title, item.labels, series.size)
             Row(label, formatted, thresholdState(value, null), stale)
         }
+    }
+
+    /**
+     * Time-series rows: one per series, with a text sparkline of the range and
+     * the last value. A chart cannot be drawn in a CAL template (C-010), so this
+     * is the shape the car gets. An empty range yields no rows, which the caller
+     * counts as an omitted chart.
+     */
+    private fun sparkRows(panel: PanelRef, series: List<Series>, stale: Boolean): List<Row> =
+        series.take(MAX_SERIES).mapNotNull { item ->
+            val spark = sparkline(item.values) ?: return@mapNotNull null
+            val value = calculation(item.values, panel.calculation)
+            val formatted = formatValue(value, panel.format)
+            val label = rowLabel(panel.title, item.labels, series.size)
+            Row(label, formatted, thresholdState(value, panel.thresholds), stale, spark)
+        }
+
+    /** Block characters from low to high; [SPARK] has one glyph per bucket. */
+    val SPARK = charArrayOf('▁', '▂', '▃', '▄', '▅', '▆', '▇', '█')
+
+    /** Width of a sparkline in characters; fits a car row next to its value. */
+    const val SPARK_WIDTH = 24
+
+    /**
+     * Render [values] as a fixed-width text sparkline. The range is bucketed into
+     * [SPARK_WIDTH] equal slices and each slice is averaged, so a long range
+     * keeps its shape. A flat series renders mid-height rather than collapsing
+     * to the baseline, which would look like zero. Null when there is no data.
+     */
+    fun sparkline(values: List<Double>, width: Int = SPARK_WIDTH): String? {
+        val finite = values.filter { it.isFinite() }
+        if (finite.isEmpty() || width <= 0) return null
+
+        val buckets = ArrayList<Double>(width)
+        for (slot in 0 until width) {
+            val start = slot * finite.size / width
+            val end = maxOf(start + 1, (slot + 1) * finite.size / width)
+            val slice = finite.subList(start.coerceAtMost(finite.size), end.coerceAtMost(finite.size))
+            buckets.add(if (slice.isEmpty()) finite.last() else slice.average())
+        }
+
+        val low = buckets.min()
+        val high = buckets.max()
+        val span = high - low
+        val builder = StringBuilder(width)
+        for (bucket in buckets) {
+            val level = if (span <= 0.0) {
+                SPARK.size / 2
+            } else {
+                (((bucket - low) / span) * (SPARK.size - 1)).toInt().coerceIn(0, SPARK.size - 1)
+            }
+            builder.append(SPARK[level])
+        }
+        return builder.toString()
     }
 
     /** `instance · title` when there is more than one series, else the panel title. */

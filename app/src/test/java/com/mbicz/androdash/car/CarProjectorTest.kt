@@ -18,11 +18,57 @@ class CarProjectorTest {
     private fun fleet(): JSONObject = fixture("inference-fleet-dashboard.json")
 
     @Test
-    fun `charts and markdown are omitted and counted`() {
+    fun `charts without range data are counted as omitted`() {
         val view = CarProjector.project(fleet(), emptyMap())
-        // The fleet fixture has 3 TimeSeriesChart panels and no Markdown.
+        // The fleet fixture has 3 TimeSeriesChart panels and no Markdown; with no
+        // series they contribute no sparklines, so they are counted as omitted.
         assertEquals(3, view.omittedCharts)
         assertEquals(0, view.omittedText)
+    }
+
+    @Test
+    fun `charts with range data become sparkline rows`() {
+        val series = mapOf(
+            "throughput" to listOf(
+                CarProjector.Series(mapOf("instance" to "gx10-5cc5"), listOf(1.0, 2.0, 4.0, 8.0)),
+            ),
+            "power" to listOf(
+                CarProjector.Series(mapOf("instance" to "gx10-5cc5"), listOf(5.0, 5.0, 5.0)),
+            ),
+        )
+        val view = CarProjector.project(fleet(), series)
+        val rows = view.tabs.flatMap { it.rows }.filter { it.spark != null }
+
+        assertTrue("charts produce sparkline rows", rows.isNotEmpty())
+        assertTrue(
+            "sparklines are fixed width",
+            rows.all { it.spark!!.length == CarProjector.SPARK_WIDTH },
+        )
+        assertTrue(
+            "sparklines use block characters only",
+            rows.all { row -> row.spark!!.all { it in CarProjector.SPARK } },
+        )
+        assertEquals("charts are no longer omitted", 1, view.omittedCharts)
+    }
+
+    @Test
+    fun `sparkline shows rising data and does not collapse a flat series`() {
+        val rising = CarProjector.sparkline(listOf(1.0, 2.0, 3.0, 4.0), width = 4)!!
+        assertEquals("▁▃▅█", rising)
+
+        val flat = CarProjector.sparkline(listOf(7.0, 7.0, 7.0, 7.0), width = 4)!!
+        assertEquals("▅▅▅▅", flat)
+
+        assertEquals(null, CarProjector.sparkline(emptyList()))
+    }
+
+    @Test
+    fun `sparkline keeps its shape over a long range`() {
+        val values = (0 until 100).map { it.toDouble() }
+        val spark = CarProjector.sparkline(values, width = 24)!!
+        assertEquals(24, spark.length)
+        assertTrue("starts low", spark.first() == CarProjector.SPARK.first())
+        assertTrue("ends high", spark.last() == CarProjector.SPARK.last())
     }
 
     @Test
