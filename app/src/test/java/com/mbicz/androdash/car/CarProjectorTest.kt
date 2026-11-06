@@ -26,7 +26,7 @@ class CarProjectorTest {
     }
 
     @Test
-    fun `charts with range data become braille raster rows`() {
+    fun `charts with range data become sparkline rows`() {
         val series = mapOf(
             "throughput" to listOf(
                 CarProjector.Series(mapOf("instance" to "gx10-5cc5"), listOf(1.0, 2.0, 4.0, 8.0)),
@@ -36,60 +36,57 @@ class CarProjectorTest {
             ),
         )
         val view = CarProjector.project(fleet(), series)
-        val rows = view.tabs.flatMap { it.rows }.filter { it.sparkLines.isNotEmpty() }
+        val rows = view.tabs.flatMap { it.rows }.filter { it.spark != null }
 
-        assertTrue("charts produce raster rows", rows.isNotEmpty())
+        assertTrue("charts produce sparkline rows", rows.isNotEmpty())
         assertTrue(
-            "raster has two lines",
-            rows.all { it.sparkLines.size == CarProjector.SPARK_LINES },
+            "sparkline is fixed width",
+            rows.all { it.spark!!.length == CarProjector.SPARK_WIDTH },
         )
         assertTrue(
-            "every raster line is fixed width",
-            rows.all { row -> row.sparkLines.all { it.length == CarProjector.SPARK_WIDTH } },
-        )
-        assertTrue(
-            "raster uses braille or space only",
-            rows.all { row ->
-                row.sparkLines.all { line ->
-                    line.all { it == ' ' || it.code in 0x2800..0x28FF }
-                }
-            },
+            "sparkline uses blocks only (a space would break alignment)",
+            rows.all { row -> row.spark!!.all { it in CarProjector.SPARK } },
         )
         assertEquals("charts are no longer omitted", 1, view.omittedCharts)
     }
 
     @Test
-    fun `braille raster grows with rising data and stays fixed width`() {
-        val rising = CarProjector.braille((0 until 48).map { it.toDouble() }, width = 4)!!
-        assertEquals(2, rising.size)
-        assertTrue("each line is 4 cells", rising.all { it.length == 4 })
-        assertTrue(
-            "lower line fills more than the upper line",
-            rising[1].count { it != ' ' } > rising[0].count { it != ' ' },
-        )
-        assertEquals(null, CarProjector.braille(emptyList()))
+    fun `sparkline never emits a space or empty cell`() {
+        // Regression: spaces advance 8.00 px while blocks advance 23.00 px, so a
+        // blank shifted every following cell and the row drifted left.
+        for (values in listOf(
+            listOf(1.0, 2.0, 3.0),
+            listOf(1.0, 1.0, 1.0),
+            List(100) { it.toDouble() },
+        )) {
+            val spark = CarProjector.sparkline(values)!!
+            assertTrue("no spaces in $spark", spark.none { it == ' ' })
+            assertTrue("all blocks in $spark", spark.all { it in CarProjector.SPARK })
+            assertEquals(CarProjector.SPARK_WIDTH, spark.length)
+        }
     }
 
     @Test
-    fun `braille keeps its shape over a long range`() {
-        val raster = CarProjector.braille((0 until 100).map { it.toDouble() }, width = 24)!!
-        assertEquals(CarProjector.SPARK_LINES, raster.size)
-        assertTrue(raster.all { it.length == CarProjector.SPARK_WIDTH })
-        assertTrue(
-            "the second line is at least as dense",
-            raster[1].count { it != ' ' } >= raster[0].count { it != ' ' },
-        )
+    fun `sparkline shows rising data and keeps a flat series mid-height`() {
+        val rising = CarProjector.sparkline(listOf(1.0, 2.0, 3.0, 4.0), width = 4)!!
+        assertEquals("\u2581\u2583\u2585\u2588", rising)
+
+        val flat = CarProjector.sparkline(listOf(7.0, 7.0, 7.0, 7.0), width = 4)!!
+        assertEquals("\u2585\u2585\u2585\u2585", flat)
+
+        assertEquals(null, CarProjector.sparkline(emptyList()))
     }
 
     @Test
-    fun `a flat series fills mid-height rather than collapsing`() {
-        val flat = CarProjector.braille(List(48) { 7.0 }, width = 4)!!
-        assertTrue("upper line is empty", flat[0].isBlank())
-        assertTrue("lower line is full", flat[1].count { it != ' ' } == 4)
+    fun `sparkline keeps its shape over a long range`() {
+        val spark = CarProjector.sparkline((0 until 100).map { it.toDouble() }, width = 24)!!
+        assertEquals(24, spark.length)
+        assertEquals(CarProjector.SPARK.first(), spark.first())
+        assertEquals(CarProjector.SPARK.last(), spark.last())
     }
 
     @Test
-    fun `state badges are emoji and stay out of the raster`() {
+    fun `state badges are emoji and stay out of the sparkline`() {
         assertEquals("\uD83D\uDD34", CarProjector.stateBadge("Critical"))
         assertEquals("\uD83D\uDFE1", CarProjector.stateBadge("Warning"))
         assertEquals("\uD83D\uDFE2", CarProjector.stateBadge("Nominal"))
