@@ -1,6 +1,7 @@
 package com.mbicz.androdash.car
 
 import java.io.File
+import kotlin.math.roundToInt
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -83,14 +84,6 @@ class CarProjectorTest {
         assertEquals(24, spark.length)
         assertEquals(CarProjector.SPARK.first(), spark.first())
         assertEquals(CarProjector.SPARK.last(), spark.last())
-    }
-
-    @Test
-    fun `state badges are emoji and stay out of the sparkline`() {
-        assertEquals("\uD83D\uDD34", CarProjector.stateBadge("Critical"))
-        assertEquals("\uD83D\uDFE1", CarProjector.stateBadge("Warning"))
-        assertEquals("\uD83D\uDFE2", CarProjector.stateBadge("Nominal"))
-        assertEquals("\u26AA", CarProjector.stateBadge("No data"))
     }
 
     @Test
@@ -200,5 +193,115 @@ class CarProjectorTest {
         val view = CarProjector.project(fleet(), series, stale = true)
         val rows = view.tabs.flatMap { it.rows }
         assertTrue("rows carry the stale flag", rows.all { it.stale })
+    }
+
+    @Test
+    fun `meter bars are fixed width and encode the value`() {
+        // A fixed-width bar is the only way to get a constant right edge: the
+        // car font is proportional, so a padded text column would drift.
+        val empty = CarProjector.meter(0.0)!!
+        val half = CarProjector.meter(50.0)!!
+        val full = CarProjector.meter(100.0)!!
+
+        assertEquals(CarProjector.BAR_WIDTH, empty.length)
+        assertEquals(CarProjector.BAR_WIDTH, half.length)
+        assertEquals(CarProjector.BAR_WIDTH, full.length)
+
+        assertTrue("0% is all track", empty.all { it == CarProjector.BAR_TRACK })
+        assertTrue("100% is all fill", full.all { it == CarProjector.BAR_FILL })
+        assertEquals(
+            "50% fills half the cells, rounded",
+            (CarProjector.BAR_WIDTH / 2.0).roundToInt(),
+            half.count { it == CarProjector.BAR_FILL },
+        )
+        assertTrue(
+            "a bar never contains a space (8 px vs 17 px would drift)",
+            listOf(empty, half, full).all { bar -> bar.none { it == ' ' } },
+        )
+    }
+
+    @Test
+    fun `meter clamps out-of-range values and rejects absent data`() {
+        assertTrue(CarProjector.meter(-40.0)!!.all { it == CarProjector.BAR_TRACK })
+        assertTrue(CarProjector.meter(150.0)!!.all { it == CarProjector.BAR_FILL })
+        assertEquals(null, CarProjector.meter(null))
+        assertEquals(null, CarProjector.meter(Double.NaN))
+    }
+
+    @Test
+    fun `only percent panels get a meter bar`() {
+        val series = mapOf(
+            "gpu-utilization" to listOf(
+                CarProjector.Series(mapOf("instance" to "gx10-5cc5"), listOf(58.0)),
+            ),
+            "temperatures" to listOf(
+                CarProjector.Series(mapOf("instance" to "gx10-5cc5"), listOf(52.0)),
+            ),
+        )
+        val view = CarProjector.project(fleet(), series)
+        val rows = view.tabs.flatMap { it.rows }
+
+        val gpu = rows.first { it.label.contains("GPU") }
+        val temp = rows.first { it.label.contains("Temperatures") }
+
+        assertTrue("a percent value has a real 0..100 scale", gpu.meter != null)
+        // Celsius has no maximum in the dashboard, so a bar would invent one.
+        assertEquals("a celsius value must not get a fabricated scale", null, temp.meter)
+    }
+
+    @Test
+    fun `every row has at most one shape, so the row stays within two lines`() {
+        val series = mapOf(
+            "gpu-utilization" to listOf(
+                CarProjector.Series(mapOf("instance" to "gx10-5cc5"), listOf(58.0)),
+            ),
+            "throughput" to listOf(
+                CarProjector.Series(mapOf("instance" to "gx10-5cc5"), listOf(1.0, 2.0, 3.0)),
+            ),
+        )
+        val view = CarProjector.project(fleet(), series)
+        val rows = view.tabs.flatMap { it.rows }
+        assertTrue(
+            "a row carries a sparkline or a meter, never both",
+            rows.all { it.spark == null || it.meter == null },
+        )
+    }
+
+    @Test
+    fun `severity orders states for a stable sort`() {
+        assertEquals(0, CarProjector.severity("Nominal"))
+        assertEquals(1, CarProjector.severity("No data"))
+        assertEquals(2, CarProjector.severity("Warning"))
+        assertEquals(3, CarProjector.severity("Critical"))
+    }
+
+    @Test
+    fun `severity follows the breach, not the threshold name`() {
+        // Dashboards name their thresholds freely ("Busy", "Tight", "Hot"). A
+        // name-keyed colour map would paint a breached row green, so severity
+        // must come from which threshold the value crossed.
+        val steps = org.json.JSONArray(
+            """[{"value":85,"name":"Busy"},{"value":95,"name":"Saturated"}]""",
+        )
+        assertEquals("below every threshold is nominal", 0, CarProjector.severityFor(50.0, steps))
+        assertEquals("crossing the lower threshold is a warning", 2, CarProjector.severityFor(90.0, steps))
+        assertEquals("crossing the highest threshold is critical", 3, CarProjector.severityFor(97.0, steps))
+        assertEquals("absent data is its own severity", 1, CarProjector.severityFor(null, steps))
+        assertEquals("no thresholds means nominal", 0, CarProjector.severityFor(999.0, null))
+    }
+
+    @Test
+    fun `a breached custom-named row is not nominal`() {
+        // End-to-end guard for the defect: the fleet fixture's gpu threshold is
+        // named "Busy", so a value above 85 must not come back severity 0.
+        val series = mapOf(
+            "gpu-utilization" to listOf(
+                CarProjector.Series(mapOf("instance" to "gx10-5cc5"), listOf(90.0)),
+            ),
+        )
+        val view = CarProjector.project(fleet(), series)
+        val gpu = view.tabs.flatMap { it.rows }.first { it.label.contains("GPU") }
+        assertEquals("Busy", gpu.state)
+        assertEquals("a breached row must not read as nominal", 2, gpu.severity)
     }
 }

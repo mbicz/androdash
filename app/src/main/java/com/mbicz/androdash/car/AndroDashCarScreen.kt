@@ -1,13 +1,17 @@
 package com.mbicz.androdash.car
 
 import android.content.Context
+import android.text.SpannableString
+import android.text.Spanned
 import androidx.car.app.CarContext
 import androidx.car.app.Screen
 import androidx.car.app.constraints.ConstraintManager
 import androidx.car.app.model.Action
 import androidx.car.app.model.ActionStrip
+import androidx.car.app.model.CarColor
 import androidx.car.app.model.CarIcon
 import androidx.car.app.model.CarText
+import androidx.car.app.model.ForegroundCarColorSpan
 import androidx.core.graphics.drawable.IconCompat
 import androidx.car.app.model.Header
 import androidx.car.app.model.ItemList
@@ -139,33 +143,24 @@ class AndroDashCarScreen(carContext: CarContext) : Screen(carContext) {
         val shown = tab.rows.take(limit)
         val items = ItemList.Builder()
         for (row in shown) {
-            val badge = CarProjector.stateBadge(row.state)
             val item = Row.Builder()
                 .setTitle(CarText.create(row.label))
-            // A CAL row allows at most two text lines. Charts cannot be drawn,
-            // so a chart row spends them on a braille raster (C-010); every other
-            // row spends them on the value and its state badge.
-            if (row.spark != null) {
-                item.addText(row.spark)
-                item.addText(
-                    buildString {
-                        append(row.value)
-                        append(' ')
-                        append(badge)
-                        if (row.stale) append(" stale")
-                    },
-                )
+                // The state dot is a host-laid-out image column, so every dot
+                // lands on the same x regardless of label or value length. The
+                // car font is proportional (measured 12.00-14.38 px per
+                // character), so padding with spaces could never do this.
+                .setImage(stateIcon(row.severity))
+
+            // A CAL row allows at most two text lines. A chart row spends them
+            // on its sparkline; a percent row on its meter bar; anything else on
+            // the value and its state word. The bar is fixed-width blocks, so
+            // its right edge is constant even though the font is proportional.
+            val shape = row.spark ?: row.meter
+            if (shape != null) {
+                item.addText(shape)
+                item.addText(valueLine(row))
             } else {
-                item.addText(
-                    buildString {
-                        append(row.value)
-                        append(" · ")
-                        append(row.state)
-                        append(' ')
-                        append(badge)
-                        if (row.stale) append(" · stale")
-                    },
-                )
+                item.addText(valueLine(row))
             }
             items.addItem(item.build())
         }
@@ -186,6 +181,52 @@ class AndroDashCarScreen(carContext: CarContext) : Screen(carContext) {
             )
         }
         return builder.build()
+    }
+
+    /**
+     * The state dot for a row. A CAL row image occupies a host-laid-out column
+     * of fixed width, so tinting one dot per state puts every state indicator
+     * on the same x. Text cannot do this: the car font is proportional, so
+     * space padding would drift.
+     */
+    private fun stateIcon(severity: Int): CarIcon = CarIcon.Builder(
+        IconCompat.createWithResource(carContext, com.mbicz.androdash.R.drawable.ic_state_dot),
+    )
+        .setTint(severityColor(severity))
+        .build()
+
+    /**
+     * CarColor for a severity. Keyed on the breach position, not the state word:
+     * a dashboard names its thresholds freely ("Busy", "Tight", "Hot"), so
+     * matching on the name would paint a breached row green.
+     */
+    private fun severityColor(severity: Int): CarColor = when (severity) {
+        3 -> CarColor.RED
+        2 -> CarColor.YELLOW
+        1 -> CarColor.SECONDARY
+        else -> CarColor.GREEN
+    }
+
+    /**
+     * The value line: the value, then the state word tinted to match the dot.
+     * Color is a second channel, so the row reads at a glance without relying on
+     * the word alone. The word stays, because color must never be the only cue.
+     */
+    private fun valueLine(row: CarProjector.Row): CarText {
+        val text = buildString {
+            append(row.value)
+            if (row.stale) append(" · stale")
+            append(" · ")
+        }
+        val state = row.state
+        val span = SpannableString(text + state)
+        span.setSpan(
+            ForegroundCarColorSpan.create(severityColor(row.severity)),
+            text.length,
+            text.length + state.length,
+            Spanned.SPAN_EXCLUSIVE_EXCLUSIVE,
+        )
+        return CarText.create(span)
     }
 
     private fun summaryText(view: CarProjector.CarView, beyondLimit: Int): String {

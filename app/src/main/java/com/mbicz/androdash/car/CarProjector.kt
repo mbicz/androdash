@@ -24,16 +24,34 @@ object CarProjector {
         val label: String,
         /** Formatted value, or "—" when the series has no samples. */
         val value: String,
-        /** Threshold state word: "Nominal", "Warning", "Critical", or "No data". */
+        /**
+         * The state word shown to the driver. It is the dashboard's own threshold
+         * name when one applies ("Busy", "Tight", "Hot"), otherwise the canonical
+         * "Nominal" / "Critical" / "No data".
+         */
         val state: String,
         /** True when the last successful fetch is older than the refresh budget. */
         val stale: Boolean = false,
+        /**
+         * Severity from the breach position (0 nominal, 1 no data, 2 warning,
+         * 3 critical). Colour and the dot tint key off this, never off [state]:
+         * a dashboard names its thresholds freely, so a name-keyed map would
+         * paint a breached row green.
+         */
+        val severity: Int = 0,
         /**
          * A block sparkline (C-010): [SPARK_WIDTH] characters, or null when the
          * panel has no range data. Charts cannot be drawn in a car template, so
          * this is the only shape available.
          */
         val spark: String? = null,
+        /**
+         * A proportional meter bar (C-010): [BAR_WIDTH] cells of [BAR_FILL] and
+         * [BAR_TRACK], or null when the value has no known 0..100 scale. Only
+         * percent panels get one; every other unit has no defined maximum in
+         * the dashboard, and inventing one would be a fabricated scale.
+         */
+        val meter: String? = null,
     )
 
     /** One car tab: a title and the rows it holds. */
@@ -162,25 +180,33 @@ object CarProjector {
         if (series.isEmpty()) {
             // A queried panel that returned nothing must still be visible: dropping
             // it would be the silent omission Article 3 forbids.
-            return listOf(Row(panel.title, "—", "No data", stale))
+            return listOf(Row(panel.title, "—", "No data", stale, 1))
         }
         return series.take(MAX_SERIES).mapNotNull { item ->
             val value = calculation(item.values, panel.calculation)
             val formatted = formatValue(value, panel.format)
             val state = thresholdState(value, panel.thresholds)
             val label = rowLabel(panel.title, item.labels, series.size)
-            Row(label, formatted, state, stale)
+            // A percent value has a real 0..100 scale, so a bar is honest here.
+            // Any other unit has no defined maximum, so a bar would invent one.
+            // Those rows get a sparkline of their *measured* range instead, which
+            // is honest and gives every row the same two-line shape.
+            val meter = if (hasPercentScale(panel.format)) meter(value) else null
+            val spark = if (meter == null) sparkline(item.values) else null
+            Row(label, formatted, state, stale, severityFor(value, panel.thresholds), spark, meter)
         }
     }
 
     /** Table rows: label plus the formatted last value, capped at [MAX_TABLE_ROWS]. */
     private fun tableRowsFor(panel: PanelRef, series: List<Series>, stale: Boolean): List<Row> {
-        if (series.isEmpty()) return listOf(Row(panel.title, "—", "No data", stale))
+        if (series.isEmpty()) return listOf(Row(panel.title, "—", "No data", stale, 1))
         return series.take(MAX_TABLE_ROWS).mapNotNull { item ->
             val value = calculation(item.values, "last-number")
             val formatted = formatValue(value, panel.format)
             val label = rowLabel(panel.title, item.labels, series.size)
-            Row(label, formatted, thresholdState(value, null), stale)
+            val meter = if (hasPercentScale(panel.format)) meter(value) else null
+            val spark = if (meter == null) sparkline(item.values) else null
+            Row(label, formatted, thresholdState(value, null), stale, 0, spark, meter)
         }
     }
 
@@ -196,7 +222,14 @@ object CarProjector {
             val value = calculation(item.values, panel.calculation)
             val formatted = formatValue(value, panel.format)
             val label = rowLabel(panel.title, item.labels, series.size)
-            Row(label, formatted, thresholdState(value, panel.thresholds), stale, spark)
+            Row(
+                label,
+                formatted,
+                thresholdState(value, panel.thresholds),
+                stale,
+                severityFor(value, panel.thresholds),
+                spark,
+            )
         }
 
     /**
@@ -212,19 +245,63 @@ object CarProjector {
      */
     val SPARK = charArrayOf('\u2581', '\u2582', '\u2583', '\u2584', '\u2585', '\u2586', '\u2587', '\u2588')
 
-    /** Cells per sparkline. Fits a car row beside its value. */
-    const val SPARK_WIDTH = 24
+    /**
+     * Cells per sparkline. Measured on AAOS from the host's own rendering: a
+     * block advances 17.00 px, and the host clips a row text line at x=880 with
+     * the body starting at x=204, so at most 39 cells fit without truncation.
+     *
+     * Exceeding that is not harmless: the host cuts the line at a fixed pixel
+     * width, so a longer run loses its tail and the *visible* proportion stops
+     * matching the value (a 28% bar would read as 35% of what is shown).
+     */
+    const val SPARK_WIDTH = 39
 
     /**
-     * Status badge, not a graph pixel. Emoji advance widths are NOT fixed
-     * (measured 30/33/40 px), so they can only sit at the end of a line where
-     * alignment does not matter. Never use them inside a raster.
+     * Meter glyphs. Both are block elements, so both advance the same fixed
+     * width as [SPARK]: the bar cannot drift, and its right edge is constant.
+     * A space would advance 8.00 px against 17.00 px for a block, which is the
+     * exact bug that made the earlier raster ragged.
      */
-    fun stateBadge(state: String): String = when (state) {
-        "Critical" -> "\uD83D\uDD34" // red circle
-        "Warning" -> "\uD83D\uDFE1" // orange circle
-        "No data" -> "\u26AA" // white circle
-        else -> "\uD83D\uDFE2" // green circle
+    const val BAR_FILL = '\u2588' // full block: the measured part
+    const val BAR_TRACK = '\u2591' // light shade: the remaining capacity
+
+    /** Cells per meter bar: the same measured 39-cell row width as [SPARK]. */
+    const val BAR_WIDTH = 39
+
+    /**
+     * A proportional bar for a 0..100 quantity, as a fixed-width run of cells:
+     * [BAR_FILL] for the measured fraction and [BAR_TRACK] for the remainder.
+     *
+     * Only called for values with a known 0..100 scale (a percent unit), so the
+     * filled length is the value itself and not an invented scale. Null when
+     * the value is absent or not finite, so a missing sample never renders as a
+     * zero-length bar that would read as "0%".
+     */
+    fun meter(value: Double?, width: Int = BAR_WIDTH): String? {
+        if (value == null || !value.isFinite() || width <= 0) return null
+        val fraction = (value / 100.0).coerceIn(0.0, 1.0)
+        val filled = (fraction * width).roundToInt().coerceIn(0, width)
+        val builder = StringBuilder(width)
+        repeat(filled) { builder.append(BAR_FILL) }
+        repeat(width - filled) { builder.append(BAR_TRACK) }
+        return builder.toString()
+    }
+
+    /**
+     * Whether a row's value has a known 0..100 scale, i.e. whether [meter] may
+     * be used. A percent unit is the only case: every other unit (celsius,
+     * watts, bytes, hertz) has no defined maximum in the dashboard, so drawing
+     * a bar for it would invent one (constitution Article 3).
+     */
+    fun hasPercentScale(format: JSONObject?): Boolean =
+        format?.optString("unit")?.takeIf { it.isNotEmpty() } == "percent"
+
+    /** Severity ordering for a state word; higher is worse. */
+    fun severity(state: String): Int = when (state) {
+        "Critical" -> 3
+        "Warning" -> 2
+        "No data" -> 1
+        else -> 0
     }
 
     /**
@@ -355,6 +432,27 @@ object CarProjector {
             "short" -> formatShort(value)
             else -> fixed(value, decimals)
         }
+    }
+
+    /**
+     * Severity from the *breach position*, not the threshold's name. A dashboard
+     * names its own thresholds ("Busy", "Tight", "Hot"), so a name-keyed colour
+     * map would silently paint a breached row green. This is keyed by which
+     * threshold the value crossed, so any naming works.
+     *
+     * 0 = nominal, 1 = no data, 2 = warning, 3 = critical.
+     */
+    fun severityFor(value: Double?, steps: JSONArray?): Int {
+        if (value == null || !value.isFinite()) return 1
+        val sorted = sortedThresholds(steps)
+        if (sorted.isEmpty()) return 0
+        var breached = -1
+        for ((index, step) in sorted.withIndex()) {
+            if (value >= step.first) breached = index
+        }
+        if (breached < 0) return 0
+        // Crossing the highest threshold is critical; any lower one is a warning.
+        return if (breached == sorted.size - 1) 3 else 2
     }
 
     fun thresholdState(value: Double?, steps: JSONArray?): String {

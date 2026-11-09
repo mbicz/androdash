@@ -45,52 +45,120 @@ into templates.
 | `StatChart` | One row per series: `label · value unit`, state word when a threshold applies | A number and a state word are glanceable |
 | `GaugeChart` | One row per series: `label · value%`, state word | Same; the arc is not reproducible |
 | `Table` | Up to [MAX_TABLE_ROWS] rows: `label` + formatted value | Already row-shaped |
-| `TimeSeriesChart` | One row per series: a fixed-width **block sparkline** (24 cells) plus the last value and a state badge | No chart template, but the shape is the glanceable part; blocks and emoji are text, so `IU-1`/`SA-1` still hold. A series with no range data is counted as an omitted chart |
+| `TimeSeriesChart` | One row per series: a fixed-width **block sparkline** ([SPARK_WIDTH] cells) plus the last value and a state word | No chart template, but the shape is the glanceable part; blocks are text, so `IU-1`/`SA-1` still hold. A series with no range data is counted as an omitted chart |
 | `Markdown` | **Omitted.** Reported as "text omitted" | Not glanceable; `AC-1` caps a task at five screens |
 
 Every omitted panel is counted and reported, so the driver knows the view is a
 summary, not the whole dashboard.
 
-### Sparklines and state badges
+### Row geometry
 
-A `TimeSeriesChart` cannot be drawn (no chart template), but its *shape* is the
-glanceable part. Each series becomes a row carrying a **block sparkline**.
+A car row is laid out by the host, not by us. That has one consequence the
+whole design follows: **the car font is proportional**, so a column cannot be
+aligned by padding text with spaces.
 
-Measured on the car host font (`Paint.measureText` at 32 px, AAOS):
+Measured on AAOS (1024x768, density 160), from the host's own rendering:
 
-| Alphabet | Fixed width | Advance |
+| Text | Glyphs | Width | Per glyph |
+|---|---|---|---|
+| `Inference hosts` | 15 | 188 px | 12.53 px |
+| `Temperatures` | 12 | 170 px | 14.17 px |
+| `KV cache` | 8 | 115 px | 14.38 px |
+
+Per-glyph advance varies by ~20%, so `"KV cache".padEnd(15)` would be 40 px too
+wide. Fixed-width glyphs are the exception, and they are the only text we can
+align with:
+
+| Alphabet | Fixed | Advance |
 |---|---|---|
-| Block elements `▁▂▃▄▅▆▇█` | **yes** | 23.00 px |
-| Braille `U+2800..U+28FF` | yes | 22.00 px |
+| Block elements `▁▂▃▄▅▆▇█` | **yes** | 17.00 px |
+| Shade `░` | **yes** | 17.00 px |
 | Space | yes | **8.00 px** |
 | Emoji | **no** | 30 / 33 / 40 px |
 
+The host **clips a row text line at x=880** with the body starting at x=204, so
+at most 39 cells (663 px) render uncut. Exceeding that is not harmless: the host
+cuts at a fixed pixel width, so a longer run loses its tail and the *visible*
+proportion stops matching the value. Verified: at 44 and 51 cells the run still
+ended at x=880, and a 27% bar read as 35% of the visible width. [SPARK_WIDTH] and
+[BAR_WIDTH] are therefore both 39.
+
+The row therefore uses three structural devices, in order of preference:
+
+1. **A host-laid-out leading column.** `Row.setImage` puts a tinted dot in a
+   column the host sizes and positions, so every state indicator lands on the
+   same x regardless of label or value length. This is the only *guaranteed*
+   alignment in CAL, and it is what makes the green/red column read as a column.
+2. **Fixed-width block runs** for shape. A sparkline or meter bar is a run of
+   block glyphs, so its right edge is constant by construction.
+3. **Color as a second channel.** The state word is tinted with
+   `ForegroundCarColorSpan`, so a breach reads without parsing the word. The
+   word stays: color is never the only cue (`AC-1`).
+
+A row spends at most two text lines (the CAL limit): one for the shape when it
+has one, one for the value and state. A row carries a sparkline **or** a meter,
+never both.
+
+### Sparklines
+
+A `TimeSeriesChart` cannot be drawn (no chart template), but its *shape* is the
+glanceable part. Each series becomes a row carrying a **block sparkline** of
+[SPARK_WIDTH] cells.
+
 Rules:
 
-- `SPARK_WIDTH` = 24 cells. Every cell is a block glyph — never a space.
-  A space advances 8.00 px while a block advances 23.00 px, so a single blank
-  shifts every following cell left and the row visibly drifts.
+- Every cell is a block glyph — never a space. A space advances 8.00 px while a
+  block advances 17.00 px, so a single blank shifts every following cell left
+  and the row visibly drifts. (This was a real defect: empty cells were written
+  as `' '` against filled cells of a different width.)
 - Blocks fill their whole cell, so the row tiles into a continuous filled area.
 - The range is bucketed per cell and averaged, so a long range keeps its shape.
 - A flat series renders mid-height (`▅`) rather than collapsing to the baseline,
   which would read as zero.
 - An empty range yields no row and counts as an omitted chart.
 
-**Braille was tried and rejected.** It is fixed-width and packs a 2×4 dot grid,
+**Braille was tried and rejected.** It is fixed-width and packs a 2x4 dot grid,
 so it promises finer resolution — but its dots are sparse by design. On screen
 they render as isolated clusters separated by gaps, and two text lines carry a
 line gap between them, so a two-line braille raster reads as broken and
 vertically offset rather than as an area. Blocks are the honest choice.
 
-**Emoji are badges, not pixels.** Their advance widths are not fixed, so they may
-only appear at the end of a line, where alignment does not matter:
+### Meter bars
 
-| State | Badge |
-|---|---|
-| `Nominal` | 🟢 |
-| `Warning` | 🟡 |
-| `Critical` | 🔴 |
-| `No data` | ⚪ |
+A value with a known `0..100` scale gets a **meter bar**: [BAR_WIDTH] cells of
+`█` (the measured part) and `░` (the remaining capacity). Both are block
+elements, so the run has a constant width and right edge.
+
+The scale must be real. Only a `percent` unit gets a bar, because percent is the
+only unit in the dashboard model with a defined maximum. `celsius`, `watts`,
+`bytes`, and `hertz` have no maximum in the panel spec, so drawing a bar for
+them would invent a scale — forbidden by `IU-1`. Such rows show the value and
+state word only.
+
+A missing sample yields no bar (not a zero-length one, which would read as 0%).
+
+### State
+
+Severity comes from **which threshold the value crossed**, never from the
+threshold's name:
+
+| Severity | Meaning | Dot tint | Value-line color |
+|---|---|---|---|
+| 0 | below every threshold | green | green |
+| 1 | no data | secondary | secondary |
+| 2 | crossed a lower threshold | yellow | yellow |
+| 3 | crossed the highest threshold | red | red |
+
+This is not cosmetic. A dashboard names its thresholds freely — the fleet
+fixture uses `Busy`, `Tight`, `Hot` — so a name-keyed colour map matched none of
+them and painted a **breached** row green. That defect shipped in an earlier
+build and was caught by rendering a warning-state dashboard on the host.
+
+The state *word* shown to the driver is still the dashboard's own name (`Busy`),
+which is why the word and the severity are separate fields: [Row.state] is what
+is displayed, [Row.severity] is what is colored. The dot is a row image tinted
+via `CarIcon.setTint`; the word is tinted via `ForegroundCarColorSpan`. Both key
+off [Row.severity], so they cannot disagree.
 
 ### Tabs
 
