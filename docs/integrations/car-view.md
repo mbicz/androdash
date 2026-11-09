@@ -10,13 +10,27 @@ Contract: [C-010](../contracts/C-010-car-projection.md). Decision:
 
 ## What is shown
 
+Every row has the same three-band shape, so the screen reads as a table rather
+than as loose text:
+
+```
+● label                          <- tinted state dot, then the label
+  ███████████████░░░░░░░░░░░░░░░  <- fixed-width block bar (39 cells)
+  58% · Busy                      <- value, then the tinted state word
+```
+
 | Phone panel | Car row |
 |---|---|
-| `StatChart` | `label · value unit · state` |
-| `GaugeChart` | `label · value% · state` |
-| `Table` | `label · value` |
-| `TimeSeriesChart` | 24-cell **block sparkline** (`▁▂▃▄▅▆▇█`), plus last value and state badge |
+| `StatChart` | dot + label / block bar / `value unit · state` |
+| `GaugeChart` | dot + label / block bar / `value% · state` |
+| `Table` | dot + label / block bar / `value · state` |
+| `TimeSeriesChart` | dot + label / 39-cell **block sparkline** / `value · state` |
 | `Markdown` | **omitted**, counted |
+
+A percent panel gets a **meter bar**: `█` for the measured fraction and `░` for
+the remaining capacity. Any other unit gets a **sparkline** of its measured
+range, because only percent has a defined maximum — drawing a bar for °C or
+watts would invent a scale.
 
 Every omitted panel is counted and reported in the action strip ("3 chart(s)
 hidden"), so the view never pretends to be the whole dashboard. A panel whose
@@ -26,6 +40,38 @@ Tabs are filled in reading order (row, then band, then `x`, then `y`), capped at
 10 rows each and 4 tabs (CAL limit). Overflow is counted, not dropped.
 
 ## Geometry
+
+The layout is fixed, not computed from label lengths:
+
+| Element | Position on a 1024x768 host | Variance across rows |
+|---|---|---|
+| State dot | x=145..170 | **0 px** |
+| Label start | x=205..207 | 2 px |
+| Bar / sparkline | x=204..866 | **0 px** (exactly 39 cells) |
+| Value start | x=205..206 | 1 px |
+
+That alignment comes from three measured facts:
+
+1. **The car font is proportional.** Per-glyph advance measured 12.53 px
+   (`Inference hosts`), 14.17 px (`Temperatures`), 14.38 px (`KV cache`) — a
+   ~20% spread. Padding with spaces therefore cannot align a column: the same
+   character count is a different pixel width.
+2. **The host lays out row images itself.** `Row.setImage` puts the tinted dot
+   in a column the host sizes and positions, so the state column is exact
+   regardless of label length. This is the only guaranteed alignment in CAL.
+3. **Block glyphs are fixed-width.** `█` and `░` advance 17.00 px each, so a run
+   of 39 cells is 663 px on every row and its right edge never moves.
+
+The host **clips a row text line** at x=880. A longer run is not merely cut: the
+visible proportion stops matching the value (a 28% bar would read as 35% of what
+is shown), so the bar is sized to 39 cells, the widest that fits uncut.
+
+Color is a second channel, not the only one: the state word is always present and
+tinted to match the dot. Severity comes from **which threshold the value
+crossed**, not from the threshold's name — dashboards name thresholds freely
+(`Busy`, `Tight`, `Hot`), so a name-keyed colour map would paint a breached row
+green. Verified on the host: `Busy` renders yellow, `Critical` red, `Nominal`
+green.
 
 The car's screen is not the phone's. The screen reads:
 
