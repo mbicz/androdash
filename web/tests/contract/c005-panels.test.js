@@ -59,6 +59,19 @@ test("C-005 formats values and thresholds deterministically", () => {
   assert.equal(thresholdState(82, [{ value: 80, name: "Disk" }, { value: 90 }]).state, "warn");
   assert.equal(thresholdState(96, [{ value: 80 }, { value: 90 }]).state, "crit");
   assert.equal(thresholdState(96, [{ value: 90 }]).state, "crit");
+  // Polarity: `up{...}` is 1 when healthy, so crossing its sole `Up` step is
+  // GOOD. Position and name alone would call a healthy host "crit" and a down
+  // host "ok" - the exact mirror of the truth.
+  assert.equal(thresholdState(1, [{ value: 1, name: "Up" }], "high-is-good").state, "ok");
+  assert.equal(thresholdState(1, [{ value: 1, name: "Up" }], "high-is-good").label, "Up");
+  assert.equal(thresholdState(0, [{ value: 1, name: "Up" }], "high-is-good").state, "crit");
+  // Default polarity is unchanged, so every existing panel keeps its meaning.
+  assert.equal(thresholdState(1, [{ value: 1, name: "Up" }]).state, "crit");
+  // A positive-polarity panel with two steps: below the lower one is worst.
+  const quotaSteps = [{ value: 80, name: "High" }, { value: 95, name: "Limit" }];
+  assert.equal(thresholdState(50, quotaSteps, "high-is-good").state, "crit");
+  assert.equal(thresholdState(85, quotaSteps, "high-is-good").state, "warn");
+  assert.equal(thresholdState(99, quotaSteps, "high-is-good").state, "ok");
   assert.equal(calculations({ points: [{ v: 1 }, { v: 3 }] }, "mean"), 2);
   assert.equal(calculations({ points: [{ v: 1 }, { v: 3 }] }, "last-number"), 3);
 });

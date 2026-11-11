@@ -73,6 +73,14 @@ crossed**, not from the threshold's name — dashboards name thresholds freely
 green. Verified on the host: `Busy` renders yellow, `Critical` red, `Nominal`
 green.
 
+Breach position alone is still not enough, because it cannot say which direction
+is bad. The `hosts` panel queries `up{...}`, which is `1` when healthy, and
+declares one `{value: 1, name: "Up"}` step — a *good* threshold. Keying on
+position made a healthy host red and a down host green. The panel now declares
+`thresholds.polarity: "high-is-good"` (C-002), and the car mirrors C-005's
+polarity-aware rule. Verified both ways on the host: `1 · Up` green
+`(84,174,98)`, `0 · Critical` red `(210,115,104)`.
+
 The car's screen is not the phone's. The screen reads:
 
 - `ConstraintManager.getContentLimit(CONTENT_LIMIT_TYPE_LIST)` — how many rows

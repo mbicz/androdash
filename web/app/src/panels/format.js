@@ -151,13 +151,43 @@ export function sortedThresholds(steps) {
     .sort((a, b) => a.value - b.value);
 }
 
-export function thresholdState(value, steps) {
+/**
+ * State for a value against threshold steps.
+ *
+ * `polarity` says which direction is bad, because position and name cannot
+ * express it. `up{...}` is the canonical counter-example: 1 means healthy, so
+ * crossing the sole `{value: 1, name: "Up"}` step is *good*. Under the default
+ * `high-is-bad` rule that healthy host would read `crit`, and a down host
+ * (`0`) would read `ok` — the exact mirror of the truth.
+ *
+ * - `high-is-bad` (default): crossing upward is worse (temperature, usage).
+ * - `high-is-good`: crossing upward is better (up, health, quota left).
+ *
+ * With `high-is-good` a dashboard names its thresholds for the *good* direction
+ * ("Up"), so there is no provided name for the bad state; the fallback words are
+ * used rather than mislabelling the breach with a positive name.
+ */
+export function thresholdState(value, steps, polarity = "high-is-bad") {
   const sorted = sortedThresholds(steps);
   if (value === null || value === undefined || !Number.isFinite(Number(value))) {
     return { state: "muted", label: "No data" };
   }
   const number = Number(value);
   if (sorted.length === 0) return { state: "ok", label: "Nominal" };
+
+  if (polarity === "high-is-good") {
+    if (sorted.length === 1) {
+      return number >= sorted[0].value
+        ? { state: "ok", label: sorted[0].name || "Nominal" }
+        : { state: "crit", label: "Critical" };
+    }
+    if (number < sorted[0].value) return { state: "crit", label: "Critical" };
+    if (number < sorted[1].value) {
+      return { state: "warn", label: sorted[0].name || "Warning" };
+    }
+    return { state: "ok", label: sorted[1].name || "Nominal" };
+  }
+
   if (sorted.length === 1) {
     return number >= sorted[0].value
       ? { state: "crit", label: sorted[0].name || "Critical" }

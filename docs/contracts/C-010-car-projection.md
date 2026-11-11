@@ -140,19 +140,26 @@ A missing sample yields no bar (not a zero-length one, which would read as 0%).
 ### State
 
 Severity comes from **which threshold the value crossed**, never from the
-threshold's name:
+threshold's name, and it honors the panel's `thresholds.polarity` (C-002):
 
-| Severity | Meaning | Dot tint | Value-line color |
-|---|---|---|---|
-| 0 | below every threshold | green | green |
-| 1 | no data | secondary | secondary |
-| 2 | crossed a lower threshold | yellow | yellow |
-| 3 | crossed the highest threshold | red | red |
+| Severity | `high-is-bad` | `high-is-good` | Dot tint | Value-line color |
+|---|---|---|---|---|
+| 0 | below every step | above every step | green | green |
+| 1 | no data | no data | secondary | secondary |
+| 2 | crossed a lower step | below a higher step | yellow | yellow |
+| 3 | crossed the highest step | below the lowest step | red | red |
 
-This is not cosmetic. A dashboard names its thresholds freely — the fleet
-fixture uses `Busy`, `Tight`, `Hot` — so a name-keyed colour map matched none of
-them and painted a **breached** row green. That defect shipped in an earlier
-build and was caught by rendering a warning-state dashboard on the host.
+Two defects were found here by rendering on the host, and both are now covered
+by tests:
+
+1. **Name-keyed colour.** A dashboard names its thresholds freely — the fleet
+   fixture uses `Busy`, `Tight`, `Hot` — so a name-keyed map matched none and
+   painted a *breached* row green. Severity is keyed by breach position instead.
+2. **Position alone ignores polarity.** `up{...}` is `1` when healthy, so its
+   sole `{value: 1, name: "Up"}` step is a *good* threshold. Keying severity on
+   position alone made a healthy host red (`1` crosses the only step → critical)
+   and a down host green (`0` below it → nominal) — the exact mirror of the
+   truth. Position cannot infer polarity, so the panel declares it.
 
 The state *word* shown to the driver is still the dashboard's own name (`Busy`),
 which is why the word and the severity are separate fields: [Row.state] is what

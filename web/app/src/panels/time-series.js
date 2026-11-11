@@ -39,6 +39,7 @@ export function renderTimeSeries(panel, series, { warn = null, size = null, time
   const format = panel.panelSpec?.yAxis?.format || panel.panelSpec?.format || {};
   const unit = format.unit ?? "none";
   const thresholds = sortedThresholds(panel.panelSpec?.thresholds?.steps);
+  const polarity = panel.panelSpec?.thresholds?.polarity || "high-is-bad";
   const allPoints = present.flatMap(finitePoints);
   const values = allPoints.map((point) => point.v).filter((value) => value !== null);
   const timestamps = allPoints.map((point) => point.t);
@@ -125,7 +126,7 @@ export function renderTimeSeries(panel, series, { warn = null, size = null, time
     const thresholdLayer = svgEl("g", { class: "chart-thresholds" });
     for (const threshold of thresholds) {
       const yy = y(threshold.value);
-      const state = thresholdState(threshold.value, thresholds).state;
+      const state = thresholdState(threshold.value, thresholds, polarity).state;
       thresholdLayer.append(
         svgEl("line", {
           x1: padding.left,

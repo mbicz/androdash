@@ -110,7 +110,9 @@ class CarProjectorTest {
         assertEquals(2, hosts.size)
         assertTrue("labels name the instance", hosts.any { it.label.startsWith("gx10-5cc5") })
         assertEquals("Up", hosts.first { it.label.startsWith("gx10-5cc5") }.state)
-        assertEquals("Nominal", hosts.first { it.label.startsWith("gx10-e185") }.state)
+        // A down host is the bad case. The panel's only step is named for the
+        // good direction ("Up"), so the bad state falls back to "Critical".
+        assertEquals("Critical", hosts.first { it.label.startsWith("gx10-e185") }.state)
     }
 
     @Test
@@ -303,5 +305,57 @@ class CarProjectorTest {
         val gpu = view.tabs.flatMap { it.rows }.first { it.label.contains("GPU") }
         assertEquals("Busy", gpu.state)
         assertEquals("a breached row must not read as nominal", 2, gpu.severity)
+    }
+
+    @Test
+    fun `a healthy up host is nominal, not critical`() {
+        // `up{...}` is 1 when healthy, so crossing the sole {value:1,name:"Up"}
+        // step is GOOD. The position rule alone would paint a healthy host red
+        // and a down host green - the exact mirror of the truth.
+        val steps = org.json.JSONArray("""[{"value":1,"name":"Up"}]""")
+        // Healthy: the step's own name is the label, matching the renderer.
+        assertEquals("Up", CarProjector.thresholdState(1.0, steps, CarProjector.HIGH_IS_GOOD))
+        assertEquals("Critical", CarProjector.thresholdState(0.0, steps, CarProjector.HIGH_IS_GOOD))
+        assertEquals(0, CarProjector.severityFor(1.0, steps, CarProjector.HIGH_IS_GOOD))
+        assertEquals(3, CarProjector.severityFor(0.0, steps, CarProjector.HIGH_IS_GOOD))
+    }
+
+    @Test
+    fun `the fleet hosts panel declares high-is-good and renders nominal`() {
+        // End-to-end guard: the fixture declares polarity, so a healthy host
+        // must come back nominal. Without the declaration this was red.
+        val series = mapOf(
+            "hosts" to listOf(
+                CarProjector.Series(mapOf("instance" to "gx10-5cc5"), listOf(1.0)),
+            ),
+        )
+        val view = CarProjector.project(fleet(), series)
+        val host = view.tabs.flatMap { it.rows }.first { it.label.contains("Inference hosts") }
+        assertEquals("a healthy host reads Up", "Up", host.state)
+        assertEquals("a healthy host must not be critical", 0, host.severity)
+    }
+
+    @Test
+    fun `a down host is critical`() {
+        val series = mapOf(
+            "hosts" to listOf(
+                CarProjector.Series(mapOf("instance" to "gx10-e185"), listOf(0.0)),
+            ),
+        )
+        val view = CarProjector.project(fleet(), series)
+        val host = view.tabs.flatMap { it.rows }.first { it.label.contains("Inference hosts") }
+        assertEquals("a down host must not read nominal", 3, host.severity)
+    }
+
+    @Test
+    fun `default polarity still treats rising values as worse`() {
+        // Every other fixture panel keeps the default, so this must not move.
+        val steps = org.json.JSONArray("""[{"value":80,"name":"Hot"},{"value":90,"name":"Critical"}]""")
+        assertEquals("Nominal", CarProjector.thresholdState(50.0, steps))
+        assertEquals("Hot", CarProjector.thresholdState(85.0, steps))
+        assertEquals("Critical", CarProjector.thresholdState(95.0, steps))
+        assertEquals(0, CarProjector.severityFor(50.0, steps))
+        assertEquals(2, CarProjector.severityFor(85.0, steps))
+        assertEquals(3, CarProjector.severityFor(95.0, steps))
     }
 }

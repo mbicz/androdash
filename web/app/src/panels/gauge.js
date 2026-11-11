@@ -129,6 +129,7 @@ export function renderGauge(panel, series, { warn = null, size = null } = {}) {
   const calculation = panel.panelSpec?.calculation || "last-number";
   const format = panel.panelSpec?.format || {};
   const steps = sortedThresholds(panel.panelSpec?.thresholds?.steps);
+  const polarity = panel.panelSpec?.thresholds?.polarity || "high-is-bad";
   const gauges = [];
 
   for (const item of series) {
@@ -153,7 +154,9 @@ export function renderGauge(panel, series, { warn = null, size = null } = {}) {
   wrapper.dataset.empty = "false";
   const kept = gauges.slice(0, maxGauges).map((gauge) => ({
     ...gauge,
-    state: steps.length > 0 ? thresholdState(gauge.value, steps) : { state: "none", label: "" },
+    state: steps.length > 0
+      ? thresholdState(gauge.value, steps, polarity)
+      : { state: "none", label: "" },
     max:
       format.unit === "percent"
         ? 100
