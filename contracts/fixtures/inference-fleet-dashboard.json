@@ -64,7 +64,8 @@
                     "value": 1,
                     "name": "Up"
                   }
-                ]
+                ],
+                "polarity": "high-is-good"
               }
             }
           },

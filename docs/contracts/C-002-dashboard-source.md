@@ -236,6 +236,11 @@ Normalization:
 - Panel ID = map key; `title` = `spec.display.name`, else the key.
 - `description` = `spec.display.description`, else empty.
 - `panelKind` = `spec.plugin.kind`; `panelSpec` = `spec.plugin.spec` or `{}`.
+- `thresholds.polarity` = `"high-is-bad"` (default) or `"high-is-good"`; any
+  other value falls back to `"high-is-bad"`. It states which direction is worse
+  and is consumed by C-005. It is required for positive-polarity metrics such as
+  `up{...}`, where `1` means healthy: without it a healthy host renders `crit`
+  and a down host renders `ok`. See C-005 "Thresholds".
 - Queries = `spec.queries` array (default `[]`). Each query:
   - `queryKind` = `query.spec.plugin.kind`;
   - `querySpec` = `query.spec.plugin.spec` or `{}`;

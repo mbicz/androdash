@@ -88,6 +88,12 @@ fields: `Row.state` is the word displayed, `Row.severity` is the breach position
 used for color. Verified on the host afterwards: `Busy` yellow `(223,155,62)`,
 `Critical` red `(229,99,89)`, `Nominal` green `(95,169,110)`.
 
+**This fix was incomplete.** Breach position alone still cannot infer polarity:
+`up{...}` is `1` when healthy, so its sole `{value: 1, name: "Up"}` step is a
+*good* threshold, and a healthy host rendered red while a down host rendered
+green. That is decision [0038](0038-threshold-polarity.md), which adds an
+explicit `thresholds.polarity` and supersedes the "breach position" rule above.
+
 ## Contracts affected
 
 - **C-010 amended**: row geometry (dot column, fixed-width bars, the 39-cell

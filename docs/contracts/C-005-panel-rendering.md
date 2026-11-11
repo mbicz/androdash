@@ -366,9 +366,23 @@ per-step colors.
 - Sort steps ascending by `value`.
 - No steps → state `none`: the panel makes no judgement (neutral stat edge, blue
   gauge arc, no meter, no state word).
-- A value below the first step → `ok`.
-- For N ≥ 2 steps: step 1 → `warn`, step 2+ → `crit`. With a single step,
-  values ≥ step → `crit`; below → `ok`.
+- **Polarity** decides which direction is bad (C-002). Default `high-is-bad`:
+  - A value below the first step → `ok`.
+  - For N ≥ 2 steps: step 1 → `warn`, step 2+ → `crit`. With a single step,
+    values ≥ step → `crit`; below → `ok`.
+- With `high-is-good`, crossing upward is *better* and the rule mirrors:
+  - A value above the highest step → `ok`.
+  - For N ≥ 2 steps: below step 1 → `crit`, below step 2 → `warn`. With a single
+    step, values < step → `crit`; ≥ step → `ok`.
+  - A dashboard names these thresholds for the *good* direction (`Up`), so there
+    is no name for the bad state; `warn`/`crit` fall back to `Warning`/`Critical`
+    rather than mislabelling a breach with a positive name.
+
+Polarity is not optional decoration. `up{...}` is `1` when a host is healthy, so
+its sole `{value: 1, name: "Up"}` step is a *good* threshold. Under
+`high-is-bad` a healthy host reads `crit` and a down host reads `ok` — the exact
+mirror of the truth. Neither position nor name can express this, so the panel
+must declare it.
 - Colours are CSS variables: `--ok` green, `--warn` amber, `--crit` red,
   `--none` blue accent (gauge arc), `--edge-none` neutral gray (stat edge).
 - Colour is not the only signal: `warn`/`crit` values show a state word — the

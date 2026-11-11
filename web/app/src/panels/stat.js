@@ -52,6 +52,7 @@ export function renderStat(panel, series, { warn = null, size = null, fit = fals
   const calculation = panel.panelSpec?.calculation || "last-number";
   const format = panel.panelSpec?.format || {};
   const steps = sortedThresholds(panel.panelSpec?.thresholds?.steps);
+  const polarity = panel.panelSpec?.thresholds?.polarity || "high-is-bad";
   const tiles = [];
 
   for (const item of series) {
@@ -87,7 +88,9 @@ export function renderStat(panel, series, { warn = null, size = null, fit = fals
   );
 
   for (const [index, { item, value }] of shown.entries()) {
-    const state = steps.length > 0 ? thresholdState(value, steps) : { state: "none", label: "" };
+    const state = steps.length > 0
+      ? thresholdState(value, steps, polarity)
+      : { state: "none", label: "" };
     const label = names[index];
     const tile = document.createElement("div");
     tile.className = `stat-tile state-${state.state}${single ? " single" : ""}`;

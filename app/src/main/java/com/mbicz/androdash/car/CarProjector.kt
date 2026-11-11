@@ -12,6 +12,18 @@ import kotlin.math.roundToInt
  * is counted and reported, never silently dropped (constitution Article 3).
  */
 object CarProjector {
+    /** Crossing upward is worse (temperature, usage, saturation). */
+    const val HIGH_IS_BAD = "high-is-bad"
+
+    /**
+     * Crossing upward is *better* (up, health, quota remaining). Position and
+     * name cannot express this: `up{...}` is 1 when healthy, so the sole
+     * `{value:1,name:"Up"}` step is a *good* threshold. Under [HIGH_IS_BAD] a
+     * healthy host would read "Critical" and a down host "Nominal" — the exact
+     * mirror of the truth.
+     */
+    const val HIGH_IS_GOOD = "high-is-good"
+
     const val MAX_ROWS_PER_TAB = 10
     const val MAX_TABLE_ROWS = 8
     const val MAX_SERIES = 12
@@ -185,7 +197,7 @@ object CarProjector {
         return series.take(MAX_SERIES).mapNotNull { item ->
             val value = calculation(item.values, panel.calculation)
             val formatted = formatValue(value, panel.format)
-            val state = thresholdState(value, panel.thresholds)
+            val state = thresholdState(value, panel.thresholds, panel.polarity)
             val label = rowLabel(panel.title, item.labels, series.size)
             // A percent value has a real 0..100 scale, so a bar is honest here.
             // Any other unit has no defined maximum, so a bar would invent one.
@@ -193,7 +205,7 @@ object CarProjector {
             // is honest and gives every row the same two-line shape.
             val meter = if (hasPercentScale(panel.format)) meter(value) else null
             val spark = if (meter == null) sparkline(item.values) else null
-            Row(label, formatted, state, stale, severityFor(value, panel.thresholds), spark, meter)
+            Row(label, formatted, state, stale, severityFor(value, panel.thresholds, panel.polarity), spark, meter)
         }
     }
 
@@ -225,9 +237,9 @@ object CarProjector {
             Row(
                 label,
                 formatted,
-                thresholdState(value, panel.thresholds),
+                thresholdState(value, panel.thresholds, panel.polarity),
                 stale,
-                severityFor(value, panel.thresholds),
+                severityFor(value, panel.thresholds, panel.polarity),
                 spark,
             )
         }
@@ -355,6 +367,8 @@ object CarProjector {
         val calculation: String,
         val format: JSONObject?,
         val thresholds: JSONArray?,
+        /** Which direction is bad; see [thresholdState]. */
+        val polarity: String,
     )
 
     /** Panels in reading order: rows as laid out, then any panel not in a row. */
@@ -396,6 +410,10 @@ object CarProjector {
             calculation = pluginSpec?.optString("calculation")?.takeIf { it.isNotEmpty() } ?: "last-number",
             format = pluginSpec?.optJSONObject("format"),
             thresholds = pluginSpec?.optJSONObject("thresholds")?.optJSONArray("steps"),
+            polarity = pluginSpec?.optJSONObject("thresholds")
+                ?.optString("polarity")
+                ?.takeIf { it.isNotEmpty() }
+                ?: HIGH_IS_BAD,
         )
     }
 
@@ -442,10 +460,22 @@ object CarProjector {
      *
      * 0 = nominal, 1 = no data, 2 = warning, 3 = critical.
      */
-    fun severityFor(value: Double?, steps: JSONArray?): Int {
+    fun severityFor(
+        value: Double?,
+        steps: JSONArray?,
+        polarity: String = HIGH_IS_BAD,
+    ): Int {
         if (value == null || !value.isFinite()) return 1
         val sorted = sortedThresholds(steps)
         if (sorted.isEmpty()) return 0
+
+        if (polarity == HIGH_IS_GOOD) {
+            // Below the lowest step is the worst case; above the highest is fine.
+            if (value < sorted[0].first) return 3
+            if (sorted.size == 1) return 0
+            return if (value < sorted[1].first) 2 else 0
+        }
+
         var breached = -1
         for ((index, step) in sorted.withIndex()) {
             if (value >= step.first) breached = index
@@ -455,10 +485,33 @@ object CarProjector {
         return if (breached == sorted.size - 1) 3 else 2
     }
 
-    fun thresholdState(value: Double?, steps: JSONArray?): String {
+    /**
+     * The state word for [value] against [steps], honoring [polarity].
+     *
+     * Mirrors `thresholdState` in `web/app/src/panels/format.js` (C-005) so the
+     * car and the phone cannot disagree. With [HIGH_IS_GOOD] a dashboard names
+     * its thresholds for the *good* direction ("Up"), so there is no provided
+     * name for the bad state; the fallback words are used rather than
+     * mislabelling a breach with a positive name.
+     */
+    fun thresholdState(
+        value: Double?,
+        steps: JSONArray?,
+        polarity: String = HIGH_IS_BAD,
+    ): String {
         if (value == null || !value.isFinite()) return "No data"
         val sorted = sortedThresholds(steps)
         if (sorted.isEmpty()) return "Nominal"
+
+        if (polarity == HIGH_IS_GOOD) {
+            if (sorted.size == 1) {
+                return if (value >= sorted[0].first) sorted[0].second ?: "Nominal" else "Critical"
+            }
+            if (value < sorted[0].first) return "Critical"
+            if (value < sorted[1].first) return sorted[0].second ?: "Warning"
+            return sorted[1].second ?: "Nominal"
+        }
+
         if (sorted.size == 1) {
             return if (value >= sorted[0].first) sorted[0].second ?: "Critical" else "Nominal"
         }
