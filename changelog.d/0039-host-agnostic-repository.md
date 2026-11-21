@@ -48,9 +48,9 @@ decision, and it ties a public project to a private network.
 
 - Git history before this entry held the original values. On 2026-11-20 the
   full history was rewritten with `git filter-repo` (every blob, commit message,
-  and path; author identity unchanged) and force-pushed. Clones and forks made
-  before the rewrite, and GitHub's cached views until purged, still hold the
-  old objects.
+  and path; author and committer identity replaced with an anonymous address)
+  and force-pushed. Clones and forks made before the rewrite, and GitHub's
+  cached views until purged, still hold the old objects.
 - Verification evidence now names roles, so it cannot be traced to a specific
   physical machine from the repo alone.
 
