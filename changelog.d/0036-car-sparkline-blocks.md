@@ -18,7 +18,7 @@ promised 48 × 8 dots in the space of 24 × 2 cells.
 
 It rendered badly on the device, for two independent reasons:
 
-1. **A bug of mine.** Empty cells were written as `' '` (advance 8.00 px) while
+1. **An implementation bug.** Empty cells were written as `' '` (advance 8.00 px) while
    filled cells were braille (advance 22.00 px). Every blank shifted the rest of
    the line 14 px left, so the two raster lines did not line up. The code comment
    said to use `U+2800`; the code did not.

@@ -108,7 +108,7 @@ is a stub on the JVM.
 
 ### Follow-ups
 
-- Measure fit on the Pixel 10 over the lock screen with the Spark and macOS
+- Measure fit on a Pixel 10 over the lock screen with the Spark and macOS
   node dashboards in both orientations and both lock styles.
 
 ## Contracts affected

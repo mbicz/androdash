@@ -11,7 +11,7 @@ supersedes: []
 
 ## Context
 
-On the Pixel the user wanted several dashboards on one unattended phone, also
+On a phone the user wanted several dashboards on one unattended device, also
 in the fit-to-screen layout, and asked what vertical and horizontal swipes
 should do. Fit tables cut long content to `+N more`, and Markdown was hidden in
 fit. Swiping sometimes left the app: on return the shell recreated the WebView,

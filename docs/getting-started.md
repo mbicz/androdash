@@ -286,9 +286,9 @@ A host is listed only when its `/metrics` proves it: the macOS dashboard needs
 from `--host`, a Prometheus's active targets, the ARP table, and
 `tailscale status`; loopback targets are dropped. With `--device` (and `--adb`
 for a non-default adb server) every candidate is re-probed from the phone, so a
-target the Mac can reach but the phone cannot is dropped instead of seeded as a
-permanent `0`. The document is validated against the shell's rules before it is
-written.
+target the development machine can reach but the phone cannot is dropped
+instead of seeded as a permanent `0`. The document is validated against the
+shell's rules before it is written.
 
 Run the tool with the system interpreter (`/usr/bin/python3`). A Homebrew or
 `mise` Python is a separately installed binary without macOS's Local Network

@@ -105,7 +105,7 @@ Two consequences follow from the dashboard definition, not from the renderer:
   by `instance` (`max by (instance) (...)`) and let the prefix attribute them.
 - The `gpu` and `engine` variables are resolved once per dashboard from the
   label-values API, so every host must share the same `gpu` label value (both
-  GB10 hosts report `gpu="0"`) and the `engine` default applies to all of them. A
+  hosts report `gpu="0"`) and the `engine` default applies to all of them. A
   host that exports no `spark_engine_*` family (a worker with no inference
   engine) contributes nothing to the engine panels; those panels show the other
   host's series, not a fabricated zero.

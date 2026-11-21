@@ -156,7 +156,7 @@ User feedback from running the renderer on a phone:
 
 ### Follow-ups
 
-- Measure snap and strip behavior on the Pixel 10 WebView and record results.
+- Measure snap and strip behavior on a Pixel 10 WebView and record results.
 
 ## Contracts affected
 

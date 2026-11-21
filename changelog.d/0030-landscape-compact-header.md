@@ -78,7 +78,7 @@ dataset attribute, so there is no new markup, bridge method, or config field.
   appear.
 - A dashboard whose own minimum height exceeds the landscape viewport still
   scrolls (`W_FIT_OVERFLOW`) regardless of the header; the header is no longer
-  the cause. On the "Agents on workstation" dashboard the 4-column plan needs 438 px
+  the cause. On the "macOS agents" dashboard the 4-column plan needs 438 px
   and landscape offers 373 px, with or without the rail.
 
 ### Follow-ups

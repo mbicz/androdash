@@ -118,7 +118,7 @@ Still, treat any XSS as a bridge compromise: keep the allowlist minimal.
 
 ### 3.6 Cleartext HTTP
 
-Prometheus on a home LAN commonly speaks HTTP. Android 9+ blocks cleartext by
+Prometheus on a private LAN commonly speaks HTTP. Android 9+ blocks cleartext by
 default. AndroDash v1 allows cleartext (decision 0006) for dashboard and metrics
 URLs. Both the dashboard source and Prometheus must allow CORS from the virtual
 renderer origin (decision 0008); this is a hosting prerequisite, not a way to
@@ -166,7 +166,7 @@ Do not add a global "ignore TLS errors" path to compensate for HTTPS misconfig.
 
 | Risk | Why accepted | Mitigation / revisit |
 |---|---|---|
-| Cleartext LAN traffic | Prometheus is usually plain HTTP on a home LAN | Trusted LAN/VPN; HTTPS proxy later |
+| Cleartext LAN traffic | Prometheus is usually plain HTTP on a private LAN | Trusted LAN/VPN; HTTPS proxy later |
 | Physical access to kiosk | Consumer phone, no device-owner guarantee | Immersive + optional lock task; mount physically |
 | No authentication to Prometheus | v1 scope | Network controls; auth in a later contract |
 | Broad `connect-src` | Operator-supplied URLs | Trusted network; URL validation |

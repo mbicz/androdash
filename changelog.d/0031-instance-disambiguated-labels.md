@@ -26,7 +26,7 @@ the Pixel 4a (5G):
 - GPU utilization: two gauges both labelled `gpu=0`.
 - Fabric capacity / RDMA traffic: repeated `device=rocep1s0f0` entries.
 - Collector health: repeated `cpu`, `engine_stats`, `block_devices` rows.
-- Host load: `node_load1` three times (two GB10 hosts plus the Mac).
+- Host load: `node_load1` three times (two GB10 hosts plus a macOS workstation).
 
 A tile, gauge, or legend row that reads `gpu` twice cannot be attributed to a
 machine. That is a correctness problem for an operator dashboard, not a
@@ -75,7 +75,7 @@ Applied in `renderStat` (tile labels and `data-series-label`/`aria-label`),
 
 ### Negative / risks
 
-- Labels are longer on multi-host panels (`spark-a · gpu` is 15 characters
+- Labels are longer on multi-host panels (`spark-a · gpu` is 13 characters
   instead of 3). On a 168 px stat tile the fit planner sizes the label row from
   the value, not the label, so long labels truncate rather than shrink the
   number. Two hosts on one phone is the intended worst case and it fits; a third
@@ -96,8 +96,8 @@ Applied in `renderStat` (tile labels and `data-series-label`/`aria-label`),
   across all scraped hosts into one unattributed tile. That matches what the
   panel claims ("hottest thermal zone"), so it was left as-is; switching to
   `max by (instance)` would let the new prefix attribute them per host.
-- `spark-dashboard.json`'s `engine` variable defaults to `vllm` while the real
-  label is `inference-lab`, and `spark-b` exports no `spark_engine_*` series at
+- `spark-dashboard.json`'s `engine` variable defaults to `vllm` while the scraped
+  host reports a different engine label, and `spark-b` exports no `spark_engine_*` series at
   all. The renderer already resolves `engine` to the first available value and
   hides panels with no data, so no fake samples appear; worth a fixture update
   when the worker gains an engine.
@@ -117,6 +117,6 @@ Applied in `renderStat` (tile labels and `data-series-label`/`aria-label`),
   - "repeated table cells carry the scrape target": shared-key rows read
     `spark-a · cpu` / `spark-b · cpu`.
   - Full renderer suite: 98 tests pass.
-- On the Pixel 4a (5G), Spark dashboard with both GB10 hosts scraped:
+- On the Pixel 4a (5G), Spark dashboard with both Spark hosts scraped:
   Thermals shows `spark-a · gpu` and `spark-b · gpu`; Collector health rows
   are attributable; `up{job="spark"}` is 1 for both instances.

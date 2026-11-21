@@ -1,12 +1,12 @@
 """Generate contracts/fixtures/inference-fleet-dashboard.json.
 
-One page for every host doing inference: the two GB10 hosts (spark-exporter, port
-9400) and the Mac (agenticmac-exporter, port 9106). It answers "how are the
+One page for every host doing inference: GB10 hosts (spark-exporter, port
+9400) and a macOS workstation (agenticmac-exporter, port 9106). It answers "how are the
 inference hosts doing" and "which models are being served" without per-host
 pages: utilization, temperature, KV cache, throughput, time-to-first-token,
 and the model lanes.
 
-Every query was checked against a live Prometheus scraping all three hosts.
+Every query was checked against a live Prometheus scraping every inference host.
 There is no mock coverage for this fixture, like macos-node-dashboard.json:
 the agenticmac and Spark families come from real exporters.
 
@@ -42,11 +42,11 @@ def panel(name: str, description: str, kind: str, spec: dict, queries: list[str]
             "plugin": {"kind": kind, "spec": spec}, "queries": [query(q) for q in queries]}}
 
 
-# Reachability of every inference host. `spark` covers both GB10 hosts; `agenticmac`
-# is the Mac. The Mac's node job is excluded so it appears once.
+# Reachability of every inference host. `spark` covers each GB10 host; `agenticmac`
+# is the macOS workstation. Its node job is excluded so it appears once.
 UP = 'label_replace(up{job=~"spark|agenticmac"}, "reading", "$1", "instance", "(.*)")'
 
-# Temperatures: GB10 edge sensors on both GB10 hosts, plus the Mac's SoC and NVMe.
+# Temperatures: GB10 edge sensors on each GB10 host, plus the macOS SoC and NVMe.
 # HBM temperature is deliberately absent: GB10 answers N/A and the exporter
 # omits the sample, so including it would render an empty tile.
 TEMP = (
@@ -54,7 +54,7 @@ TEMP = (
     ' or ' + join("macos_soc_temperature_celsius", "instance", "sensor")
 )
 
-# GPU busy: the driver's ratio on each GB10 and the Mac's GPU active ratio.
+# GPU busy: the driver's ratio on each GB10 and the macOS GPU active ratio.
 GPU = (
     by("spark_gpu_utilization_ratio * 100", "instance") +
     ' or ' + by("macos_gpu_active_ratio * 100", "instance")
@@ -75,51 +75,51 @@ panels = {
     "hosts": panel(
         "Inference hosts", "1 = the host's inference exporter is being scraped successfully",
         "StatChart", {"calculation": "last-number", "format": {"unit": "none", "decimalPlaces": 0},
-                      "thresholds": {"steps": [{"value": 1, "name": "Up"}]}},
+                      "thresholds": {"steps": [{"value": 1, "name": "Up"}], "polarity": "high-is-good"}},
         [UP]),
     "temperatures": panel(
-        "Temperatures", "GB10 GPU edge on both GB10 hosts and the Mac SoC sensors; all °C",
+        "Temperatures", "GB10 GPU edge on each GB10 host and the macOS SoC sensors; all °C",
         "StatChart", {"calculation": "last-number", "format": {"unit": "celsius", "decimalPlaces": 0},
                       "thresholds": {"steps": [{"value": 80, "name": "Hot"}, {"value": 90, "name": "Critical"}]}},
         [TEMP]),
     "gpu-utilization": panel(
-        "GPU utilization", "GB10 driver ratio on each GB10 and the Mac GPU active ratio",
+        "GPU utilization", "GB10 driver ratio on each GB10 host and the macOS GPU active ratio",
         "GaugeChart", {"calculation": "last-number", "format": {"unit": "percent", "decimalPlaces": 0},
                        "thresholds": {"steps": [{"value": 85, "name": "Busy"}, {"value": 95, "name": "Saturated"}]}},
         [GPU]),
     "kv-cache": panel(
-        "KV cache", "Engine KV-cache occupancy on the GB10 running inference",
+        "KV cache", "Engine KV-cache occupancy on the GB10 host running inference",
         "GaugeChart", {"calculation": "last-number", "format": {"unit": "percent", "decimalPlaces": 0},
                        "thresholds": {"steps": [{"value": 85, "name": "Tight"}, {"value": 95, "name": "Full"}]}},
         [by("spark_engine_kv_cache_usage_ratio * 100", "instance")]),
     "throughput": panel(
-        "Output tokens per second", "Engine generated-token counter rate on the serving GB10",
+        "Output tokens per second", "Engine generated-token counter rate on the serving GB10 host",
         "TimeSeriesChart", {"legend": {"position": "bottom"},
                             "format": {"unit": "tokens", "decimalPlaces": 1}},
         [join('spark_engine_tokens_per_second{direction="output"}', "instance", "engine")]),
     "ttft": panel(
-        "Time to first token", "Engine mean on the GB10 and per-model means on the Mac; ms",
+        "Time to first token", "Engine mean on the GB10 host and per-model means on macOS; ms",
         "TimeSeriesChart", {"legend": {"position": "bottom"},
                             "yAxis": {"format": {"unit": "milliseconds", "decimalPlaces": 0}}},
         [join("spark_engine_time_to_first_token_seconds_mean * 1000", "instance", "engine"),
          'topk(3, ' + by("agent_model_time_to_first_token_seconds * 1000", "model") + ')']),
     "memory": panel(
-        "Memory pressure", "Used share of system memory: unified memory on GB10, free ratio on the Mac",
+        "Memory pressure", "Used share of system memory: unified memory on GB10, free ratio on macOS",
         "StatChart", {"calculation": "last-number", "format": {"unit": "percent", "decimalPlaces": 0},
                       "thresholds": {"steps": [{"value": 90, "name": "Tight"}, {"value": 97, "name": "Critical"}]}},
         [MEMORY]),
     "power": panel(
-        "Power", "GB10 GPU draw on both GB10 hosts and the Mac SoC system power; all W",
+        "Power", "GB10 GPU draw on each GB10 host and the macOS SoC system power; all W",
         "TimeSeriesChart", {"legend": {"position": "bottom"},
                             "format": {"unit": "watts", "decimalPlaces": 1}},
         [POWER]),
     "lanes": panel(
-        "Model lanes", "Supervisor lanes on the GB10 that hosts them: 1 = ready, 0 = stopped",
+        "Model lanes", "Supervisor lanes on the GB10 host that hosts them: 1 = ready, 0 = stopped",
         "Table", {"format": {"unit": "none", "decimalPlaces": 0}},
         ['max by (model) (spark_supervisor_lane_state{state="ready"})'
          ' or 0 * max by (model) (spark_supervisor_lane_state{state="stopped"})']),
     "model-speed": panel(
-        "Model speed on the Mac", "Recent output tokens per second per model (agenticmac decayed average)",
+        "Model speed on macOS", "Recent output tokens per second per model (agenticmac decayed average)",
         "Table", {"format": {"unit": "tokens", "decimalPlaces": 0}},
         ["topk(8, max by (model) (agent_model_output_tokens_per_second))"]),
 }
@@ -148,7 +148,7 @@ dashboard = {
                  "createdAt": "2026-11-02T00:00:00Z", "updatedAt": "2026-11-02T00:00:00Z", "version": 1},
     "spec": {
         "display": {"name": "Inference fleet",
-                    "description": "Both GB10 hosts and the Mac: reachability, GPU utilization, temperatures, "
+                    "description": "GB10 hosts and a macOS workstation: reachability, GPU utilization, temperatures, "
                                    "KV cache, throughput, time to first token, memory, power, model lanes. "
                                    "HBM temperature and engine panels stay absent on a host that exports "
                                    "no sample. See docs/integrations/inference-fleet.md."},

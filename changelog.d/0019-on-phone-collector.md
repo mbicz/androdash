@@ -11,12 +11,12 @@ supersedes: []
 
 ## Context
 
-AndroDash renders on the phone but needed a Prometheus elsewhere to query. The
-only always-on host in the deployment is the phone itself: the Mac sleeps and
-travels, so dashboards went blank whenever its Prometheus was down. A spike on
-2026-10-28 ran the unmodified upstream Prometheus v3.15.1 linux-arm64 binary
-on the Pixel 10 (Android 17) as the adb shell user, scraping the Mac's
-node_exporter over the LAN and serving AndroDash on loopback:
+AndroDash renders on the phone but needed a Prometheus elsewhere to query. In
+an unattended deployment the only always-on host may be the phone itself: a
+workstation sleeps and travels, so dashboards go blank whenever its Prometheus
+is down. A spike on 2026-10-28 ran the unmodified upstream Prometheus v3.15.1
+linux-arm64 binary on a Pixel 10 (Android 17) as the adb shell user, scraping a
+macOS host's node_exporter over the LAN and serving AndroDash on loopback:
 
 - 9/9 panels rendered from `http://127.0.0.1:9090` with the bundled macOS
   dashboard;
@@ -27,8 +27,8 @@ node_exporter over the LAN and serving AndroDash on loopback:
 - scrapes stopped while the CPU dozed (a shell process holds no wake lock), and
   nothing restarted Prometheus after a reboot.
 
-The user approved productionising it. The phone is an appliance: always on a
-charger, screen on; power is not a concern.
+The approach was approved for production. The target deployment is an
+appliance: always plugged in, screen on; power is not a concern.
 
 ## Decision
 
@@ -75,8 +75,8 @@ Alternatives rejected:
   fit the subset.
 - **Prometheus agent mode:** smaller, but it has no query API; the renderer
   needs `/api/v1/query_range`.
-- **Prometheus on the Mac only:** there is no always-on host besides the
-  phone; the dashboard is blank whenever the Mac is asleep or away.
+- **Prometheus on the workstation only:** there is no always-on host besides
+  the phone; the dashboard is blank whenever the workstation is asleep or away.
 
 ## Consequences
 
@@ -107,7 +107,7 @@ Alternatives rejected:
   retention there (checked with Homebrew Prometheus 3.15.1, no warning at
   `--log.level=warn`). Move retention into `prometheus.yml` when an upgrade
   drops the flag.
-- The battery cost is unmeasured; the deployment assumes a charger.
+- The battery cost is unmeasured; the deployment assumes the phone is plugged in.
 - After a reboot or force-stop the collector runs again only once the app is
   launched.
 
@@ -141,7 +141,7 @@ python3 tools/check_docs.py
 collector cases in `ConfigParserTest` cover the pure logic. On-device behaviour
 is C-007 manual acceptance item 12.
 
-Verified on the arm64 emulator (the Pixel 10 was offline): with
+Verified on the arm64 emulator: with
 `--ez collector true --es collector_targets "node:mac=192.168.1.20:9100"` and
 the bundled macOS dashboard, `libprometheus.so` runs as the app (≈ 90 MiB RSS),
 `up{job="node",instance="mac"}` is 1, all 9 data panels render from

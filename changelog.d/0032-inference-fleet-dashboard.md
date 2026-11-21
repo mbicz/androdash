@@ -12,9 +12,10 @@ supersedes: []
 ## Context
 
 After decision 0031 the phone scrapes three inference hosts: `spark-a` and
-`spark-b` (spark-exporter, port 9400) and the Mac (agenticmac-exporter, port
-9106). Each already had its own dashboard: `spark-dashboard.json` is per-host
-and `agenticmac-dashboard.json` is the Mac's harness view.
+`spark-b` (spark-exporter, port 9400) and a macOS workstation
+(agenticmac-exporter, port 9106). Each already had its own dashboard:
+`spark-dashboard.json` is per-host and `agenticmac-dashboard.json` is the
+workstation's harness view.
 
 That is the wrong shape for the question an operator actually asks of a fleet —
 *how are the inference hosts doing, and what models are being served?* Answering
@@ -31,15 +32,16 @@ on one page:
 - **Fleet health:** reachability, temperatures, GPU utilization.
 - **Inference:** KV cache, output tokens per second, time to first token.
 - **Headroom:** memory pressure, power.
-- **Models:** supervisor lanes per GB10, per-model speed on the Mac.
+- **Models:** supervisor lanes per GB10 host, per-model speed on macOS.
 
 Design rules the fixture follows:
 
-- Both GB10 hosts stay under the `spark` job and are distinguished by `instance`; the
-  Mac's `node` job is not used, because agenticmac already carries the macOS
-  health families and including both would render the Mac twice.
+- Each GB10 host stays under the `spark` job and is distinguished by
+  `instance`; the workstation's `node` job is not used, because agenticmac
+  already carries the macOS health families and including both would render the
+  workstation twice.
 - Panels group only series with the same unit. Utilization mixes the GB10 driver
-  ratio with the Mac's GPU active ratio because both are percentages; the label
+  ratio with the macOS GPU active ratio because both are percentages; the label
   names the host so the difference stays visible.
 - Absent stays absent. `spark-b` runs no inference engine, so it contributes
   no `spark_engine_*` series; those panels show the serving host only rather
@@ -81,7 +83,7 @@ into scrolling, and the dashboard description carries the same caveats.
 
 ### Follow-ups
 
-- If a third GB10 joins, the fleet page stays one page but the per-host label
+- If a third GB10 host joins, the fleet page stays one page but the per-host label
   budget shrinks; consider `max by (instance)` for the aggregated panels.
 - The `engine` label is not a variable on this dashboard: one engine runs on one
   host. If a second engine appears, add a `PrometheusLabelValuesVariable` over

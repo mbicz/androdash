@@ -434,12 +434,12 @@ Contents:
     with `setOption("dashboard_url", …)` (logcat `option set … dashboard=2/2`);
     force-stop and relaunch from the launcher shows the last viewed one.
 15. Phone exporter: launch with only `--ez collector true` (no
-    `collector_targets`, Mac unreachable is fine). Logcat shows
+    `collector_targets`; no other host needs to be reachable). Logcat shows
     `phone exporter listening on 127.0.0.1:19100` and
     `collector starting: 1 targets (phone true)`; within one scrape interval
     `up{job="phone"}` is `1` on `127.0.0.1:19090` and
     `android_battery_level_ratio` has a sample. Relaunch with
-    `--ez collector_phone false --es collector_targets "node:mac=<mac-lan-ip>:9100"`:
+    `--ez collector_phone false --es collector_targets "node:mac=<host-lan-ip>:9100"`:
     the log shows `phone exporter stopped` and port 19100 refuses connections;
     `--ez collector false` stops both.
 

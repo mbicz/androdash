@@ -1,6 +1,6 @@
 # agenticmac-exporter integration
 
-**Status:** implemented for the Mac host; verified against a live exporter and
+**Status:** implemented for a macOS host; verified against a live exporter and
 Prometheus on 2026-10-28.
 **Exporter:** `mbicz/agenticmac-exporter` (separate repository, Python standard
 library, launchd user agent).
@@ -10,7 +10,7 @@ and bundled in the APK.
 
 ## What it shows
 
-AI coding harnesses running on the Mac (omp, opencode, codex, claude, gemini,
+AI coding harnesses running on a macOS host (omp, opencode, codex, claude, gemini,
 cursor-agent, aider) and the macOS readings Darwin node_exporter lacks.
 
 | Panel | Metric family | Notes |
@@ -34,10 +34,10 @@ scraped too.
 ## Running it on the phone
 
 The exporter listens on every interface (`listen = "0.0.0.0:9106"` in
-`~/.config/agenticmac-exporter/config.toml`), as do node_exporter
-(`--web.listen-address=0.0.0.0:9100`) and the Mac's Prometheus (`:9090`), so
-the phone can reach them over the LAN or, away from home, over Tailscale (use
-the Mac's tailnet address or MagicDNS name as the target host). With the
+`~/.config/agenticmac-exporter/config.toml`). Bind node_exporter
+(`--web.listen-address=0.0.0.0:9100`) and any Prometheus on that host (`:9090`)
+the same way, so the phone can reach them over the LAN or over Tailscale (use
+the host's tailnet address or MagicDNS name as the target host). With the
 on-phone collector (decision 0019):
 
 ```sh
@@ -48,7 +48,7 @@ adb shell am start -n com.mbicz.androdash/.MainActivity \
   --es layout_mode fit
 ```
 
-Over Tailscale, replace `192.168.1.20` with the Mac's tailnet address
+Over Tailscale, replace `192.168.1.20` with the host's tailnet address
 (`tailscale ip -4`) or MagicDNS name; the phone must be on the same tailnet.
 
 Counters start when the phone first scrapes them, so rates and spend fill in
@@ -61,7 +61,7 @@ reads prompt or message text, and exports only bounded labels (`harness`,
 `role`, `provider`, `model`, `type`, `window`, `service`, `vm`, `sensor`,
 `component`). It has no session, path, account, or email labels. It listens
 without authentication on every interface (LAN and tailnet), like node_exporter
-and the Mac's Prometheus — keep the Mac's networks trusted;
+and Prometheus — keep the host's networks trusted;
 the collector has no credential support (C-008: no credentials in v1). The
 exporter supports basic auth if the collector gains it later.
 

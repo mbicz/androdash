@@ -10,7 +10,7 @@
   "spec": {
     "display": {
       "name": "Inference fleet",
-      "description": "Both GB10 hosts and the Mac: reachability, GPU utilization, temperatures, KV cache, throughput, time to first token, memory, power, model lanes. HBM temperature and engine panels stay absent on a host that exports no sample. See docs/integrations/inference-fleet.md."
+      "description": "GB10 hosts and a macOS workstation: reachability, GPU utilization, temperatures, KV cache, throughput, time to first token, memory, power, model lanes. HBM temperature and engine panels stay absent on a host that exports no sample. See docs/integrations/inference-fleet.md."
     },
     "duration": "1h",
     "refreshInterval": "15s",
@@ -90,7 +90,7 @@
         "spec": {
           "display": {
             "name": "Temperatures",
-            "description": "GB10 GPU edge on both GB10 hosts and the Mac SoC sensors; all °C"
+            "description": "GB10 GPU edge on each GB10 host and the macOS SoC sensors; all °C"
           },
           "plugin": {
             "kind": "StatChart",
@@ -135,7 +135,7 @@
         "spec": {
           "display": {
             "name": "GPU utilization",
-            "description": "GB10 driver ratio on each GB10 and the Mac GPU active ratio"
+            "description": "GB10 driver ratio on each GB10 host and the macOS GPU active ratio"
           },
           "plugin": {
             "kind": "GaugeChart",
@@ -180,7 +180,7 @@
         "spec": {
           "display": {
             "name": "KV cache",
-            "description": "Engine KV-cache occupancy on the GB10 running inference"
+            "description": "Engine KV-cache occupancy on the GB10 host running inference"
           },
           "plugin": {
             "kind": "GaugeChart",
@@ -225,7 +225,7 @@
         "spec": {
           "display": {
             "name": "Output tokens per second",
-            "description": "Engine generated-token counter rate on the serving GB10"
+            "description": "Engine generated-token counter rate on the serving GB10 host"
           },
           "plugin": {
             "kind": "TimeSeriesChart",
@@ -260,7 +260,7 @@
         "spec": {
           "display": {
             "name": "Time to first token",
-            "description": "Engine mean on the GB10 and per-model means on the Mac; ms"
+            "description": "Engine mean on the GB10 host and per-model means on macOS; ms"
           },
           "plugin": {
             "kind": "TimeSeriesChart",
@@ -309,7 +309,7 @@
         "spec": {
           "display": {
             "name": "Memory pressure",
-            "description": "Used share of system memory: unified memory on GB10, free ratio on the Mac"
+            "description": "Used share of system memory: unified memory on GB10, free ratio on macOS"
           },
           "plugin": {
             "kind": "StatChart",
@@ -354,7 +354,7 @@
         "spec": {
           "display": {
             "name": "Power",
-            "description": "GB10 GPU draw on both GB10 hosts and the Mac SoC system power; all W"
+            "description": "GB10 GPU draw on each GB10 host and the macOS SoC system power; all W"
           },
           "plugin": {
             "kind": "TimeSeriesChart",
@@ -389,7 +389,7 @@
         "spec": {
           "display": {
             "name": "Model lanes",
-            "description": "Supervisor lanes on the GB10 that hosts them: 1 = ready, 0 = stopped"
+            "description": "Supervisor lanes on the GB10 host that hosts them: 1 = ready, 0 = stopped"
           },
           "plugin": {
             "kind": "Table",
@@ -420,7 +420,7 @@
         "kind": "Panel",
         "spec": {
           "display": {
-            "name": "Model speed on the Mac",
+            "name": "Model speed on macOS",
             "description": "Recent output tokens per second per model (agenticmac decayed average)"
           },
           "plugin": {

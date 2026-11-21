@@ -44,6 +44,15 @@ shape; older ones remain binding unless marked superseded.
 | [0028](0028-continuous-provisioning.md) | Wait mode keeps polling after a document applies | accepted |
 | [0029](0029-landscape-header-rail.md) | Fit layout in landscape moves the header into a left rail | superseded |
 | [0030](0030-landscape-compact-header.md) | Landscape fit keeps the header horizontal and compact | accepted |
+| [0031](0031-instance-disambiguated-labels.md) | Repeated series labels carry the scrape target | accepted |
+| [0032](0032-inference-fleet-dashboard.md) | One inference-fleet dashboard instead of per-host pages | accepted |
+| [0033](0033-android-auto-iot.md) | Android Auto via the Cars App Library, IOT category, and AndroidX | accepted |
+| [0034](0034-car-sparklines.md) | Text sparklines on the car screen | accepted |
+| [0035](0035-car-braille-raster.md) | Braille rasters and emoji badges on the car screen | accepted |
+| [0036](0036-car-sparkline-blocks.md) | Block sparklines, not braille rasters | accepted |
+| [0037](0037-car-row-geometry.md) | Predetermined car row geometry: dot column, block bars, breach-keyed color | accepted |
+| [0038](0038-threshold-polarity.md) | Threshold polarity: which direction is bad must be declared | accepted |
+| [0039](0039-host-agnostic-repository.md) | The repository is host-agnostic | accepted |
 
 ## File naming
 
@@ -65,7 +74,10 @@ NNNN-short-kebab-title.md
 | `rejected` | Considered and not adopted. Keep for context. |
 
 Accepted entries are **append-only history**. Do not rewrite them to match new
-code; add a new entry and mark the old one superseded.
+code; add a new entry and mark the old one superseded. The one exception is
+redaction (decision 0039): identifying data — private addresses, hostnames,
+device serials — may be removed from an accepted entry; its decision,
+rationale, and measurements may not change.
 
 ## Kinds
 

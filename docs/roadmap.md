@@ -102,7 +102,7 @@ passes; `:app:lintDebug` is part of the verification pass.
   4.45 px), compact chrome, content-sized stat panels, grouped same-unit metrics
   (decision 0014). Spark fixture page height 4234 → 2834 px at 393×851.
 - [ ] Soak test (30+ min), memory/DOM bounds, reconnect behavior.
-- [ ] Physical-phone test on AMOLED hardware with the real Spark host.
+- [ ] Physical-phone test on AMOLED hardware with a real exporter host.
 - [ ] Device-owner/lock-task provisioning notes (optional).
 - [ ] Orientation/theme/layout refinements from phone feedback.
 - [ ] Accessibility pass (contrast, text size, chart summaries).

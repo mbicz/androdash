@@ -18,7 +18,7 @@ opaque-origin quirks, and Prometheus CORS must allow `null`. We want plain ES
 modules (decision 0005), no web build step, and a real origin we can document.
 
 Using a real HTTPS app origin would make HTTP Prometheus requests mixed content
-and block the primary home-LAN use case (decision 0006). A local HTTP server adds
+and block the primary trusted-LAN use case (decision 0006). A local HTTP server adds
 a server process and a port to the shell.
 
 ## Decision

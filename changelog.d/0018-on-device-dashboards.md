@@ -12,10 +12,11 @@ supersedes: []
 ## Context
 
 The phone is meant to run unattended, but every launch fetched the dashboard
-definition from a static server on the Mac (`tools/serve_demo.py`). When that
-server was down — it ran only during development sessions — the phone could not
-start, even though Prometheus was up. The user asked to keep dashboards on the
-device, with fetching from the URL still available as an option.
+definition from a static server on the development machine
+(`tools/serve_demo.py`). When that server was down — it ran only during
+development sessions — the phone could not start, even though Prometheus was
+up. The user asked to keep dashboards on the device, with fetching from the URL
+still available as an option.
 
 ## Decision
 
@@ -93,6 +94,6 @@ unzip -l app/build/outputs/apk/debug/app-debug.apk | grep dashboards/
 python3 tools/check_docs.py
 ```
 
-On the Pixel 10: first launch stores the copy; with `serve_demo.py` stopped the
+On a Pixel 10: first launch stores the copy; with `serve_demo.py` stopped the
 app still starts and renders from the stored copy; a bundled `dashboard_url`
 renders with no server.

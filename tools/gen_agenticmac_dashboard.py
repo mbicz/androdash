@@ -113,7 +113,7 @@ layouts = [
 
 dashboard = {
     "kind": "Dashboard",
-    "metadata": {"name": "Agents on the Mac", "project": "androdash",
+    "metadata": {"name": "macOS agents", "project": "androdash",
                  "createdAt": "2026-10-28T00:00:00Z", "updatedAt": "2026-10-28T00:00:00Z", "version": 1},
     "spec": {
         "display": {"name": "Agents on $host", "description": "AI coding harnesses and macOS health (agenticmac-exporter)"},

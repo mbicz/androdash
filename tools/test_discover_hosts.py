@@ -70,8 +70,8 @@ class ParseTest(unittest.TestCase):
 
     def test_tailscale_addresses(self) -> None:
         text = (
-            "100.64.0.10   workstation           user@         macOS    -\n"
-            "100.64.0.11    spark-a      user@         linux    active; direct\n"
+            "100.64.0.10     workstation    user@           macOS    -\n"
+            "100.64.0.11     spark-a        user@           linux    active; direct\n"
         )
         self.assertEqual(parse_tailscale(text), ["100.64.0.10", "100.64.0.11"])
 
@@ -158,7 +158,8 @@ class IgnitionTest(unittest.TestCase):
         self.assertTrue(doc["collector"]["phone"])
         self.assertEqual(
             doc["collector"]["targets"],
-            "node:workstation=192.168.1.20:9100,agenticmac:workstation=192.168.1.20:9106,demo:workstation=192.168.1.20:9091",
+            "node:workstation=192.168.1.20:9100,agenticmac:workstation=192.168.1.20:9106,"
+            "demo:workstation=192.168.1.20:9091",
         )
         self.assertEqual(validate_ignition(doc), [])
 

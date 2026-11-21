@@ -123,7 +123,7 @@ Three bridge methods are added to `window.AndroDash` (C-007):
 
 ### Follow-ups
 
-- Verify the power-button sequence on the Pixel 10 and an emulator and record
+- Verify the power-button sequence on a Pixel 10 and an emulator and record
   results (C-007 manual acceptance 4).
 - If a future `targetSdk` enforces `TURN_SCREEN_ON`, decide between requesting
   that appop and dropping the re-light.

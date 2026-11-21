@@ -142,7 +142,7 @@ host: static server :8099
 emulator: APK → 10.0.2.2:8099 / 10.0.2.2:9091
 ```
 
-### B. Home LAN appliance
+### B. LAN appliance
 
 ```
 phone ──Wi-Fi──► Prometheus :9090

@@ -191,6 +191,9 @@ JSON, and a decision entry if they change intent.
   documented decision.
 - **Do not** commit generated build outputs, local SDK paths, or screenshots with
   private data.
+- **Do not** write your own environment into the repo: no real LAN/tailnet
+  addresses, hostnames, device serials, MAC addresses, or narrative about a
+  specific fleet. Use roles and the example values in decision 0039.
 
 ---
 

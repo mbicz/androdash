@@ -29,9 +29,10 @@ document from the network instead of from memory.
    loopback targets are dropped because the phone cannot reach them that way.
 2. **The phone has the last word.** `--device <adb serial>` (with `--adb` for a
    non-default adb server) re-probes every discovered exporter from that device
-   with `adb shell nc -z`, and drops the ones it cannot reach. A target the Mac
-   can reach but the phone cannot — a tailnet exporter while the phone is off
-   the tailnet — is reported as dropped, not seeded as a permanently `0` target.
+   with `adb shell nc -z`, and drops the ones it cannot reach. A target the
+   workstation can reach but the phone cannot — a tailnet exporter while the
+   phone is off the tailnet — is reported as dropped, not seeded as a
+   permanently `0` target.
 3. **Identity is evidence, not a guess.** A host's instance label is
    `node_uname_info{nodename}`, else the reverse-DNS first label, else the
    address. The macOS dashboard is only offered for `sysname="Darwin"` node
@@ -80,13 +81,14 @@ the document through the existing `ignition_url` path (decision 0024).
   duplicate job/instance collapse, every generated URL naming a bundled fixture,
   and the validator catching each rule the shell enforces.
 - On a Pixel 4a (5G), `--prometheus http://192.168.1.20:9090` found
-  `node:workstation=192.168.1.20:9100`, `agenticmac:workstation=192.168.1.20:9106`, and
-  `demo:workstation=192.168.1.20:9091`; the document ignited to 4 dashboards and 4
-  targets (phone included), every `up` = 1, and a relaunch kept them without the
-  file.
+  `node:workstation=192.168.1.20:9100`,
+  `agenticmac:workstation=192.168.1.20:9106`, and
+  `demo:workstation=192.168.1.20:9091`; the document ignited to 4 dashboards
+  and 4 targets (phone included), every `up` = 1, and a relaunch kept them
+  without the file.
 - With `--device 0123456789ABCDEF`, the same run also found
-  `spark:spark-a=100.64.0.11:9400` here and dropped it because the phone is
-  off the tailnet; the earlier document that kept it showed `up{job="spark"} 0`.
+  `spark:spark-a=100.64.0.11:9400` and dropped it because the phone was off
+  the tailnet; the earlier document that kept it showed `up{job="spark"} 0`.
 - Two device-reachability cases in `test_discover_hosts.py`: the adb command
   puts `-L tcp:5038` before the serial, and a target the device cannot reach is
   dropped from both the dashboards and the targets.

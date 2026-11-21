@@ -100,7 +100,7 @@ battery level and history, current and voltage, battery temperature, thermal
 status, memory (including the app and the collector), storage used, network
 throughput, Wi-Fi signal, CPU clocks, uptime, the CPU share of the app and the
 collector, and `up` for every collector target — so it also tells you whether
-the Mac is reachable. Its datasource is the collector on `127.0.0.1:19090`.
+each scraped host is reachable. Its datasource is the collector on `127.0.0.1:19090`.
 
 ```sh
 adb shell am start -n com.mbicz.androdash/.MainActivity \

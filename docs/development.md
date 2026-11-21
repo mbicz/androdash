@@ -9,13 +9,13 @@ wrong, fix it.
 
 | Tool | Version / notes |
 |---|---|
-| JDK | 17+ (this workstation: Temurin 21) |
+| JDK | 17+ (verified with Temurin 21) |
 | Android SDK | platform 35, build-tools 35.x |
 | Android emulator | an API 35 AVD, or a physical phone with USB debugging |
 | adb | SDK platform-tools |
-| Gradle | use the checked-in wrapper; this workstation has Gradle 8.14.3 cached |
-| Node.js | 20+ for renderer tests (this workstation: 26.x) |
-| Python | 3.10+ for demo tooling (this workstation: 3.14) |
+| Gradle | use the checked-in wrapper (Gradle 8.14.3) |
+| Node.js | 20+ for renderer tests (verified with 26.x) |
+| Python | 3.10+ for demo tooling (verified with 3.14) |
 | jq | JSON validation |
 
 No Android Studio is required. No global Gradle install is required once the
@@ -157,8 +157,8 @@ The mock returns deterministic values for every query. See
 ### Live macOS host on a physical phone
 
 `macos-node-dashboard.json` targets a real Prometheus scraping node_exporter on
-the Mac; the mock does not answer it. Homebrew setup (host config, outside the
-repo):
+a macOS host; the mock does not answer it. Homebrew setup (host config, outside
+the repo):
 
 ```sh
 brew install node_exporter prometheus
@@ -171,7 +171,7 @@ brew services start prometheus
 
 Prometheus's default `--web.cors.origin=.*` already answers
 `http://androdash.local`. Serve the dashboard on the LAN and launch on the phone
-(`adb devices` must list it; replace the IP with the Mac's `ipconfig getifaddr en0`):
+(`adb devices` must list it; replace the IP with the host's `ipconfig getifaddr en0`):
 
 ```sh
 python3 tools/serve_demo.py --host 192.168.1.20 --port 8099
@@ -184,11 +184,12 @@ adb shell am start -n com.mbicz.androdash/.MainActivity \
 Prometheus on `0.0.0.0:9090` has no auth; keep it on a trusted LAN (decision
 0006). `serve_demo.py` serves the repository root, so stop it when done.
 
-### Inference fleet: both GB10 hosts and the Mac on one page
+### Inference fleet: GB10 hosts and a macOS workstation on one page
 
-`inference-fleet-dashboard.json` reads spark-exporter on each GB10 and
-agenticmac-exporter on the Mac, all through one Prometheus. The mock does not
-answer it; use the phone's collector or a Prometheus scraping all three hosts.
+`inference-fleet-dashboard.json` reads spark-exporter on each GB10 host and
+agenticmac-exporter on a macOS workstation, all through one Prometheus. The
+mock does not answer it; use the phone's collector or a Prometheus scraping
+every host.
 See [`integrations/inference-fleet.md`](integrations/inference-fleet.md) for the
 panel table and the target string.
 
@@ -234,7 +235,7 @@ adb shell am start -n com.mbicz.androdash/.MainActivity \
 
 With `collector=true` the phone runs its own Prometheus (bundled in the APK)
 as a foreground service and the dashboard queries it on `127.0.0.1:19090`; no
-Prometheus on the Mac is needed (C-001 "On-phone collector", C-007 "Collector
+Prometheus elsewhere on the LAN is needed (C-001 "On-phone collector", C-007 "Collector
 service", decision 0019). By default (`collector_phone=true`, decision 0021)
 it also scrapes the app's own phone exporter on `127.0.0.1:19100`, so
 `--ez collector true` alone already has a target and the phone's battery,
@@ -252,7 +253,7 @@ Add LAN exporters in the app (Settings → Collector → Add target) or with
 `collector_targets`. Each exporter must listen on the
 LAN, or on every interface so it is also reachable over Tailscale, e.g.
 `--web.listen-address=0.0.0.0:9100` in `node_exporter.args`; away from the LAN
-use the Mac's tailnet address (`tailscale ip -4`) as the target host:
+use the host's tailnet address (`tailscale ip -4`) as the target host:
 
 ```sh
 adb shell am start -n com.mbicz.androdash/.MainActivity \
