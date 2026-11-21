@@ -1,6 +1,6 @@
 # Roadmap and workstreams
 
-**Last updated:** 2026-10-26
+**Last updated:** 2026-11-21
 **Current milestone:** M3 — hardening, real phone, and production-shaped data
 (M0, M1, and M2 complete).
 **Rule:** do not start a later milestone's code before its dependencies have
@@ -53,8 +53,9 @@ Ordered tasks:
 - No runtime dependencies, no remote assets.
 - Contract tests named `c001…c006`, `c009` exist for implemented clauses.
 
-**M1 evidence:** 53 Node tests pass; the browser demo renders 6 panels, hides 3
-with exact reasons, refreshes, and recovers after a mock outage. The static
+**M1 evidence:** 99 Node tests pass (re-run 2026-11-21; 53 when M1 closed).
+The browser demo renders the mock dashboard, with exact reasons for each hidden panel,
+refreshes, and recovers after a mock outage. The static
 server and mock are implemented in `tools/`.
 
 ### M2 — Android shell + emulator demo (complete, 2026-10-26)
@@ -111,6 +112,9 @@ passes; `:app:lintDebug` is part of the verification pass.
 - [ ] On-phone Prometheus collector (decision 0019): shell, packaging, and
   contracts implemented with unit tests; on-device acceptance (C-007 item 12)
   and soak pending.
+- [x] Android Auto / AAOS car view (C-010; decisions 0033–0038): IoT-category
+  Car App Library templates, verified on the AAOS emulator. Not installed in a
+  real car; that needs a Play listing and review.
 
 ### M4 — Capability-driven generation + auth
 
