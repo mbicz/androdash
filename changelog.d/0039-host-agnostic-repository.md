@@ -67,9 +67,11 @@ decision, and it ties a public project to a private network.
 
 ## Verification
 
-- A case-insensitive search of tracked files for the removed hostnames,
-  addresses, serial, and MAC address returns nothing.
-- A search of every commit message, blob, and path in the rewritten history
-  returns nothing.
+- Before the history rewrite: a case-insensitive `git grep` over the tracked
+  tree for the removed hostnames, addresses, serial, MAC address, and owner
+  name returned nothing.
+- History rewrite: `git filter-repo` replacement rules applied to every ref.
+  The post-rewrite search of all commits is run by the integrator and reported
+  in the handoff, not asserted in this entry.
 - `node --test web/tests/`, tooling unit tests, `:app:testDebugUnitTest`,
   `check_docs.py`, and `jq empty` over `contracts/` pass.
