@@ -2,8 +2,8 @@
 
 **Status:** implemented for the demo fixture and mock. Verified against the
 documented metric catalogue of
-[`mbicz/spark-exporter`](https://github.com/mbicz/spark-exporter) v0.1.0, not
-against a live GB10 host.
+[`mbicz/spark-exporter`](https://github.com/mbicz/spark-exporter) (no tagged
+release as of 2026-11-21), not against a live GB10 host.
 **Workstreams:** W2 (renderer), W3 (mock), W4 (contracts/docs).
 **Fixture:** [`spark-dashboard.json`](../../contracts/fixtures/spark-dashboard.json).
 
